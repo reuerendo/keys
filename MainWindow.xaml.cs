@@ -1,7 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
+using WinRT.Interop;
 
 namespace VirtualKeyboard;
 
@@ -10,21 +12,59 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
+    [DllImport("user32.dll")]
+    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    static extern IntPtr GetForegroundWindow();
+
+    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    const uint SWP_NOMOVE = 0x0002;
+    const uint SWP_NOSIZE = 0x0001;
+    const uint SWP_NOACTIVATE = 0x0010;
     const uint KEYEVENTF_KEYUP = 0x0002;
+
+    private IntPtr _hwnd;
+    private IntPtr _lastFocusedWindow;
 
     public MainWindow()
     {
         this.InitializeComponent();
         Title = "Virtual Keyboard";
         
+        _hwnd = WindowNative.GetWindowHandle(this);
+        
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(800, 280));
+        
+        // Сделать окно поверх всех остальных
+        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        
+        this.Activated += MainWindow_Activated;
+    }
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
+        {
+            // Сохраняем окно, которое получило фокус
+            _lastFocusedWindow = GetForegroundWindow();
+        }
     }
 
     private void KeyButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button button && button.Tag is string keyCode)
         {
+            // Возвращаем фокус последнему активному окну перед отправкой клавиши
+            if (_lastFocusedWindow != IntPtr.Zero && _lastFocusedWindow != _hwnd)
+            {
+                SetFocus(_lastFocusedWindow);
+            }
+            
             SendKey(keyCode);
         }
     }
@@ -35,6 +75,7 @@ public sealed partial class MainWindow : Window
         if (vk != 0)
         {
             keybd_event(vk, 0, 0, 0);
+            System.Threading.Thread.Sleep(10);
             keybd_event(vk, 0, KEYEVENTF_KEYUP, 0);
         }
     }

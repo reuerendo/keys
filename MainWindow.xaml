@@ -3,96 +3,244 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <ScrollViewer>
-        <StackPanel Margin="16" Spacing="4" MaxWidth="760">
+    <Grid Background="White" Padding="16">
+        <Grid MaxWidth="760" HorizontalAlignment="Center">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="4"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             
             <!-- Row 1 -->
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="1" Tag="1" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="2" Tag="2" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="3" Tag="3" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="4" Tag="4" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="5" Tag="5" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="6" Tag="6" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="7" Tag="7" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="8" Tag="8" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="9" Tag="9" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="0" Tag="0" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="-" Tag="-" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="+" Tag="+" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="=" Tag="=" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="Backspace" Tag="Backspace" Click="KeyButton_Click" Height="40" HorizontalAlignment="Stretch"/>
-            </StackPanel>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Esc" Tag="Esc" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="2" Content="1" Tag="1" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="4" Content="2" Tag="2" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="6" Content="3" Tag="3" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="8" Content="4" Tag="4" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="10" Content="5" Tag="5" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="12" Content="6" Tag="6" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="14" Content="7" Tag="7" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="16" Content="8" Tag="8" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="18" Content="9" Tag="9" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="20" Content="0" Tag="0" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="22" Content="-" Tag="-" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="24" Content="+" Tag="+" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="26" Content="=" Tag="=" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="28" Content="Backspace" Tag="Backspace" Click="KeyButton_Click" Height="40"/>
+            </Grid>
 
             <!-- Row 2 -->
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Tab" Tag="Tab" Click="KeyButton_Click" Height="40" Width="60"/>
-                <Button Content="q" Tag="q" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="w" Tag="w" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="e" Tag="e" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="r" Tag="r" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="t" Tag="t" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="y" Tag="y" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="u" Tag="u" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="i" Tag="i" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="o" Tag="o" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="p" Tag="p" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="(" Tag="(" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content=")" Tag=")" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="/" Tag="/" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="*" Tag="*" Click="KeyButton_Click" Width="40" Height="40"/>
-            </StackPanel>
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Tab" Tag="Tab" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="2" Content="q" Tag="q" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="4" Content="w" Tag="w" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="6" Content="e" Tag="e" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="8" Content="r" Tag="r" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="10" Content="t" Tag="t" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="12" Content="y" Tag="y" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="14" Content="u" Tag="u" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="16" Content="i" Tag="i" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="18" Content="o" Tag="o" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="20" Content="p" Tag="p" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="22" Content="(" Tag="(" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="24" Content=")" Tag=")" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="26" Content="/" Tag="/" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="28" Content="*" Tag="*" Click="KeyButton_Click" Height="40"/>
+            </Grid>
 
             <!-- Row 3 -->
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Caps" Tag="Caps" Click="KeyButton_Click" Height="40" Width="60"/>
-                <Button Content="a" Tag="a" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="s" Tag="s" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="d" Tag="d" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="f" Tag="f" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="g" Tag="g" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="h" Tag="h" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="j" Tag="j" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="k" Tag="k" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="l" Tag="l" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content=":" Tag=":" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content=";" Tag=";" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Height="40" HorizontalAlignment="Stretch"/>
-            </StackPanel>
+            <Grid Grid.Row="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Caps" Tag="Caps" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="2" Content="a" Tag="a" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="4" Content="s" Tag="s" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="6" Content="d" Tag="d" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="8" Content="f" Tag="f" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="10" Content="g" Tag="g" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="12" Content="h" Tag="h" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="14" Content="j" Tag="j" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="16" Content="k" Tag="k" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="18" Content="l" Tag="l" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="20" Content=":" Tag=":" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="22" Content=";" Tag=";" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="24" Content="Enter" Tag="Enter" Click="KeyButton_Click" Height="40"/>
+            </Grid>
 
             <!-- Row 4 -->
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" Height="40" Width="70"/>
-                <Button Content="z" Tag="z" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="x" Tag="x" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="c" Tag="c" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="v" Tag="v" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="b" Tag="b" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="n" Tag="n" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="m" Tag="m" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="&lt;" Tag="&lt;" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="!" Tag="!" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="?" Tag="?" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="↑" Tag="↑" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="40" Height="40"/>
-            </StackPanel>
+            <Grid Grid.Row="6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Shift" Tag="Shift" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="2" Content="z" Tag="z" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="4" Content="x" Tag="x" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="6" Content="c" Tag="c" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="8" Content="v" Tag="v" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="10" Content="b" Tag="b" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="12" Content="n" Tag="n" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="14" Content="m" Tag="m" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="16" Content="&lt;" Tag="&lt;" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="18" Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="20" Content="!" Tag="!" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="22" Content="?" Tag="?" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="24" Content="↑" Tag="↑" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="26" Content="Lang" Tag="Lang" Click="KeyButton_Click" Height="40"/>
+            </Grid>
 
             <!-- Row 5 -->
-            <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="&amp;.." Width="40" Height="40"/>
-                <Button Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content=" " Tag=" " Click="KeyButton_Click" Height="40" HorizontalAlignment="Stretch" MinWidth="200"/>
-                <Button Content="," Tag="," Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="." Tag="." Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="←" Tag="←" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="↓" Tag="↓" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="→" Tag="→" Click="KeyButton_Click" Width="40" Height="40"/>
-            </StackPanel>
+            <Grid Grid.Row="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="40"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="&amp;.." Height="40"/>
+                <Button Grid.Column="2" Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="4" Content="Alt" Tag="Alt" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="6" Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="8" Content=" " Tag=" " Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="10" Content="," Tag="," Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="12" Content="." Tag="." Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="14" Content="←" Tag="←" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="16" Content="↓" Tag="↓" Click="KeyButton_Click" Height="40"/>
+                <Button Grid.Column="18" Content="→" Tag="→" Click="KeyButton_Click" Height="40"/>
+            </Grid>
 
-        </StackPanel>
-    </ScrollViewer>
+        </Grid>
+    </Grid>
 </Window>
