@@ -11,6 +11,9 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern uint GetDpiForWindow(IntPtr hwnd);
+
     const uint KEYEVENTF_KEYUP = 0x0002;
 
     public MainWindow()
@@ -21,8 +24,17 @@ public sealed partial class MainWindow : Window
         // Get the AppWindow for advanced windowing features
         var appWindow = this.AppWindow;
         
-        // Set window size to fit all keyboard buttons (712px content + 32px margins + some extra for window chrome)
-        appWindow.Resize(new Windows.Graphics.SizeInt32(760, 330));
+        // Get window handle and DPI for proper scaling
+        IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        uint dpi = GetDpiForWindow(hwnd);
+        float scalingFactor = dpi / 96f;
+        
+        // Set window size in physical pixels (accounting for DPI scaling)
+        // Logical size: 760x330, scaled to physical pixels
+        int physicalWidth = (int)(760 * scalingFactor);
+        int physicalHeight = (int)(330 * scalingFactor);
+        
+        appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
         
         // Get the OverlappedPresenter to configure window behavior
         if (appWindow.Presenter is OverlappedPresenter presenter)
