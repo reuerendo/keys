@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace VirtualKeyboard;
 
@@ -28,6 +29,12 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    static extern int GetWindowTextLength(IntPtr hWnd);
 
     const int INPUT_KEYBOARD = 1;
     const uint KEYEVENTF_KEYUP = 0x0002;
@@ -58,6 +65,7 @@ public sealed partial class MainWindow : Window
 
     private IntPtr _targetWindow = IntPtr.Zero;
     private IntPtr _thisWindowHandle;
+    private TextBlock _logTextBlock;
 
     public MainWindow()
     {
@@ -76,7 +84,7 @@ public sealed partial class MainWindow : Window
         
         // Set window size in physical pixels (accounting for DPI scaling)
         int physicalWidth = (int)(760 * scalingFactor);
-        int physicalHeight = (int)(330 * scalingFactor);
+        int physicalHeight = (int)(430 * scalingFactor); // Increased for log area
         
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
         
@@ -95,18 +103,24 @@ public sealed partial class MainWindow : Window
 
         // Store target window on activation
         this.Activated += MainWindow_Activated;
+        
+        Log($"Keyboard window handle: {_thisWindowHandle}");
     }
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
+        Log($"Window activation state: {args.WindowActivationState}");
+        
         // When our window gets activated, we want to remember the previous foreground window
         if (args.WindowActivationState != WindowActivationState.Deactivated)
         {
-            // Store the current foreground window as target (before we were activated)
             IntPtr foreground = GetForegroundWindow();
+            Log($"Current foreground window: {foreground}");
+            
             if (foreground != _thisWindowHandle && foreground != IntPtr.Zero)
             {
                 _targetWindow = foreground;
+                Log($"Set target window to: {foreground} ({GetWindowTitle(foreground)})");
             }
         }
     }
@@ -115,6 +129,7 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is string keyCode)
         {
+            Log($"Button clicked: {keyCode}");
             SendKeyToTarget(keyCode);
         }
     }
@@ -125,20 +140,33 @@ public sealed partial class MainWindow : Window
         if (_targetWindow == IntPtr.Zero)
         {
             _targetWindow = GetForegroundWindow();
+            Log($"No target window, using foreground: {_targetWindow}");
+            
             if (_targetWindow == _thisWindowHandle)
             {
-                return; // Can't send to ourselves
+                Log("ERROR: Target is keyboard itself, aborting");
+                return;
             }
         }
 
+        Log($"Target window: {_targetWindow} ({GetWindowTitle(_targetWindow)})");
+
         // Temporarily switch focus to target window
         IntPtr previousWindow = GetForegroundWindow();
-        BringWindowToForeground(_targetWindow);
+        Log($"Previous window before switch: {previousWindow}");
+        
+        bool focusResult = BringWindowToForeground(_targetWindow);
+        Log($"BringWindowToForeground result: {focusResult}");
+        
+        IntPtr currentForeground = GetForegroundWindow();
+        Log($"Foreground after switch: {currentForeground}");
 
         // Send the key
         byte vk = GetVirtualKeyCode(key);
         if (vk != 0)
         {
+            Log($"Sending virtual key code: {vk}");
+            
             INPUT[] inputs = new INPUT[2];
             
             // Key down
@@ -157,7 +185,12 @@ public sealed partial class MainWindow : Window
             inputs[1].u.ki.time = 0;
             inputs[1].u.ki.dwExtraInfo = IntPtr.Zero;
             
-            SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+            uint result = SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+            Log($"SendInput result: {result} (should be 2)");
+        }
+        else
+        {
+            Log($"ERROR: Unknown key code for '{key}'");
         }
 
         // Return focus to keyboard window
@@ -165,33 +198,47 @@ public sealed partial class MainWindow : Window
         {
             DispatcherQueue.TryEnqueue(() => 
             {
-                BringWindowToForeground(_thisWindowHandle);
+                bool returnResult = BringWindowToForeground(_thisWindowHandle);
+                Log($"Return focus to keyboard result: {returnResult}");
             });
         });
     }
 
-    private void BringWindowToForeground(IntPtr hWnd)
+    private bool BringWindowToForeground(IntPtr hWnd)
     {
-        if (hWnd == IntPtr.Zero) return;
+        if (hWnd == IntPtr.Zero)
+        {
+            Log("BringWindowToForeground: hWnd is Zero");
+            return false;
+        }
 
         IntPtr foregroundWindow = GetForegroundWindow();
-        if (foregroundWindow == hWnd) return;
+        if (foregroundWindow == hWnd)
+        {
+            Log("BringWindowToForeground: Already foreground");
+            return true;
+        }
 
         uint foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, out _);
         uint targetThreadId = GetWindowThreadProcessId(hWnd, out _);
         uint currentThreadId = GetCurrentThreadId();
 
+        Log($"Thread IDs - Current: {currentThreadId}, Foreground: {foregroundThreadId}, Target: {targetThreadId}");
+
         // Attach input threads to allow setting foreground
         if (foregroundThreadId != currentThreadId)
         {
-            AttachThreadInput(currentThreadId, foregroundThreadId, true);
+            bool attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
+            Log($"Attach current to foreground: {attached}");
         }
         if (targetThreadId != currentThreadId && targetThreadId != foregroundThreadId)
         {
-            AttachThreadInput(currentThreadId, targetThreadId, true);
+            bool attached = AttachThreadInput(currentThreadId, targetThreadId, true);
+            Log($"Attach current to target: {attached}");
         }
 
-        SetForegroundWindow(hWnd);
+        bool result = SetForegroundWindow(hWnd);
+        Log($"SetForegroundWindow result: {result}");
 
         // Detach input threads
         if (foregroundThreadId != currentThreadId)
@@ -201,6 +248,58 @@ public sealed partial class MainWindow : Window
         if (targetThreadId != currentThreadId && targetThreadId != foregroundThreadId)
         {
             AttachThreadInput(currentThreadId, targetThreadId, false);
+        }
+
+        return result;
+    }
+
+    private string GetWindowTitle(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero) return "NULL";
+        
+        int length = GetWindowTextLength(hWnd);
+        if (length == 0) return "NO_TITLE";
+        
+        StringBuilder sb = new StringBuilder(length + 1);
+        GetWindowText(hWnd, sb, sb.Capacity);
+        return sb.ToString();
+    }
+
+    private void Log(string message)
+    {
+        if (_logTextBlock == null)
+        {
+            // Find or create log text block
+            if (Content is ScrollViewer sv && sv.Content is StackPanel mainPanel)
+            {
+                _logTextBlock = new TextBlock
+                {
+                    Text = "",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 10, 0, 0),
+                    FontSize = 10,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas")
+                };
+                
+                mainPanel.Children.Add(new Border
+                {
+                    BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                        Microsoft.UI.Colors.Gray),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(8),
+                    Child = new ScrollViewer
+                    {
+                        Height = 80,
+                        Content = _logTextBlock
+                    }
+                });
+            }
+        }
+
+        if (_logTextBlock != null)
+        {
+            string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
+            _logTextBlock.Text += $"[{timestamp}] {message}\n";
         }
     }
 
