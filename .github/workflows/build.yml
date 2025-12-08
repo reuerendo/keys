@@ -25,8 +25,8 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore -r win-x64 /p:Platform=x64
 
-    - name: Publish
-      run: dotnet publish --configuration Release --no-restore -r win-x64 /p:Platform=x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false
+    - name: Publish (Framework-dependent)
+      run: dotnet publish --configuration Release --no-restore -r win-x64 /p:Platform=x64 --no-self-contained -p:PublishSingleFile=false -p:PublishTrimmed=false
 
     - name: List publish directory
       run: |
@@ -34,8 +34,25 @@ jobs:
         dir bin /s
       shell: cmd
 
+    - name: Create README for users
+      run: |
+        echo "# Virtual Keyboard - Framework-dependent build" > bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "## Requirements:" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "Before running this application, you need to install:" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "1. .NET 8.0 Runtime (Desktop)" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "   Download: https://dotnet.microsoft.com/download/dotnet/8.0" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "2. Windows App SDK Runtime 1.5" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "   Download: https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "## How to run:" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+        echo "After installing the requirements, run VirtualKeyboard.exe" >> bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/README.txt
+      shell: cmd
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: VirtualKeyboard-x64
+        name: VirtualKeyboard-x64-framework-dependent
         path: bin/x64/Release/net8.0-windows10.0.19041.0/win-x64/
