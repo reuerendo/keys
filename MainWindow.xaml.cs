@@ -21,8 +21,8 @@ public sealed partial class MainWindow : Window
         // Get the AppWindow for advanced windowing features
         var appWindow = this.AppWindow;
         
-        // Set window size
-        appWindow.Resize(new Windows.Graphics.SizeInt32(800, 330));
+        // Set window size to fit all keyboard buttons (712px content + 32px margins + some extra for window chrome)
+        appWindow.Resize(new Windows.Graphics.SizeInt32(760, 330));
         
         // Get the OverlappedPresenter to configure window behavior
         if (appWindow.Presenter is OverlappedPresenter presenter)
