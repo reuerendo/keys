@@ -112,15 +112,6 @@ public sealed partial class MainWindow : Window
         Logger.Info("=== MainWindow Constructor Completed ===");
         
         this.Activated += (s, e) => ApplyNoActivateStyle();
-        
-        // Find Shift button reference after UI is loaded
-        this.Loaded += MainWindow_Loaded;
-    }
-
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
-    {
-        // Find the Shift button to update its visual state
-        FindShiftButton(this.Content as FrameworkElement);
     }
 
     private void FindShiftButton(FrameworkElement element)
@@ -185,6 +176,13 @@ public sealed partial class MainWindow : Window
     private void ToggleShift()
     {
         _isShiftActive = !_isShiftActive;
+        
+        // Lazy initialization of shift button reference
+        if (_shiftButton == null)
+        {
+            FindShiftButton(this.Content as FrameworkElement);
+        }
+        
         UpdateKeyLabels();
         UpdateShiftButtonStyle();
         Logger.Info($"Shift toggled: {_isShiftActive}");
