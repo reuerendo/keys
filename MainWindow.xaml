@@ -4,234 +4,165 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Grid Background="White" Padding="16">
-        <StackPanel MaxWidth="760" HorizontalAlignment="Center" VerticalAlignment="Top" Spacing="4">
-            
-            <!-- Row 1: Esc + numbers + Backspace -->
-            <Grid Height="40">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Esc" Tag="Esc" Click="KeyButton_Click"/>
-                <Button Grid.Column="2" Content="1" Tag="1" Click="KeyButton_Click"/>
-                <Button Grid.Column="4" Content="2" Tag="2" Click="KeyButton_Click"/>
-                <Button Grid.Column="6" Content="3" Tag="3" Click="KeyButton_Click"/>
-                <Button Grid.Column="8" Content="4" Tag="4" Click="KeyButton_Click"/>
-                <Button Grid.Column="10" Content="5" Tag="5" Click="KeyButton_Click"/>
-                <Button Grid.Column="12" Content="6" Tag="6" Click="KeyButton_Click"/>
-                <Button Grid.Column="14" Content="7" Tag="7" Click="KeyButton_Click"/>
-                <Button Grid.Column="16" Content="8" Tag="8" Click="KeyButton_Click"/>
-                <Button Grid.Column="18" Content="9" Tag="9" Click="KeyButton_Click"/>
-                <Button Grid.Column="20" Content="0" Tag="0" Click="KeyButton_Click"/>
-                <Button Grid.Column="22" Content="-" Tag="-" Click="KeyButton_Click"/>
-                <Button Grid.Column="24" Content="+" Tag="+" Click="KeyButton_Click"/>
-                <Button Grid.Column="26" Content="=" Tag="=" Click="KeyButton_Click"/>
-                <Button Grid.Column="28" Content="Backspace" Tag="Backspace" Click="KeyButton_Click"/>
-            </Grid>
+		<StackPanel MaxWidth="760" HorizontalAlignment="Center" VerticalAlignment="Top" Spacing="4">
+			
+			<Grid Height="40">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="*"/> </Grid.ColumnDefinitions>
+				<Button Grid.Column="0" Content="Esc" Tag="Esc" Click="KeyButton_Click"/>
+				<Button Grid.Column="2" Content="1" Tag="1" Click="KeyButton_Click"/>
+				<Button Grid.Column="4" Content="2" Tag="2" Click="KeyButton_Click"/>
+				<Button Grid.Column="6" Content="3" Tag="3" Click="KeyButton_Click"/>
+				<Button Grid.Column="8" Content="4" Tag="4" Click="KeyButton_Click"/>
+				<Button Grid.Column="10" Content="5" Tag="5" Click="KeyButton_Click"/>
+				<Button Grid.Column="12" Content="6" Tag="6" Click="KeyButton_Click"/>
+				<Button Grid.Column="14" Content="7" Tag="7" Click="KeyButton_Click"/>
+				<Button Grid.Column="16" Content="8" Tag="8" Click="KeyButton_Click"/>
+				<Button Grid.Column="18" Content="9" Tag="9" Click="KeyButton_Click"/>
+				<Button Grid.Column="20" Content="0" Tag="0" Click="KeyButton_Click"/>
+				<Button Grid.Column="22" Content="-" Tag="-" Click="KeyButton_Click"/>
+				<Button Grid.Column="24" Content="+" Tag="+" Click="KeyButton_Click"/>
+				<Button Grid.Column="26" Content="=" Tag="=" Click="KeyButton_Click"/>
+				<Button Grid.Column="28" Content="Backspace" Tag="Backspace" Click="KeyButton_Click"/>
+			</Grid>
 
-            <!-- Row 2: Tab + qwerty row + symbols -->
-            <Grid Height="40">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Tab" Tag="Tab" Click="KeyButton_Click"/>
-                <Button Grid.Column="2" Content="q" Tag="q" Click="KeyButton_Click"/>
-                <Button Grid.Column="4" Content="w" Tag="w" Click="KeyButton_Click"/>
-                <Button Grid.Column="6" Content="e" Tag="e" Click="KeyButton_Click"/>
-                <Button Grid.Column="8" Content="r" Tag="r" Click="KeyButton_Click"/>
-                <Button Grid.Column="10" Content="t" Tag="t" Click="KeyButton_Click"/>
-                <Button Grid.Column="12" Content="y" Tag="y" Click="KeyButton_Click"/>
-                <Button Grid.Column="14" Content="u" Tag="u" Click="KeyButton_Click"/>
-                <Button Grid.Column="16" Content="i" Tag="i" Click="KeyButton_Click"/>
-                <Button Grid.Column="18" Content="o" Tag="o" Click="KeyButton_Click"/>
-                <Button Grid.Column="20" Content="p" Tag="p" Click="KeyButton_Click"/>
-                <Button Grid.Column="22" Content="(" Tag="(" Click="KeyButton_Click"/>
-                <Button Grid.Column="24" Content=")" Tag=")" Click="KeyButton_Click"/>
-                <Button Grid.Column="26" Content="/" Tag="/" Click="KeyButton_Click"/>
-                <Button Grid.Column="28" Content="*" Tag="*" Click="KeyButton_Click"/>
-            </Grid>
+			<Grid Height="40">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="*"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/>
+				</Grid.ColumnDefinitions>
+				<Button Grid.Column="0" Content="Tab" Tag="Tab" Click="KeyButton_Click"/>
+				<Button Grid.Column="2" Content="q" Tag="q" Click="KeyButton_Click"/>
+				<Button Grid.Column="4" Content="w" Tag="w" Click="KeyButton_Click"/>
+				<Button Grid.Column="6" Content="e" Tag="e" Click="KeyButton_Click"/>
+				<Button Grid.Column="8" Content="r" Tag="r" Click="KeyButton_Click"/>
+				<Button Grid.Column="10" Content="t" Tag="t" Click="KeyButton_Click"/>
+				<Button Grid.Column="12" Content="y" Tag="y" Click="KeyButton_Click"/>
+				<Button Grid.Column="14" Content="u" Tag="u" Click="KeyButton_Click"/>
+				<Button Grid.Column="16" Content="i" Tag="i" Click="KeyButton_Click"/>
+				<Button Grid.Column="18" Content="o" Tag="o" Click="KeyButton_Click"/>
+				<Button Grid.Column="20" Content="p" Tag="p" Click="KeyButton_Click"/>
+				<Button Grid.Column="22" Content="(" Tag="(" Click="KeyButton_Click"/>
+				<Button Grid.Column="24" Content=")" Tag=")" Click="KeyButton_Click"/>
+				<Button Grid.Column="26" Content="/" Tag="/" Click="KeyButton_Click"/>
+				<Button Grid.Column="28" Content="*" Tag="*" Click="KeyButton_Click"/>
+			</Grid>
 
-            <!-- Row 3: Caps + asdf row + Enter -->
-            <Grid Height="40">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Caps" Tag="Caps" Click="KeyButton_Click"/>
-                <Button Grid.Column="2" Content="a" Tag="a" Click="KeyButton_Click"/>
-                <Button Grid.Column="4" Content="s" Tag="s" Click="KeyButton_Click"/>
-                <Button Grid.Column="6" Content="d" Tag="d" Click="KeyButton_Click"/>
-                <Button Grid.Column="8" Content="f" Tag="f" Click="KeyButton_Click"/>
-                <Button Grid.Column="10" Content="g" Tag="g" Click="KeyButton_Click"/>
-                <Button Grid.Column="12" Content="h" Tag="h" Click="KeyButton_Click"/>
-                <Button Grid.Column="14" Content="j" Tag="j" Click="KeyButton_Click"/>
-                <Button Grid.Column="16" Content="k" Tag="k" Click="KeyButton_Click"/>
-                <Button Grid.Column="18" Content="l" Tag="l" Click="KeyButton_Click"/>
-                <Button Grid.Column="20" Content=":" Tag=":" Click="KeyButton_Click"/>
-                <Button Grid.Column="22" Content=";" Tag=";" Click="KeyButton_Click"/>
-                <Button Grid.Column="24" Content="Enter" Tag="Enter" Click="KeyButton_Click"/>
-            </Grid>
+			<Grid Height="40">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="*"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="*"/> </Grid.ColumnDefinitions>
+				<Button Grid.Column="0" Content="Caps" Tag="Caps" Click="KeyButton_Click"/>
+				<Button Grid.Column="2" Content="a" Tag="a" Click="KeyButton_Click"/>
+				<Button Grid.Column="4" Content="s" Tag="s" Click="KeyButton_Click"/>
+				<Button Grid.Column="6" Content="d" Tag="d" Click="KeyButton_Click"/>
+				<Button Grid.Column="8" Content="f" Tag="f" Click="KeyButton_Click"/>
+				<Button Grid.Column="10" Content="g" Tag="g" Click="KeyButton_Click"/>
+				<Button Grid.Column="12" Content="h" Tag="h" Click="KeyButton_Click"/>
+				<Button Grid.Column="14" Content="j" Tag="j" Click="KeyButton_Click"/>
+				<Button Grid.Column="16" Content="k" Tag="k" Click="KeyButton_Click"/>
+				<Button Grid.Column="18" Content="l" Tag="l" Click="KeyButton_Click"/>
+				<Button Grid.Column="20" Content=":" Tag=":" Click="KeyButton_Click"/>
+				<Button Grid.Column="22" Content=";" Tag=";" Click="KeyButton_Click"/>
+				<Button Grid.Column="24" Content="Enter" Tag="Enter" Click="KeyButton_Click"/>
+			</Grid>
 
-            <!-- Row 4: Shift + zxcv row + arrows + Lang -->
-            <Grid Height="40">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="Shift" Tag="Shift" Click="KeyButton_Click"/>
-                <Button Grid.Column="2" Content="z" Tag="z" Click="KeyButton_Click"/>
-                <Button Grid.Column="4" Content="x" Tag="x" Click="KeyButton_Click"/>
-                <Button Grid.Column="6" Content="c" Tag="c" Click="KeyButton_Click"/>
-                <Button Grid.Column="8" Content="v" Tag="v" Click="KeyButton_Click"/>
-                <Button Grid.Column="10" Content="b" Tag="b" Click="KeyButton_Click"/>
-                <Button Grid.Column="12" Content="n" Tag="n" Click="KeyButton_Click"/>
-                <Button Grid.Column="14" Content="m" Tag="m" Click="KeyButton_Click"/>
-                <Button Grid.Column="16" Content="&lt;" Tag="&lt;" Click="KeyButton_Click"/>
-                <Button Grid.Column="18" Content="&gt;" Tag="&gt;" Click="KeyButton_Click"/>
-                <Button Grid.Column="20" Content="!" Tag="!" Click="KeyButton_Click"/>
-                <Button Grid.Column="22" Content="?" Tag="?" Click="KeyButton_Click"/>
-                <Button Grid.Column="24" Content="↑" Tag="↑" Click="KeyButton_Click"/>
-                <Button Grid.Column="26" Content="Lang" Tag="Lang" Click="KeyButton_Click"/>
-            </Grid>
+			<Grid Height="40">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="*"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/>
+				</Grid.ColumnDefinitions>
+				<Button Grid.Column="0" Content="Shift" Tag="Shift" Click="KeyButton_Click"/>
+				<Button Grid.Column="2" Content="z" Tag="z" Click="KeyButton_Click"/>
+				<Button Grid.Column="4" Content="x" Tag="x" Click="KeyButton_Click"/>
+				<Button Grid.Column="6" Content="c" Tag="c" Click="KeyButton_Click"/>
+				<Button Grid.Column="8" Content="v" Tag="v" Click="KeyButton_Click"/>
+				<Button Grid.Column="10" Content="b" Tag="b" Click="KeyButton_Click"/>
+				<Button Grid.Column="12" Content="n" Tag="n" Click="KeyButton_Click"/>
+				<Button Grid.Column="14" Content="m" Tag="m" Click="KeyButton_Click"/>
+				<Button Grid.Column="16" Content="&lt;" Tag="&lt;" Click="KeyButton_Click"/>
+				<Button Grid.Column="18" Content="&gt;" Tag="&gt;" Click="KeyButton_Click"/>
+				<Button Grid.Column="20" Content="!" Tag="!" Click="KeyButton_Click"/>
+				<Button Grid.Column="22" Content="?" Tag="?" Click="KeyButton_Click"/>
+				<Button Grid.Column="24" Content="↑" Tag="↑" Click="KeyButton_Click"/>
+				<Button Grid.Column="26" Content="Lang" Tag="Lang" Click="KeyButton_Click"/>
+			</Grid>
 
-            <!-- Row 5: &.. Ctrl Alt " Space , . arrows -->
-            <Grid Height="40">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                    <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="40"/>
-                </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="&amp;.." Tag="&amp;.." Click="KeyButton_Click"/>
-                <Button Grid.Column="2" Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click"/>
-                <Button Grid.Column="4" Content="Alt" Tag="Alt" Click="KeyButton_Click"/>
-                <Button Grid.Column="6" Content="&quot;" Tag="&quot;" Click="KeyButton_Click"/>
-                <Button Grid.Column="8" Content="" Tag=" " Click="KeyButton_Click"/>
-                <Button Grid.Column="10" Content="," Tag="," Click="KeyButton_Click"/>
-                <Button Grid.Column="12" Content="." Tag="." Click="KeyButton_Click"/>
-                <Button Grid.Column="14" Content="←" Tag="←" Click="KeyButton_Click"/>
-                <Button Grid.Column="16" Content="↓" Tag="↓" Click="KeyButton_Click"/>
-                <Button Grid.Column="18" Content="→" Tag="→" Click="KeyButton_Click"/>
-            </Grid>
+			<Grid Height="40">
+				<Grid.ColumnDefinitions>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="*"/>  <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/> <ColumnDefinition Width="4"/>
+					<ColumnDefinition Width="40"/>
+				</Grid.ColumnDefinitions>
+				<Button Grid.Column="0" Content="&amp;.." Tag="&amp;.." Click="KeyButton_Click"/>
+				<Button Grid.Column="2" Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click"/>
+				<Button Grid.Column="4" Content="Alt" Tag="Alt" Click="KeyButton_Click"/>
+				<Button Grid.Column="6" Content="&quot;" Tag="&quot;" Click="KeyButton_Click"/>
+				<Button Grid.Column="8" Content="" Tag=" " Click="KeyButton_Click"/>
+				<Button Grid.Column="10" Content="," Tag="," Click="KeyButton_Click"/>
+				<Button Grid.Column="12" Content="." Tag="." Click="KeyButton_Click"/>
+				<Button Grid.Column="14" Content="←" Tag="←" Click="KeyButton_Click"/>
+				<Button Grid.Column="16" Content="↓" Tag="↓" Click="KeyButton_Click"/>
+				<Button Grid.Column="18" Content="→" Tag="→" Click="KeyButton_Click"/>
+			</Grid>
 
-        </StackPanel>
+		</StackPanel>
     </Grid>
 </Window>
