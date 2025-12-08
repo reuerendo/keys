@@ -6,7 +6,7 @@
     <ScrollViewer>
         <StackPanel Margin="16" Spacing="4">
             
-            <!-- Row 1: Total width calculation: 14*40 + 14*4 (spacing) + 96 (Backspace) = 712px -->
+            <!-- Row 1: 14*40 + 96 + 14*4 = 712px -->
             <StackPanel Orientation="Horizontal" Spacing="4">
                 <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="1" Tag="1" Click="KeyButton_Click" Width="40" Height="40"/>
@@ -25,9 +25,9 @@
                 <Button Content="Backspace" Tag="Backspace" Click="KeyButton_Click" Width="96" Height="40"/>
             </StackPanel>
 
-            <!-- Row 2: Total width: 60 (Tab) + 13*40 + 14*4 (spacing) + 40 (*) = 712px -->
+            <!-- Row 2: 96 + 13*40 + 40 + 14*4 = 712px -->
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Tab" Tag="Tab" Click="KeyButton_Click" Width="60" Height="40"/>
+                <Button Content="Tab" Tag="Tab" Click="KeyButton_Click" Width="96" Height="40"/>
                 <Button Content="q" Tag="q" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="w" Tag="w" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="e" Tag="e" Click="KeyButton_Click" Width="40" Height="40"/>
@@ -44,9 +44,9 @@
                 <Button Content="*" Tag="*" Click="KeyButton_Click" Width="40" Height="40"/>
             </StackPanel>
 
-            <!-- Row 3: Total width: 60 (Caps) + 11*40 + 12*4 (spacing) + 112 (Enter) = 712px -->
+            <!-- Row 3: 76 + 11*40 + 148 + 12*4 = 712px -->
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Caps" Tag="Caps" Click="KeyButton_Click" Width="60" Height="40"/>
+                <Button Content="Caps" Tag="Caps" Click="KeyButton_Click" Width="76" Height="40"/>
                 <Button Content="a" Tag="a" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="s" Tag="s" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="d" Tag="d" Click="KeyButton_Click" Width="40" Height="40"/>
@@ -58,12 +58,12 @@
                 <Button Content="l" Tag="l" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content=":" Tag=":" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content=";" Tag=";" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="112" Height="40"/>
+                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="148" Height="40"/>
             </StackPanel>
 
-            <!-- Row 4: Total width: 76 (Shift) + 12*40 + 13*4 (spacing) + 40 (Lang) = 712px -->
+            <!-- Row 4: 140 + 12*40 + 40 + 13*4 = 712px -->
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" Width="76" Height="40"/>
+                <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" Width="140" Height="40"/>
                 <Button Content="z" Tag="z" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="x" Tag="x" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="c" Tag="c" Click="KeyButton_Click" Width="40" Height="40"/>
@@ -79,13 +79,13 @@
                 <Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="40" Height="40"/>
             </StackPanel>
 
-            <!-- Row 5: Total width: 4*40 + 9*4 (spacing) + 340 (Space) + 5*40 = 712px -->
+            <!-- Row 5: 4*40 + 316 + 5*40 + 9*4 = 712px -->
             <StackPanel Orientation="Horizontal" Spacing="4">
                 <Button Content="&amp;.." Width="40" Height="40"/>
                 <Button Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="40" Height="40"/>
-                <Button Content=" " Tag=" " Click="KeyButton_Click" Width="340" Height="40"/>
+                <Button Content=" " Tag=" " Click="KeyButton_Click" Width="316" Height="40"/>
                 <Button Content="," Tag="," Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="." Tag="." Click="KeyButton_Click" Width="40" Height="40"/>
                 <Button Content="←" Tag="←" Click="KeyButton_Click" Width="40" Height="40"/>
