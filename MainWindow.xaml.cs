@@ -1,9 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
-using WinRT.Interop;
 
 namespace VirtualKeyboard;
 
@@ -12,61 +10,21 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
-    [DllImport("user32.dll")]
-    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
-    [DllImport("user32.dll")]
-    static extern IntPtr SetFocus(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    static extern IntPtr GetForegroundWindow();
-
-    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-    const uint SWP_NOMOVE = 0x0002;
-    const uint SWP_NOSIZE = 0x0001;
-    const uint SWP_NOACTIVATE = 0x0010;
     const uint KEYEVENTF_KEYUP = 0x0002;
-
-    private IntPtr _hwnd;
-    private IntPtr _lastFocusedWindow;
 
     public MainWindow()
     {
         this.InitializeComponent();
         Title = "Virtual Keyboard";
         
-        _hwnd = WindowNative.GetWindowHandle(this);
-        
         var appWindow = this.AppWindow;
-        // Window size: 760px content + 32px padding (16px each side) = 792px width
-        // Height: 5 rows * 40px + 4 gaps * 4px + 32px padding = 248px
-        appWindow.Resize(new Windows.Graphics.SizeInt32(792, 248));
-        
-        // Make window always on top
-        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        
-        this.Activated += MainWindow_Activated;
-    }
-
-    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
-    {
-        if (args.WindowActivationState == WindowActivationState.Deactivated)
-        {
-            // Save the window that received focus
-            _lastFocusedWindow = GetForegroundWindow();
-        }
+        appWindow.Resize(new Windows.Graphics.SizeInt32(800, 280));
     }
 
     private void KeyButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button button && button.Tag is string keyCode)
         {
-            // Return focus to the last active window before sending key
-            if (_lastFocusedWindow != IntPtr.Zero && _lastFocusedWindow != _hwnd)
-            {
-                SetFocus(_lastFocusedWindow);
-            }
-            
             SendKey(keyCode);
         }
     }
@@ -77,7 +35,6 @@ public sealed partial class MainWindow : Window
         if (vk != 0)
         {
             keybd_event(vk, 0, 0, 0);
-            System.Threading.Thread.Sleep(10);
             keybd_event(vk, 0, KEYEVENTF_KEYUP, 0);
         }
     }
@@ -102,12 +59,9 @@ public sealed partial class MainWindow : Window
             "z" => 0x5A, "x" => 0x58, "c" => 0x43, "v" => 0x56, "b" => 0x42,
             "n" => 0x4E, "m" => 0x4D, "<" => 0xBC, ">" => 0xBE,
             "!" => 0x31, "?" => 0xBF,
-            "↑" => 0x26,
-            "&.." => 0, // No action for this key
             "Ctrl" => 0x11, "Alt" => 0x12,
             "\"" => 0xDE, " " => 0x20, "," => 0xBC, "." => 0xBE,
-            "←" => 0x25, "↓" => 0x28, "→" => 0x27,
-            "Lang" => 0, // No action - language switch handled separately
+            "←" => 0x25, "↓" => 0x28, "→" => 0x27, "↑" => 0x26,
             _ => 0
         };
     }
