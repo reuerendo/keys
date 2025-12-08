@@ -4,9 +4,9 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <Grid Background="White" Padding="16">
-        <StackPanel MaxWidth="660" HorizontalAlignment="Center" Spacing="4">
+        <StackPanel MaxWidth="760" HorizontalAlignment="Center" VerticalAlignment="Top" Spacing="4">
             
-            <!-- Row 1: Esc + 13 кнопок + Backspace -->
+            <!-- Row 1: Esc + numbers + Backspace -->
             <Grid Height="40">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="40"/>
@@ -37,7 +37,7 @@
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="84"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Content="Esc" Tag="Esc" Click="KeyButton_Click"/>
                 <Button Grid.Column="2" Content="1" Tag="1" Click="KeyButton_Click"/>
@@ -56,10 +56,10 @@
                 <Button Grid.Column="28" Content="Backspace" Tag="Backspace" Click="KeyButton_Click"/>
             </Grid>
 
-            <!-- Row 2: Tab + 13 кнопок + * -->
+            <!-- Row 2: Tab + qwerty row + symbols -->
             <Grid Height="40">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="52"/>
+                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
@@ -106,10 +106,10 @@
                 <Button Grid.Column="28" Content="*" Tag="*" Click="KeyButton_Click"/>
             </Grid>
 
-            <!-- Row 3: Caps + 11 кнопок + Enter -->
+            <!-- Row 3: Caps + asdf row + Enter -->
             <Grid Height="40">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="60"/>
+                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
@@ -133,7 +133,7 @@
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="68"/>
+                    <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <Button Grid.Column="0" Content="Caps" Tag="Caps" Click="KeyButton_Click"/>
                 <Button Grid.Column="2" Content="a" Tag="a" Click="KeyButton_Click"/>
@@ -150,10 +150,10 @@
                 <Button Grid.Column="24" Content="Enter" Tag="Enter" Click="KeyButton_Click"/>
             </Grid>
 
-            <!-- Row 4: Shift + 12 кнопок + Lang -->
+            <!-- Row 4: Shift + zxcv row + arrows + Lang -->
             <Grid Height="40">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="68"/>
+                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
@@ -197,7 +197,7 @@
                 <Button Grid.Column="26" Content="Lang" Tag="Lang" Click="KeyButton_Click"/>
             </Grid>
 
-            <!-- Row 5: &.. Ctrl Alt " + Space + , . стрелки -->
+            <!-- Row 5: &.. Ctrl Alt " Space , . arrows -->
             <Grid Height="40">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="40"/>
@@ -208,7 +208,7 @@
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
-                    <ColumnDefinition Width="304"/>
+                    <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                     <ColumnDefinition Width="4"/>
@@ -220,11 +220,11 @@
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="40"/>
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="&amp;.." Height="40"/>
+                <Button Grid.Column="0" Content="&amp;.." Tag="&amp;.." Click="KeyButton_Click"/>
                 <Button Grid.Column="2" Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click"/>
                 <Button Grid.Column="4" Content="Alt" Tag="Alt" Click="KeyButton_Click"/>
                 <Button Grid.Column="6" Content="&quot;" Tag="&quot;" Click="KeyButton_Click"/>
-                <Button Grid.Column="8" Content=" " Tag=" " Click="KeyButton_Click"/>
+                <Button Grid.Column="8" Content="" Tag=" " Click="KeyButton_Click"/>
                 <Button Grid.Column="10" Content="," Tag="," Click="KeyButton_Click"/>
                 <Button Grid.Column="12" Content="." Tag="." Click="KeyButton_Click"/>
                 <Button Grid.Column="14" Content="←" Tag="←" Click="KeyButton_Click"/>

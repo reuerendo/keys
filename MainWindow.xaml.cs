@@ -38,9 +38,11 @@ public sealed partial class MainWindow : Window
         _hwnd = WindowNative.GetWindowHandle(this);
         
         var appWindow = this.AppWindow;
-        appWindow.Resize(new Windows.Graphics.SizeInt32(800, 280));
+        // Window size: 760px content + 32px padding (16px each side) = 792px width
+        // Height: 5 rows * 40px + 4 gaps * 4px + 32px padding = 248px
+        appWindow.Resize(new Windows.Graphics.SizeInt32(792, 248));
         
-        // Сделать окно поверх всех остальных
+        // Make window always on top
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         
         this.Activated += MainWindow_Activated;
@@ -50,7 +52,7 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            // Сохраняем окно, которое получило фокус
+            // Save the window that received focus
             _lastFocusedWindow = GetForegroundWindow();
         }
     }
@@ -59,7 +61,7 @@ public sealed partial class MainWindow : Window
     {
         if (sender is Button button && button.Tag is string keyCode)
         {
-            // Возвращаем фокус последнему активному окну перед отправкой клавиши
+            // Return focus to the last active window before sending key
             if (_lastFocusedWindow != IntPtr.Zero && _lastFocusedWindow != _hwnd)
             {
                 SetFocus(_lastFocusedWindow);
@@ -100,9 +102,12 @@ public sealed partial class MainWindow : Window
             "z" => 0x5A, "x" => 0x58, "c" => 0x43, "v" => 0x56, "b" => 0x42,
             "n" => 0x4E, "m" => 0x4D, "<" => 0xBC, ">" => 0xBE,
             "!" => 0x31, "?" => 0xBF,
+            "↑" => 0x26,
+            "&.." => 0, // No action for this key
             "Ctrl" => 0x11, "Alt" => 0x12,
             "\"" => 0xDE, " " => 0x20, "," => 0xBC, "." => 0xBE,
-            "←" => 0x25, "↓" => 0x28, "→" => 0x27, "↑" => 0x26,
+            "←" => 0x25, "↓" => 0x28, "→" => 0x27,
+            "Lang" => 0, // No action - language switch handled separately
             _ => 0
         };
     }
