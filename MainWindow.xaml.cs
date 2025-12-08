@@ -114,23 +114,25 @@ public sealed partial class MainWindow : Window
     {
         Logger.Debug($"Window activation state changed: {args.WindowActivationState}");
         
-        // When our window gets activated, we want to remember the previous foreground window
-        if (args.WindowActivationState != WindowActivationState.Deactivated)
+        // When our window gets deactivated, remember which window is getting focus
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            // Store the current foreground window as target (before we were activated)
-            IntPtr foreground = GetForegroundWindow();
-            Logger.Debug($"Current foreground window: 0x{foreground.ToString("X")}");
-            
-            if (foreground != _thisWindowHandle && foreground != IntPtr.Zero)
+            // A small delay to let the other window become foreground
+            System.Threading.Tasks.Task.Delay(50).ContinueWith(_ => 
             {
-                _targetWindow = foreground;
-                string targetWindowTitle = GetWindowTitle(foreground);
-                Logger.Info($"Target window set to: 0x{_targetWindow.ToString("X")} (Title: {targetWindowTitle})");
-            }
-            else
-            {
-                Logger.Warning("Foreground window is either this window or null - not setting as target");
-            }
+                DispatcherQueue.TryEnqueue(() => 
+                {
+                    IntPtr foreground = GetForegroundWindow();
+                    Logger.Debug($"Window deactivated, new foreground: 0x{foreground.ToString("X")}");
+                    
+                    if (foreground != _thisWindowHandle && foreground != IntPtr.Zero)
+                    {
+                        _targetWindow = foreground;
+                        string targetWindowTitle = GetWindowTitle(foreground);
+                        Logger.Info($"Target window set to: 0x{_targetWindow.ToString("X")} (Title: {targetWindowTitle})");
+                    }
+                });
+            });
         }
     }
 
@@ -219,20 +221,11 @@ public sealed partial class MainWindow : Window
             Logger.Error($"Unknown virtual key code for key: {key}");
         }
 
-        // Return focus to keyboard window
-        Logger.Debug("Scheduling return to keyboard window...");
-        System.Threading.Tasks.Task.Delay(50).ContinueWith(_ => 
-        {
-            DispatcherQueue.TryEnqueue(() => 
-            {
-                Logger.Debug("Returning focus to keyboard window");
-                BringWindowToForeground(_thisWindowHandle);
-                
-                IntPtr finalForeground = GetForegroundWindow();
-                Logger.Debug($"Final foreground: 0x{finalForeground.ToString("X")} (Title: {GetWindowTitle(finalForeground)})");
-                Logger.Info("=== Key Send Operation Completed ===");
-            });
-        });
+        // Don't return focus - let the target window keep it
+        // The keyboard stays on top anyway (AlwaysOnTop=true)
+        IntPtr finalForeground = GetForegroundWindow();
+        Logger.Debug($"Final foreground after send: 0x{finalForeground.ToString("X")} (Title: {GetWindowTitle(finalForeground)})");
+        Logger.Info("=== Key Send Operation Completed ===");
     }
 
     private void BringWindowToForeground(IntPtr hWnd)
