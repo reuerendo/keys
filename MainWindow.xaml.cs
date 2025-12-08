@@ -128,7 +128,12 @@ public sealed partial class MainWindow : Window
             {
                 if (child is FrameworkElement fe)
                     FindShiftButton(fe);
+                if (_shiftButton != null) return;
             }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindShiftButton(scrollContent);
         }
     }
 
@@ -217,6 +222,10 @@ public sealed partial class MainWindow : Window
                 if (child is FrameworkElement fe)
                     UpdateButtonLabelsRecursive(fe);
             }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            UpdateButtonLabelsRecursive(scrollContent);
         }
     }
 
