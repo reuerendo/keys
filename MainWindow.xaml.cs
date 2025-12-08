@@ -18,9 +18,17 @@ public sealed partial class MainWindow : Window
     const int WS_EX_NOACTIVATE = 0x08000000;
     const int WS_EX_TOPMOST = 0x00000008;
 
-    // Shift state
+    // Keyboard state
     private bool _isShiftActive = false;
     private Button _shiftButton;
+    private Button _langButton;
+    
+    // Layouts
+    private KeyboardLayout _englishLayout;
+    private KeyboardLayout _russianLayout;
+    private KeyboardLayout _symbolLayout;
+    private KeyboardLayout _currentLayout;
+    private bool _isSymbolMode = false;
 
     // --- Win32 Structs (Correctly Aligned for x64) ---
 
@@ -88,6 +96,12 @@ public sealed partial class MainWindow : Window
         
         Logger.Info("=== MainWindow Constructor Started ===");
         
+        // Initialize layouts
+        _englishLayout = KeyboardLayout.CreateEnglishLayout();
+        _russianLayout = KeyboardLayout.CreateRussianLayout();
+        _symbolLayout = KeyboardLayout.CreateSymbolLayout();
+        _currentLayout = _englishLayout;
+        
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
@@ -112,29 +126,6 @@ public sealed partial class MainWindow : Window
         Logger.Info("=== MainWindow Constructor Completed ===");
         
         this.Activated += (s, e) => ApplyNoActivateStyle();
-    }
-
-    private void FindShiftButton(FrameworkElement element)
-    {
-        if (element is Button btn && btn.Tag as string == "Shift")
-        {
-            _shiftButton = btn;
-            return;
-        }
-
-        if (element is Panel panel)
-        {
-            foreach (var child in panel.Children)
-            {
-                if (child is FrameworkElement fe)
-                    FindShiftButton(fe);
-                if (_shiftButton != null) return;
-            }
-        }
-        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
-        {
-            FindShiftButton(scrollContent);
-        }
     }
 
     private void ApplyNoActivateStyle()
@@ -165,12 +156,20 @@ public sealed partial class MainWindow : Window
             {
                 ToggleShift();
             }
+            else if (keyCode == "Lang")
+            {
+                SwitchLanguage();
+            }
+            else if (keyCode == "&..")
+            {
+                ToggleSymbolMode();
+            }
             else
             {
                 SendKey(keyCode);
                 
-                // Deactivate shift after typing a letter
-                if (IsLetter(keyCode) && _isShiftActive)
+                // Deactivate shift after typing
+                if (_isShiftActive && IsLayoutKey(keyCode))
                 {
                     ToggleShift();
                 }
@@ -193,26 +192,80 @@ public sealed partial class MainWindow : Window
         Logger.Info($"Shift toggled: {_isShiftActive}");
     }
 
+    private void SwitchLanguage()
+    {
+        if (_isSymbolMode)
+        {
+            return; // Don't switch language in symbol mode
+        }
+        
+        _currentLayout = (_currentLayout == _englishLayout) ? _russianLayout : _englishLayout;
+        UpdateKeyLabels();
+        Logger.Info($"Switched to layout: {_currentLayout.Name}");
+    }
+
+    private void ToggleSymbolMode()
+    {
+        _isSymbolMode = !_isSymbolMode;
+        
+        if (_isSymbolMode)
+        {
+            _currentLayout = _symbolLayout;
+        }
+        else
+        {
+            _currentLayout = _englishLayout;
+        }
+        
+        UpdateKeyLabels();
+        UpdateLangButtonLabel();
+        Logger.Info($"Symbol mode: {_isSymbolMode}, Layout: {_currentLayout.Name}");
+    }
+
     private void UpdateShiftButtonStyle()
     {
         if (_shiftButton != null)
         {
-            // Visual feedback for active shift
             _shiftButton.Opacity = _isShiftActive ? 0.7 : 1.0;
+        }
+    }
+
+    private void UpdateLangButtonLabel()
+    {
+        if (_langButton == null)
+        {
+            FindLangButton(this.Content as FrameworkElement);
+        }
+        
+        if (_langButton != null)
+        {
+            _langButton.Content = _isSymbolMode ? "abc" : "Lang";
         }
     }
 
     private void UpdateKeyLabels()
     {
-        // Update all letter buttons
         UpdateButtonLabelsRecursive(this.Content as FrameworkElement);
+        UpdateLangButtonLabel();
     }
 
     private void UpdateButtonLabelsRecursive(FrameworkElement element)
     {
-        if (element is Button btn && btn.Tag is string tag && IsLetter(tag))
+        if (element is Button btn && btn.Tag is string tag)
         {
-            btn.Content = _isShiftActive ? tag.ToUpper() : tag.ToLower();
+            // Skip control keys
+            if (tag == "Shift" || tag == "Lang" || tag == "&.." || 
+                tag == "Esc" || tag == "Tab" || tag == "Caps" || 
+                tag == "Ctrl" || tag == "Alt" || tag == "Enter" || 
+                tag == "Backspace" || tag == " ")
+            {
+                // Don't update control keys except Lang button (handled separately)
+            }
+            else if (_currentLayout.Keys.ContainsKey(tag))
+            {
+                var keyDef = _currentLayout.Keys[tag];
+                btn.Content = _isShiftActive ? keyDef.DisplayShift : keyDef.Display;
+            }
         }
 
         if (element is Panel panel)
@@ -229,9 +282,9 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private bool IsLetter(string key)
+    private bool IsLayoutKey(string key)
     {
-        return key.Length == 1 && char.IsLetter(key[0]);
+        return _currentLayout.Keys.ContainsKey(key);
     }
 
     private void SendKey(string key)
@@ -246,15 +299,21 @@ public sealed partial class MainWindow : Window
             Logger.Warning("CRITICAL: Keyboard has focus! Keys will not be sent to target app. WS_EX_NOACTIVATE failed.");
         }
 
-        // For letters, send as Unicode characters to avoid layout issues
-        if (IsLetter(key))
+        // Check if key is in current layout
+        if (_currentLayout.Keys.ContainsKey(key))
         {
-            char charToSend = _isShiftActive ? char.ToUpper(key[0]) : char.ToLower(key[0]);
-            SendUnicodeChar(charToSend);
+            var keyDef = _currentLayout.Keys[key];
+            string charToSend = _isShiftActive ? keyDef.ValueShift : keyDef.Value;
+            
+            // Send each character (for multi-char strings like combining accents)
+            foreach (char c in charToSend)
+            {
+                SendUnicodeChar(c);
+            }
         }
         else
         {
-            // For special keys, use virtual key codes
+            // For special keys not in layout, use virtual key codes
             byte vk = GetVirtualKeyCode(key);
             
             if (vk != 0)
@@ -349,6 +408,52 @@ public sealed partial class MainWindow : Window
             "←" => 0x25, "↓" => 0x28, "→" => 0x27, "↑" => 0x26,
             _ => 0
         };
+    }
+    
+    private void FindShiftButton(FrameworkElement element)
+    {
+        if (element is Button btn && btn.Tag as string == "Shift")
+        {
+            _shiftButton = btn;
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    FindShiftButton(fe);
+                if (_shiftButton != null) return;
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindShiftButton(scrollContent);
+        }
+    }
+
+    private void FindLangButton(FrameworkElement element)
+    {
+        if (element is Button btn && btn.Tag as string == "Lang")
+        {
+            _langButton = btn;
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    FindLangButton(fe);
+                if (_langButton != null) return;
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindLangButton(scrollContent);
+        }
     }
     
     private string GetWindowTitle(IntPtr hWnd)
