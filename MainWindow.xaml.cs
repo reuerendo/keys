@@ -12,6 +12,9 @@ public sealed partial class MainWindow : Window
     static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
     [DllImport("user32.dll")]
+    static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
     static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -34,6 +37,7 @@ public sealed partial class MainWindow : Window
 
     const int INPUT_KEYBOARD = 1;
     const uint KEYEVENTF_KEYUP = 0x0002;
+    const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
 
     [StructLayout(LayoutKind.Sequential)]
     struct INPUT
@@ -189,6 +193,7 @@ public sealed partial class MainWindow : Window
         
         if (vk != 0)
         {
+            // Try SendInput first
             INPUT[] inputs = new INPUT[2];
             
             // Key down
@@ -214,6 +219,20 @@ public sealed partial class MainWindow : Window
             {
                 int error = Marshal.GetLastWin32Error();
                 Logger.Error($"SendInput failed! Error code: {error}");
+                Logger.Warning("Trying fallback method: keybd_event");
+                
+                // Fallback to keybd_event
+                try
+                {
+                    keybd_event(vk, 0, 0, UIntPtr.Zero); // Key down
+                    System.Threading.Thread.Sleep(10);
+                    keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Key up
+                    Logger.Info("keybd_event method executed");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("keybd_event also failed", ex);
+                }
             }
         }
         else
