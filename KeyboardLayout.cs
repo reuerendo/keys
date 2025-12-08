@@ -119,42 +119,42 @@ public class KeyboardLayout
         var layout = new KeyboardLayout { Name = "Symbols" };
 
         // Row 2
-        layout.Keys["q"] = new KeyDefinition("@", "@");
-        layout.Keys["w"] = new KeyDefinition("&", "&");
-        layout.Keys["e"] = new KeyDefinition("€", "€");
-        layout.Keys["r"] = new KeyDefinition("#", "#");
-        layout.Keys["t"] = new KeyDefinition("№", "№");
-        layout.Keys["y"] = new KeyDefinition("_", "_");
-        layout.Keys["u"] = new KeyDefinition("~", "~");
-        layout.Keys["i"] = new KeyDefinition("∞", "∞");
-        layout.Keys["o"] = new KeyDefinition("%", "%");
-        layout.Keys["p"] = new KeyDefinition("÷", "÷");
-        layout.Keys["["] = new KeyDefinition("×", "×");
-        layout.Keys["]"] = new KeyDefinition("±", "±");
+        layout.Keys["q"] = new KeyDefinition("@", "@", "@", "@");
+        layout.Keys["w"] = new KeyDefinition("&", "&", "&", "&");
+        layout.Keys["e"] = new KeyDefinition("€", "€", "€", "€");
+        layout.Keys["r"] = new KeyDefinition("#", "#", "#", "#");
+        layout.Keys["t"] = new KeyDefinition("№", "№", "№", "№");
+        layout.Keys["y"] = new KeyDefinition("_", "_", "_", "_");
+        layout.Keys["u"] = new KeyDefinition("~", "~", "~", "~");
+        layout.Keys["i"] = new KeyDefinition("∞", "∞", "∞", "∞");
+        layout.Keys["o"] = new KeyDefinition("%", "%", "%", "%");
+        layout.Keys["p"] = new KeyDefinition("÷", "÷", "÷", "÷");
+        layout.Keys["["] = new KeyDefinition("×", "×", "×", "×");
+        layout.Keys["]"] = new KeyDefinition("±", "±", "±", "±");
 
         // Row 3
-        layout.Keys["a"] = new KeyDefinition("{", "{");
-        layout.Keys["s"] = new KeyDefinition("}", "}");
-        layout.Keys["d"] = new KeyDefinition("[", "[");
-        layout.Keys["f"] = new KeyDefinition("]", "]");
-        layout.Keys["g"] = new KeyDefinition("(", "(");
-        layout.Keys["h"] = new KeyDefinition(")", ")");
-        layout.Keys["j"] = new KeyDefinition("≤", "≤");
-        layout.Keys["k"] = new KeyDefinition("≥", "≥");
-        layout.Keys["l"] = new KeyDefinition("<", "<");
-        layout.Keys[";"] = new KeyDefinition(">", ">");
-        layout.Keys["'"] = new KeyDefinition("|", "|");
+        layout.Keys["a"] = new KeyDefinition("{", "{", "{", "{");
+        layout.Keys["s"] = new KeyDefinition("}", "}", "}", "}");
+        layout.Keys["d"] = new KeyDefinition("[", "[", "[", "[");
+        layout.Keys["f"] = new KeyDefinition("]", "]", "]", "]");
+        layout.Keys["g"] = new KeyDefinition("(", "(", "(", "(");
+        layout.Keys["h"] = new KeyDefinition(")", ")", ")", ")");
+        layout.Keys["j"] = new KeyDefinition("≤", "≤", "≤", "≤");
+        layout.Keys["k"] = new KeyDefinition("≥", "≥", "≥", "≥");
+        layout.Keys["l"] = new KeyDefinition("<", "<", "<", "<");
+        layout.Keys[";"] = new KeyDefinition(">", ">", ">", ">");
+        layout.Keys["'"] = new KeyDefinition("|", "|", "|", "|");
 
         // Row 4
-        layout.Keys["z"] = new KeyDefinition("́", "́"); // Combining acute accent
-        layout.Keys["x"] = new KeyDefinition("«", "«");
-        layout.Keys["c"] = new KeyDefinition("»", "»");
-        layout.Keys["v"] = new KeyDefinition(""", """);
-        layout.Keys["b"] = new KeyDefinition(""", """);
-        layout.Keys["n"] = new KeyDefinition("'", "'");
-        layout.Keys["m"] = new KeyDefinition("'", "'");
-        layout.Keys[","] = new KeyDefinition("^", "^");
-        layout.Keys["."] = new KeyDefinition(";", ";");
+        layout.Keys["z"] = new KeyDefinition("́", "́", "́", "́"); // Combining acute accent
+        layout.Keys["x"] = new KeyDefinition("«", "«", "«", "«");
+        layout.Keys["c"] = new KeyDefinition("»", "»", "»", "»");
+        layout.Keys["v"] = new KeyDefinition(""", """, """, """);
+        layout.Keys["b"] = new KeyDefinition(""", """, """, """);
+        layout.Keys["n"] = new KeyDefinition("'", "'", "'", "'");
+        layout.Keys["m"] = new KeyDefinition("'", "'", "'", "'");
+        layout.Keys[","] = new KeyDefinition("^", "^", "^", "^");
+        layout.Keys["."] = new KeyDefinition(";", ";", ";", ";");
 
         return layout;
     }
