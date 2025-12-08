@@ -1,7 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
+using WinRT.Interop;
 
 namespace VirtualKeyboard;
 
@@ -10,7 +13,21 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
     const uint KEYEVENTF_KEYUP = 0x0002;
+    const int GWL_EXSTYLE = -20;
+    const int WS_EX_TOPMOST = 0x00000008;
+    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    const uint SWP_NOMOVE = 0x0002;
+    const uint SWP_NOSIZE = 0x0001;
 
     public MainWindow()
     {
@@ -18,7 +35,29 @@ public sealed partial class MainWindow : Window
         Title = "Virtual Keyboard";
         
         var appWindow = this.AppWindow;
-        appWindow.Resize(new Windows.Graphics.SizeInt32(800, 280));
+        
+        // Set fixed size
+        appWindow.Resize(new Windows.Graphics.SizeInt32(808, 320));
+        
+        // Disable resizing
+        var presenter = appWindow.Presenter as OverlappedPresenter;
+        if (presenter != null)
+        {
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+        }
+        
+        // Set window to always be on top
+        SetAlwaysOnTop();
+    }
+
+    private void SetAlwaysOnTop()
+    {
+        // Get window handle
+        IntPtr hWnd = WindowNative.GetWindowHandle(this);
+        
+        // Set window as topmost
+        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     }
 
     private void KeyButton_Click(object sender, RoutedEventArgs e)
