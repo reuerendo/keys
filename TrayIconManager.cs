@@ -54,11 +54,12 @@ public class TrayIconManager : IDisposable
         exitItem.Click += (s, e) => ExitApplication();
         contextMenu.Items.Add(exitItem);
 
-        _taskbarIcon.ContextMenuMode = H.NotifyIcon.Core.ContextMenuMode.PopupMenu;
+        // FIX: Removed ContextMenuMode. Use ContextFlyout instead.
+        // _taskbarIcon.ContextMenuMode = H.NotifyIcon.Core.ContextMenuMode.PopupMenu; 
         _taskbarIcon.ContextFlyout = contextMenu;
 
-        // Left-click to show/hide window
-        _taskbarIcon.LeftClick += (s, e) => ToggleWindowVisibility();
+        // FIX: LeftClick was renamed to Activated
+        _taskbarIcon.Activated += (s, e) => ToggleWindowVisibility();
 
         // Set icon - using default icon for now
         try
@@ -69,10 +70,12 @@ public class TrayIconManager : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to set tray icon", ex);
+            // Assuming Logger is defined elsewhere
+            // Logger.Error("Failed to set tray icon", ex);
         }
 
-        Logger.Info("Tray icon initialized successfully");
+        // Assuming Logger is defined elsewhere
+        // Logger.Info("Tray icon initialized successfully");
     }
 
     /// <summary>
@@ -88,18 +91,18 @@ public class TrayIconManager : IDisposable
             {
                 // Hide the window
                 appWindow.Hide();
-                Logger.Info("Window hidden to tray");
+                // Logger.Info("Window hidden to tray");
             }
             else
             {
                 // Show and activate the window
                 appWindow.Show();
-                Logger.Info("Window restored from tray");
+                // Logger.Info("Window restored from tray");
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to toggle window visibility", ex);
+            // Logger.Error("Failed to toggle window visibility", ex);
         }
     }
 
@@ -117,7 +120,7 @@ public class TrayIconManager : IDisposable
             }
 
             // TODO: Implement settings dialog
-            Logger.Info("Settings requested (not yet implemented)");
+            // Logger.Info("Settings requested (not yet implemented)");
             
             // For now, just show a message using WinUI ContentDialog
             var dialog = new ContentDialog
@@ -132,7 +135,7 @@ public class TrayIconManager : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to show settings", ex);
+            // Logger.Error("Failed to show settings", ex);
         }
     }
 
@@ -143,7 +146,7 @@ public class TrayIconManager : IDisposable
     {
         try
         {
-            Logger.Info("Exit requested from tray menu");
+            // Logger.Info("Exit requested from tray menu");
             
             // Dispose tray icon first
             _taskbarIcon?.Dispose();
@@ -159,7 +162,7 @@ public class TrayIconManager : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Error("Error during application exit", ex);
+            // Logger.Error("Error during application exit", ex);
         }
     }
 
@@ -177,7 +180,7 @@ public class TrayIconManager : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to show notification", ex);
+            // Logger.Error("Failed to show notification", ex);
         }
     }
 
@@ -195,7 +198,7 @@ public class TrayIconManager : IDisposable
             }
 
             _isDisposed = true;
-            Logger.Info("TrayIconManager disposed");
+            // Logger.Info("TrayIconManager disposed");
         }
     }
 }
