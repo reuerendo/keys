@@ -20,7 +20,13 @@ public sealed partial class MainWindow : Window
 
     // Keyboard state
     private bool _isShiftActive = false;
+    private bool _isCapsLockActive = false;
+    private bool _isCtrlActive = false;
+    private bool _isAltActive = false;
     private Button _shiftButton;
+    private Button _capsButton;
+    private Button _ctrlButton;
+    private Button _altButton;
     private Button _langButton;
     
     // Layouts
@@ -111,8 +117,8 @@ public sealed partial class MainWindow : Window
         // Calculate window size with extra margin for ScrollViewer and borders
         // Content width: 1002 (buttons + gaps) + margins 22*2 = 1046
         // Adding extra 40px for ScrollViewer padding and window chrome
-        int physicalWidth = (int)(1068 * scalingFactor);
-        int physicalHeight = (int)(376 * scalingFactor);
+        int physicalWidth = (int)(1056 * scalingFactor);
+        int physicalHeight = (int)(388 * scalingFactor);
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -160,6 +166,18 @@ public sealed partial class MainWindow : Window
             {
                 ToggleShift();
             }
+            else if (keyCode == "Caps")
+            {
+                ToggleCapsLock();
+            }
+            else if (keyCode == "Ctrl")
+            {
+                ToggleCtrl();
+            }
+            else if (keyCode == "Alt")
+            {
+                ToggleAlt();
+            }
             else if (keyCode == "Lang")
             {
                 SwitchLanguage();
@@ -172,10 +190,20 @@ public sealed partial class MainWindow : Window
             {
                 SendKey(keyCode);
                 
-                // Deactivate shift after typing
+                // Deactivate shift after typing (but not Caps Lock)
                 if (_isShiftActive && IsLayoutKey(keyCode))
                 {
                     ToggleShift();
+                }
+                
+                // Deactivate Ctrl and Alt after typing
+                if (_isCtrlActive)
+                {
+                    ToggleCtrl();
+                }
+                if (_isAltActive)
+                {
+                    ToggleAlt();
                 }
             }
         }
@@ -192,8 +220,51 @@ public sealed partial class MainWindow : Window
         }
         
         UpdateKeyLabels();
-        UpdateShiftButtonStyle();
+        UpdateModifierButtonStyle();
         Logger.Info($"Shift toggled: {_isShiftActive}");
+    }
+
+    private void ToggleCapsLock()
+    {
+        _isCapsLockActive = !_isCapsLockActive;
+        
+        // Lazy initialization of caps button reference
+        if (_capsButton == null)
+        {
+            FindCapsButton(this.Content as FrameworkElement);
+        }
+        
+        UpdateKeyLabels();
+        UpdateModifierButtonStyle();
+        Logger.Info($"Caps Lock toggled: {_isCapsLockActive}");
+    }
+
+    private void ToggleCtrl()
+    {
+        _isCtrlActive = !_isCtrlActive;
+        
+        // Lazy initialization of ctrl button reference
+        if (_ctrlButton == null)
+        {
+            FindCtrlButton(this.Content as FrameworkElement);
+        }
+        
+        UpdateModifierButtonStyle();
+        Logger.Info($"Ctrl toggled: {_isCtrlActive}");
+    }
+
+    private void ToggleAlt()
+    {
+        _isAltActive = !_isAltActive;
+        
+        // Lazy initialization of alt button reference
+        if (_altButton == null)
+        {
+            FindAltButton(this.Content as FrameworkElement);
+        }
+        
+        UpdateModifierButtonStyle();
+        Logger.Info($"Alt toggled: {_isAltActive}");
     }
 
     private void SwitchLanguage()
@@ -226,11 +297,23 @@ public sealed partial class MainWindow : Window
         Logger.Info($"Symbol mode: {_isSymbolMode}, Layout: {_currentLayout.Name}");
     }
 
-    private void UpdateShiftButtonStyle()
+    private void UpdateModifierButtonStyle()
     {
         if (_shiftButton != null)
         {
             _shiftButton.Opacity = _isShiftActive ? 0.7 : 1.0;
+        }
+        if (_capsButton != null)
+        {
+            _capsButton.Opacity = _isCapsLockActive ? 0.7 : 1.0;
+        }
+        if (_ctrlButton != null)
+        {
+            _ctrlButton.Opacity = _isCtrlActive ? 0.7 : 1.0;
+        }
+        if (_altButton != null)
+        {
+            _altButton.Opacity = _isAltActive ? 0.7 : 1.0;
         }
     }
 
@@ -268,7 +351,17 @@ public sealed partial class MainWindow : Window
             else if (_currentLayout.Keys.ContainsKey(tag))
             {
                 var keyDef = _currentLayout.Keys[tag];
-                btn.Content = _isShiftActive ? keyDef.DisplayShift : keyDef.Display;
+                // Apply shift OR caps lock for letters
+                bool shouldCapitalize = (_isShiftActive || _isCapsLockActive) && keyDef.IsLetter;
+                // For Shift with Caps Lock, they cancel each other out
+                if (_isShiftActive && _isCapsLockActive && keyDef.IsLetter)
+                {
+                    shouldCapitalize = false;
+                }
+                // For non-letters, only shift affects display
+                bool useShift = _isShiftActive && !keyDef.IsLetter;
+                
+                btn.Content = (shouldCapitalize || useShift) ? keyDef.DisplayShift : keyDef.Display;
             }
         }
 
@@ -296,23 +389,66 @@ public sealed partial class MainWindow : Window
         IntPtr currentForeground = GetForegroundWindow();
         string currentTitle = GetWindowTitle(currentForeground);
 
-        Logger.Info($"Clicking '{key}'. Target Window: 0x{currentForeground:X} ({currentTitle})");
+        Logger.Info($"Clicking '{key}'. Target Window: 0x{currentForeground:X} ({currentTitle}). Modifiers: Ctrl={_isCtrlActive}, Alt={_isAltActive}, Shift={_isShiftActive}, Caps={_isCapsLockActive}");
 
         if (currentForeground == _thisWindowHandle)
         {
             Logger.Warning("CRITICAL: Keyboard has focus! Keys will not be sent to target app. WS_EX_NOACTIVATE failed.");
         }
 
+        // Press modifier keys first
+        if (_isCtrlActive)
+        {
+            SendModifierKeyDown(0x11); // VK_CONTROL
+        }
+        if (_isAltActive)
+        {
+            SendModifierKeyDown(0x12); // VK_MENU (Alt)
+        }
+        if (_isShiftActive)
+        {
+            SendModifierKeyDown(0x10); // VK_SHIFT
+        }
+
         // Check if key is in current layout - use Unicode input
         if (_currentLayout.Keys.ContainsKey(key))
         {
             var keyDef = _currentLayout.Keys[key];
-            string charToSend = _isShiftActive ? keyDef.ValueShift : keyDef.Value;
             
-            // Send each character (for multi-char strings like combining accents)
-            foreach (char c in charToSend)
+            // For shortcuts (Ctrl/Alt pressed), we need to send VK codes, not Unicode
+            if (_isCtrlActive || _isAltActive)
             {
-                SendUnicodeChar(c);
+                // Try to get VK code for the key
+                byte vk = GetVirtualKeyCodeForLayoutKey(key);
+                if (vk != 0)
+                {
+                    SendVirtualKey(vk, skipModifiers: true);
+                }
+                else
+                {
+                    Logger.Warning($"No VK code found for '{key}' - shortcuts may not work");
+                }
+            }
+            else
+            {
+                // Normal typing - use Unicode
+                // Apply shift OR caps lock for letters
+                bool shouldCapitalize = (_isShiftActive || _isCapsLockActive) && keyDef.IsLetter;
+                // Shift + Caps Lock cancel each other
+                if (_isShiftActive && _isCapsLockActive && keyDef.IsLetter)
+                {
+                    shouldCapitalize = false;
+                }
+                // For non-letters, only shift affects output
+                bool useShift = _isShiftActive && !keyDef.IsLetter;
+                
+                string charToSend = (shouldCapitalize || useShift) ? keyDef.ValueShift : keyDef.Value;
+                
+                // Send each character
+                foreach (char c in charToSend)
+                {
+                    SendUnicodeChar(c);
+                }
             }
         }
         else
@@ -333,6 +469,20 @@ public sealed partial class MainWindow : Window
                     SendVirtualKey(vk);
                 }
             }
+        }
+
+        // Release modifier keys
+        if (_isShiftActive)
+        {
+            SendModifierKeyUp(0x10); // VK_SHIFT
+        }
+        if (_isAltActive)
+        {
+            SendModifierKeyUp(0x12); // VK_MENU (Alt)
+        }
+        if (_isCtrlActive)
+        {
+            SendModifierKeyUp(0x11); // VK_CONTROL
         }
     }
 
@@ -370,7 +520,49 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void SendVirtualKey(byte vk)
+    private void SendModifierKeyDown(byte vk)
+    {
+        INPUT[] inputs = new INPUT[1];
+        
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].u.ki.wVk = vk;
+        inputs[0].u.ki.wScan = 0;
+        inputs[0].u.ki.dwFlags = 0;
+        inputs[0].u.ki.time = 0;
+        inputs[0].u.ki.dwExtraInfo = IntPtr.Zero;
+        
+        int structSize = Marshal.SizeOf(typeof(INPUT));
+        uint result = SendInput(1, inputs, structSize);
+        
+        if (result == 0)
+        {
+            int error = Marshal.GetLastWin32Error();
+            Logger.Error($"SendInput (Modifier Down) failed. VK: 0x{vk:X}, Win32 Error: {error}");
+        }
+    }
+
+    private void SendModifierKeyUp(byte vk)
+    {
+        INPUT[] inputs = new INPUT[1];
+        
+        inputs[0].type = INPUT_KEYBOARD;
+        inputs[0].u.ki.wVk = vk;
+        inputs[0].u.ki.wScan = 0;
+        inputs[0].u.ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[0].u.ki.time = 0;
+        inputs[0].u.ki.dwExtraInfo = IntPtr.Zero;
+        
+        int structSize = Marshal.SizeOf(typeof(INPUT));
+        uint result = SendInput(1, inputs, structSize);
+        
+        if (result == 0)
+        {
+            int error = Marshal.GetLastWin32Error();
+            Logger.Error($"SendInput (Modifier Up) failed. VK: 0x{vk:X}, Win32 Error: {error}");
+        }
+    }
+
+    private void SendVirtualKey(byte vk, bool skipModifiers = false)
     {
         INPUT[] inputs = new INPUT[2];
         
@@ -445,6 +637,75 @@ public sealed partial class MainWindow : Window
         else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
         {
             FindShiftButton(scrollContent);
+        }
+    }
+
+    private void FindCapsButton(FrameworkElement element)
+    {
+        if (element is Button btn && btn.Tag as string == "Caps")
+        {
+            _capsButton = btn;
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    FindCapsButton(fe);
+                if (_capsButton != null) return;
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindCapsButton(scrollContent);
+        }
+    }
+
+    private void FindCtrlButton(FrameworkElement element)
+    {
+        if (element is Button btn && btn.Tag as string == "Ctrl")
+        {
+            _ctrlButton = btn;
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    FindCtrlButton(fe);
+                if (_ctrlButton != null) return;
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindCtrlButton(scrollContent);
+        }
+    }
+
+    private void FindAltButton(FrameworkElement element)
+    {
+        if (element is Button btn && btn.Tag as string == "Alt")
+        {
+            _altButton = btn;
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    FindAltButton(fe);
+                if (_altButton != null) return;
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindAltButton(scrollContent);
         }
     }
 
