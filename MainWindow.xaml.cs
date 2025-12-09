@@ -108,11 +108,11 @@ public sealed partial class MainWindow : Window
         uint dpi = GetDpiForWindow(_thisWindowHandle);
         float scalingFactor = dpi / 96f;
         
-        // Calculate window size based on content (logical pixels then scale to physical)
-        // Row 1 is widest: Esc(56) + 10digits(560) + 3symbols(168) + Backspace(134) + 14gaps(84) + margins(44) = 1046
-        // Total height: 5 rows * 56 + 4 gaps * 6 + margins 22*2 + extra = 280 + 24 + 44 + 50 = 398
-        int physicalWidth = (int)(1046 * scalingFactor);
-        int physicalHeight = (int)(398 * scalingFactor);
+        // Calculate window size with extra margin for ScrollViewer and borders
+        // Content width: 1002 (buttons + gaps) + margins 22*2 = 1046
+        // Adding extra 40px for ScrollViewer padding and window chrome
+        int physicalWidth = (int)(1086 * scalingFactor);
+        int physicalHeight = (int)(382 * scalingFactor);
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
