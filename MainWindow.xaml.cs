@@ -105,13 +105,14 @@ public sealed partial class MainWindow : Window
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
-        uint dpi = GetDpiForWindow(_thisWindowHandle);
-        float scalingFactor = dpi / 96f;
-        int physicalWidth = (int)(760 * scalingFactor);
-        int physicalHeight = (int)(330 * scalingFactor);
+        // Calculate window size based on content (logical pixels)
+        // Total width: 15 buttons * 56 + 14 gaps * 6 + margins 22*2 = 840 + 84 + 44 = 968
+        // Total height: 5 rows * 56 + 4 gaps * 6 + margins 22*2 = 280 + 24 + 44 = 348
+        int logicalWidth = 968;
+        int logicalHeight = 380; // Added some extra for title bar and padding
         
         var appWindow = this.AppWindow;
-        appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
+        appWindow.Resize(new Windows.Graphics.SizeInt32(logicalWidth, logicalHeight));
         
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
