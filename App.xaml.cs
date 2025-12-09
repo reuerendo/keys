@@ -22,8 +22,7 @@ public partial class App : Application
         // Show initial notification
         _trayIconManager.ShowNotification(
             "Virtual Keyboard",
-            "Virtual Keyboard is running. Double-click tray icon to show/hide.",
-            System.Windows.Forms.ToolTipIcon.Info
+            "Virtual Keyboard is running. Click tray icon to show/hide."
         );
         
         m_window.Activate();

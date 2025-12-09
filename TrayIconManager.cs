@@ -1,8 +1,7 @@
 using System;
-using System.Drawing;
-using System.Windows.Forms;
 using Microsoft.UI.Xaml;
-using Application = System.Windows.Forms.Application;
+using Microsoft.UI.Xaml.Controls;
+using H.NotifyIcon;
 
 namespace VirtualKeyboard;
 
@@ -11,7 +10,7 @@ namespace VirtualKeyboard;
 /// </summary>
 public class TrayIconManager : IDisposable
 {
-    private NotifyIcon _notifyIcon;
+    private TaskbarIcon _taskbarIcon;
     private readonly Window _mainWindow;
     private readonly Microsoft.UI.Xaml.Application _winUIApp;
     private bool _isDisposed;
@@ -28,40 +27,50 @@ public class TrayIconManager : IDisposable
     /// </summary>
     private void InitializeTrayIcon()
     {
-        _notifyIcon = new NotifyIcon
+        _taskbarIcon = new TaskbarIcon
         {
-            // Use a simple keyboard icon (you can replace with custom icon file)
-            Icon = SystemIcons.Application,
-            Text = "Virtual Keyboard",
-            Visible = true
+            ToolTipText = "Virtual Keyboard",
         };
 
         // Create context menu
-        var contextMenu = new ContextMenuStrip();
+        var contextMenu = new MenuFlyout();
         
         // Show/Hide menu item
-        var showHideItem = new ToolStripMenuItem("Show/Hide Keyboard");
+        var showHideItem = new MenuFlyoutItem { Text = "Show/Hide Keyboard" };
         showHideItem.Click += (s, e) => ToggleWindowVisibility();
         contextMenu.Items.Add(showHideItem);
         
-        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(new MenuFlyoutSeparator());
         
         // Settings menu item
-        var settingsItem = new ToolStripMenuItem("Settings");
+        var settingsItem = new MenuFlyoutItem { Text = "Settings" };
         settingsItem.Click += (s, e) => ShowSettings();
         contextMenu.Items.Add(settingsItem);
         
-        contextMenu.Items.Add(new ToolStripSeparator());
+        contextMenu.Items.Add(new MenuFlyoutSeparator());
         
         // Exit menu item
-        var exitItem = new ToolStripMenuItem("Exit");
+        var exitItem = new MenuFlyoutItem { Text = "Exit" };
         exitItem.Click += (s, e) => ExitApplication();
         contextMenu.Items.Add(exitItem);
 
-        _notifyIcon.ContextMenuStrip = contextMenu;
+        _taskbarIcon.ContextMenuMode = H.NotifyIcon.Core.ContextMenuMode.PopupMenu;
+        _taskbarIcon.ContextFlyout = contextMenu;
 
-        // Double-click to show/hide window
-        _notifyIcon.DoubleClick += (s, e) => ToggleWindowVisibility();
+        // Left-click to show/hide window
+        _taskbarIcon.LeftClick += (s, e) => ToggleWindowVisibility();
+
+        // Set icon - using default icon for now
+        try
+        {
+            // You can set custom icon here like:
+            // _taskbarIcon.Icon = new Icon("icon.ico");
+            // For now, we'll use the default
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to set tray icon", ex);
+        }
 
         Logger.Info("Tray icon initialized successfully");
     }
@@ -97,7 +106,7 @@ public class TrayIconManager : IDisposable
     /// <summary>
     /// Show settings dialog
     /// </summary>
-    private void ShowSettings()
+    private async void ShowSettings()
     {
         try
         {
@@ -110,13 +119,16 @@ public class TrayIconManager : IDisposable
             // TODO: Implement settings dialog
             Logger.Info("Settings requested (not yet implemented)");
             
-            // For now, just show a message
-            System.Windows.Forms.MessageBox.Show(
-                "Settings dialog will be implemented in future updates.",
-                "Settings",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information
-            );
+            // For now, just show a message using WinUI ContentDialog
+            var dialog = new ContentDialog
+            {
+                Title = "Settings",
+                Content = "Settings dialog will be implemented in future updates.",
+                CloseButtonText = "OK",
+                XamlRoot = _mainWindow.Content.XamlRoot
+            };
+            
+            await dialog.ShowAsync();
         }
         catch (Exception ex)
         {
@@ -133,8 +145,8 @@ public class TrayIconManager : IDisposable
         {
             Logger.Info("Exit requested from tray menu");
             
-            // Clean up tray icon
-            _notifyIcon.Visible = false;
+            // Dispose tray icon first
+            _taskbarIcon?.Dispose();
             
             // Close the WinUI window
             _mainWindow.DispatcherQueue.TryEnqueue(() =>

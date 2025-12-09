@@ -23,8 +23,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1" />
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
-    <PackageReference Include="System.Windows.Forms" Version="8.0.0" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.1.4" />
   </ItemGroup>
 
   <ItemGroup>
