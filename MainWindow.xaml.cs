@@ -173,29 +173,20 @@ public sealed partial class MainWindow : Window
 		}
 	}
 	
-	private void InitializeTrayIcon()
+	private void TrayIcon_ToggleVisibilityRequested(object sender, EventArgs e)
 	{
-		try
+		// Check if window is currently visible
+		bool isVisible = IsWindowVisible(_thisWindowHandle);
+		
+		if (isVisible)
 		{
-			_trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
-			_trayIcon.ShowRequested += TrayIcon_ShowRequested;
-			_trayIcon.ToggleVisibilityRequested += TrayIcon_ToggleVisibilityRequested; // New event handler
-			_trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
-			_trayIcon.ExitRequested += TrayIcon_ExitRequested;
-			_trayIcon.Show();
-			
-			Logger.Info("Tray icon initialized and shown");
+			HideWindow();
 		}
-		catch (Exception ex)
+		else
 		{
-			Logger.Error("Failed to initialize tray icon", ex);
+			ShowWindow();
 		}
 	}
-
-    private void TrayIcon_ShowRequested(object sender, EventArgs e)
-    {
-        ShowWindow();
-    }
 
     private void TrayIcon_SettingsRequested(object sender, EventArgs e)
     {
