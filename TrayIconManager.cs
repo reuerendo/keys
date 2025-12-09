@@ -166,13 +166,13 @@ public class TrayIconManager : IDisposable
     /// <summary>
     /// Show a notification balloon tip
     /// </summary>
-    public void ShowNotification(string title, string text, ToolTipIcon icon = ToolTipIcon.Info)
+    public void ShowNotification(string title, string text)
     {
         try
         {
-            if (_notifyIcon != null && !_isDisposed)
+            if (_taskbarIcon != null && !_isDisposed)
             {
-                _notifyIcon.ShowBalloonTip(3000, title, text, icon);
+                _taskbarIcon.ShowNotification(title, text);
             }
         }
         catch (Exception ex)
@@ -188,11 +188,10 @@ public class TrayIconManager : IDisposable
     {
         if (!_isDisposed)
         {
-            if (_notifyIcon != null)
+            if (_taskbarIcon != null)
             {
-                _notifyIcon.Visible = false;
-                _notifyIcon.Dispose();
-                _notifyIcon = null;
+                _taskbarIcon.Dispose();
+                _taskbarIcon = null;
             }
 
             _isDisposed = true;
