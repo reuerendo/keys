@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window
     private KeyboardLayout _russianLayout;
     private KeyboardLayout _symbolLayout;
     private KeyboardLayout _currentLayout;
+    private KeyboardLayout _previousLayout; // Remember layout before switching to symbols
     private bool _isSymbolMode = false;
 
     // --- Win32 Structs (Correctly Aligned for x64) ---
@@ -298,12 +299,14 @@ public sealed partial class MainWindow : Window
         
         if (_isSymbolMode)
         {
+            // Remember current layout before switching to symbols
+            _previousLayout = _currentLayout;
             _currentLayout = _symbolLayout;
         }
         else
         {
-            // Reset to the default language when leaving symbol mode
-            _currentLayout = (_currentLayout == _russianLayout) ? _russianLayout : _englishLayout;
+            // Restore previous layout when leaving symbol mode
+            _currentLayout = _previousLayout ?? _englishLayout;
         }
         
         UpdateKeyLabels();
