@@ -1,6 +1,7 @@
 using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input; // Добавлено для XamlUICommand
 using H.NotifyIcon;
 
 namespace VirtualKeyboard;
@@ -57,8 +58,11 @@ public class TrayIconManager : IDisposable
         // Context menu assignment
         _taskbarIcon.ContextFlyout = contextMenu;
 
-        // FIX: Use TrayLeftMouseUp instead of LeftClick or Activated
-        _taskbarIcon.TrayLeftMouseUp += (s, e) => ToggleWindowVisibility();
+        // FIX: H.NotifyIcon for WinUI uses Commands instead of events.
+        // We create a generic XamlUICommand to handle the click.
+        var leftClickCommand = new XamlUICommand();
+        leftClickCommand.ExecuteRequested += (s, e) => ToggleWindowVisibility();
+        _taskbarIcon.LeftClickCommand = leftClickCommand;
 
         // Set icon - using default icon for now
         try
