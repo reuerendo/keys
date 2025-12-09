@@ -100,9 +100,9 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-	
-	[DllImport("user32.dll")]
-	static extern bool IsWindowVisible(IntPtr hWnd);
+    
+    [DllImport("user32.dll")]
+    static extern bool IsWindowVisible(IntPtr hWnd);
 
     private const int SW_HIDE = 0;
     private const int SW_SHOW = 5;
@@ -154,39 +154,44 @@ public sealed partial class MainWindow : Window
         this.Closed += MainWindow_Closed;
     }
 
-	private void InitializeTrayIcon()
-	{
-		try
-		{
-			_trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
-			_trayIcon.ShowRequested += TrayIcon_ShowRequested;
-			_trayIcon.ToggleVisibilityRequested += TrayIcon_ToggleVisibilityRequested; // New event handler
-			_trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
-			_trayIcon.ExitRequested += TrayIcon_ExitRequested;
-			_trayIcon.Show();
-			
-			Logger.Info("Tray icon initialized and shown");
-		}
-		catch (Exception ex)
-		{
-			Logger.Error("Failed to initialize tray icon", ex);
-		}
-	}
-	
-	private void TrayIcon_ToggleVisibilityRequested(object sender, EventArgs e)
-	{
-		// Check if window is currently visible
-		bool isVisible = IsWindowVisible(_thisWindowHandle);
-		
-		if (isVisible)
-		{
-			HideWindow();
-		}
-		else
-		{
-			ShowWindow();
-		}
-	}
+    private void InitializeTrayIcon()
+    {
+        try
+        {
+            _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
+            _trayIcon.ShowRequested += TrayIcon_ShowRequested;
+            _trayIcon.ToggleVisibilityRequested += TrayIcon_ToggleVisibilityRequested;
+            _trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
+            _trayIcon.ExitRequested += TrayIcon_ExitRequested;
+            _trayIcon.Show();
+            
+            Logger.Info("Tray icon initialized and shown");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to initialize tray icon", ex);
+        }
+    }
+
+    private void TrayIcon_ShowRequested(object sender, EventArgs e)
+    {
+        ShowWindow();
+    }
+
+    private void TrayIcon_ToggleVisibilityRequested(object sender, EventArgs e)
+    {
+        // Check if window is currently visible
+        bool isVisible = IsWindowVisible(_thisWindowHandle);
+        
+        if (isVisible)
+        {
+            HideWindow();
+        }
+        else
+        {
+            ShowWindow();
+        }
+    }
 
     private void TrayIcon_SettingsRequested(object sender, EventArgs e)
     {

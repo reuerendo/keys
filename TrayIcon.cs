@@ -121,8 +121,7 @@ public class TrayIcon : IDisposable
     private IntPtr _hIcon;
 
     public event EventHandler ShowRequested;
-    public event EventHandler HideRequested; // New event for hide action
-    public event EventHandler ToggleVisibilityRequested; // New event for toggle action
+    public event EventHandler ToggleVisibilityRequested;
     public event EventHandler SettingsRequested;
     public event EventHandler ExitRequested;
 
