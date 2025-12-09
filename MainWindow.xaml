@@ -38,8 +38,8 @@
                 <Button Content="i" Tag="i" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="o" Tag="o" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="p" Tag="p" Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="[" Tag="[" Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="]" Tag="]" Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content="(" Tag="(" Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content=")" Tag=")" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="/" Tag="/" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="*" Tag="*" Click="KeyButton_Click" Width="56" Height="56"/>
             </StackPanel>
@@ -56,9 +56,9 @@
                 <Button Content="j" Tag="j" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="k" Tag="k" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="l" Tag="l" Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content=":" Tag=":" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content=";" Tag=";" Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="'" Tag="'" Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="207" Height="56"/>
+                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="235" Height="56"/>
             </StackPanel>
 
             <!-- Row 4: ZXCV row -->
@@ -71,8 +71,8 @@
                 <Button Content="b" Tag="b" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="n" Tag="n" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="m" Tag="m" Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="," Tag="," Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="." Tag="." Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content="&lt;" Tag="&lt;" Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="!" Tag="!" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="?" Tag="?" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="↑" Tag="↑" Click="KeyButton_Click" Width="56" Height="56"/>
@@ -86,8 +86,8 @@
                 <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content=" " Tag=" " Click="KeyButton_Click" Width="442" Height="56"/>
-                <Button Content="&lt;" Tag="&lt;" Click="KeyButton_Click" Width="56" Height="56"/>
-                <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content="," Tag="," Click="KeyButton_Click" Width="56" Height="56"/>
+                <Button Content="." Tag="." Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="←" Tag="←" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="↓" Tag="↓" Click="KeyButton_Click" Width="56" Height="56"/>
                 <Button Content="→" Tag="→" Click="KeyButton_Click" Width="56" Height="56"/>
