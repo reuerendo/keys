@@ -174,7 +174,7 @@ public class TrayIcon : IDisposable
         if (File.Exists(iconPath))
         {
             Logger.Info($"Found custom icon file: {iconPath}");
-            IntPtr hIcon = LoadImage(IntPtr.Zero, iconPath, 1, 16, 16, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            IntPtr hIcon = LoadImage(IntPtr.Zero, iconPath, 1, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
             
             if (hIcon != IntPtr.Zero)
             {
