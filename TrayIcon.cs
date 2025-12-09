@@ -13,7 +13,7 @@ public class TrayIcon : IDisposable
     // Win32 Constants
     private const int WM_USER = 0x0400;
     private const int WM_TRAYICON = WM_USER + 1;
-    private const int WM_LBUTTONDBLCLK = 0x0203;
+    private const int WM_LBUTTONUP = 0x0202; // Changed from WM_LBUTTONDBLCLK to WM_LBUTTONUP
     private const int WM_RBUTTONUP = 0x0205;
     
     private const uint NIM_ADD = 0x00000000;
@@ -121,6 +121,8 @@ public class TrayIcon : IDisposable
     private IntPtr _hIcon;
 
     public event EventHandler ShowRequested;
+    public event EventHandler HideRequested; // New event for hide action
+    public event EventHandler ToggleVisibilityRequested; // New event for toggle action
     public event EventHandler SettingsRequested;
     public event EventHandler ExitRequested;
 
@@ -265,9 +267,9 @@ public class TrayIcon : IDisposable
     {
         switch (message)
         {
-            case WM_LBUTTONDBLCLK:
-                Logger.Info("Tray icon double-clicked");
-                ShowRequested?.Invoke(this, EventArgs.Empty);
+            case WM_LBUTTONUP: // Changed from WM_LBUTTONDBLCLK to WM_LBUTTONUP
+                Logger.Info("Tray icon left-clicked (single click)");
+                ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty); // Invoke toggle event
                 break;
                 
             case WM_RBUTTONUP:
