@@ -29,7 +29,7 @@ public sealed partial class MainWindow : Window
     private readonly LayoutManager _layoutManager;
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
-    private readonly TrayIcon _trayIcon;
+    private TrayIcon _trayIcon;
 
     private bool _isClosing = false;
 
@@ -121,12 +121,12 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            var trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
-            trayIcon.ShowRequested += TrayIcon_ShowRequested;
-            trayIcon.ToggleVisibilityRequested += TrayIcon_ToggleVisibilityRequested;
-            trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
-            trayIcon.ExitRequested += TrayIcon_ExitRequested;
-            trayIcon.Show();
+            _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
+            _trayIcon.ShowRequested += TrayIcon_ShowRequested;
+            _trayIcon.ToggleVisibilityRequested += TrayIcon_ToggleVisibilityRequested;
+            _trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
+            _trayIcon.ExitRequested += TrayIcon_ExitRequested;
+            _trayIcon.Show();
             
             Logger.Info("Tray icon initialized and shown");
         }
