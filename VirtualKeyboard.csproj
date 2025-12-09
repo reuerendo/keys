@@ -13,7 +13,7 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     
     <!-- Framework-dependent settings -->
-    <SelfContained>false</SelfContained>
+    <SelfContained>true</SelfContained>
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <WindowsPackageType>None</WindowsPackageType>
     <PublishSingleFile>false</PublishSingleFile>
@@ -29,4 +29,5 @@
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
+
 </Project>
