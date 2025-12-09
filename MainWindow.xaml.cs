@@ -117,8 +117,8 @@ public sealed partial class MainWindow : Window
         // Calculate window size with extra margin for ScrollViewer and borders
         // Content width: 1002 (buttons + gaps) + margins 22*2 = 1046
         // Adding extra 40px for ScrollViewer padding and window chrome
-        int physicalWidth = (int)(1000 * scalingFactor);
-        int physicalHeight = (int)(330 * scalingFactor);
+        int physicalWidth = (int)(998 * scalingFactor);
+        int physicalHeight = (int)(336 * scalingFactor);
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
