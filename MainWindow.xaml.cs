@@ -34,8 +34,12 @@ public sealed partial class MainWindow : Window
     private KeyboardLayout _russianLayout;
     private KeyboardLayout _symbolLayout;
     private KeyboardLayout _currentLayout;
-    private KeyboardLayout _previousLayout; // Remember layout before switching to symbols
+    private KeyboardLayout _previousLayout;
     private bool _isSymbolMode = false;
+
+    // Tray icon
+    private TrayIcon _trayIcon;
+    private bool _isClosing = false;
 
     // --- Win32 Structs (Correctly Aligned for x64) ---
 
@@ -94,6 +98,12 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
+    [DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_HIDE = 0;
+    private const int SW_SHOW = 5;
+
     private IntPtr _thisWindowHandle;
 
     public MainWindow()
@@ -131,10 +141,128 @@ public sealed partial class MainWindow : Window
 
         ApplyNoActivateStyle();
 
+        // Initialize tray icon
+        InitializeTrayIcon();
+
         Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
         Logger.Info("=== MainWindow Constructor Completed ===");
         
         this.Activated += (s, e) => ApplyNoActivateStyle();
+        this.Closed += MainWindow_Closed;
+    }
+
+    private void InitializeTrayIcon()
+    {
+        try
+        {
+            _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
+            _trayIcon.ShowRequested += TrayIcon_ShowRequested;
+            _trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
+            _trayIcon.ExitRequested += TrayIcon_ExitRequested;
+            _trayIcon.Show();
+            
+            Logger.Info("Tray icon initialized and shown");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to initialize tray icon", ex);
+        }
+    }
+
+    private void TrayIcon_ShowRequested(object sender, EventArgs e)
+    {
+        ShowWindow();
+    }
+
+    private void TrayIcon_SettingsRequested(object sender, EventArgs e)
+    {
+        ShowSettingsDialog();
+    }
+
+    private void TrayIcon_ExitRequested(object sender, EventArgs e)
+    {
+        ExitApplication();
+    }
+
+    private void ShowWindow()
+    {
+        try
+        {
+            ShowWindow(_thisWindowHandle, SW_SHOW);
+            this.Activate();
+            Logger.Info("Window shown from tray");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to show window", ex);
+        }
+    }
+
+    private void HideWindow()
+    {
+        try
+        {
+            ShowWindow(_thisWindowHandle, SW_HIDE);
+            Logger.Info("Window hidden to tray");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to hide window", ex);
+        }
+    }
+
+    private async void ShowSettingsDialog()
+    {
+        try
+        {
+            // Show window before displaying dialog
+            ShowWindow();
+            
+            var dialog = new ContentDialog
+            {
+                Title = "Настройки",
+                Content = "Окно настроек в разработке.\n\nЗдесь можно будет настроить:\n- Язык интерфейса\n- Горячие клавиши\n- Автозапуск\n- Прозрачность окна",
+                CloseButtonText = "Закрыть",
+                XamlRoot = this.Content.XamlRoot
+            };
+            
+            await dialog.ShowAsync();
+            Logger.Info("Settings dialog shown");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to show settings dialog", ex);
+        }
+    }
+
+    private void ExitApplication()
+    {
+        try
+        {
+            _isClosing = true;
+            _trayIcon?.Dispose();
+            Logger.Info("Application exiting");
+            Application.Current.Exit();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error during application exit", ex);
+        }
+    }
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        if (!_isClosing)
+        {
+            // Minimize to tray instead of closing
+            args.Handled = true;
+            HideWindow();
+        }
+        else
+        {
+            // Actually closing - cleanup
+            _trayIcon?.Dispose();
+        }
     }
 
     private void ApplyNoActivateStyle()
@@ -618,44 +746,18 @@ public sealed partial class MainWindow : Window
         return key switch
         {
             // Letters - map to their uppercase VK codes
-            "q" => 0x51, // VK_Q
-            "w" => 0x57, // VK_W
-            "e" => 0x45, // VK_E
-            "r" => 0x52, // VK_R
-            "t" => 0x54, // VK_T
-            "y" => 0x59, // VK_Y
-            "u" => 0x55, // VK_U
-            "i" => 0x49, // VK_I
-            "o" => 0x4F, // VK_O
-            "p" => 0x50, // VK_P
-            "a" => 0x41, // VK_A
-            "s" => 0x53, // VK_S
-            "d" => 0x44, // VK_D
-            "f" => 0x46, // VK_F
-            "g" => 0x47, // VK_G
-            "h" => 0x48, // VK_H
-            "j" => 0x4A, // VK_J
-            "k" => 0x4B, // VK_K
-            "l" => 0x4C, // VK_L
-            "z" => 0x5A, // VK_Z
-            "x" => 0x58, // VK_X
-            "c" => 0x43, // VK_C
-            "v" => 0x56, // VK_V
-            "b" => 0x42, // VK_B
-            "n" => 0x4E, // VK_N
-            "m" => 0x4D, // VK_M
+            "q" => 0x51, "w" => 0x57, "e" => 0x45, "r" => 0x52,
+            "t" => 0x54, "y" => 0x59, "u" => 0x55, "i" => 0x49,
+            "o" => 0x4F, "p" => 0x50, "a" => 0x41, "s" => 0x53,
+            "d" => 0x44, "f" => 0x46, "g" => 0x47, "h" => 0x48,
+            "j" => 0x4A, "k" => 0x4B, "l" => 0x4C, "z" => 0x5A,
+            "x" => 0x58, "c" => 0x43, "v" => 0x56, "b" => 0x42,
+            "n" => 0x4E, "m" => 0x4D,
             
             // Numbers
-            "0" => 0x30,
-            "1" => 0x31,
-            "2" => 0x32,
-            "3" => 0x33,
-            "4" => 0x34,
-            "5" => 0x35,
-            "6" => 0x36,
-            "7" => 0x37,
-            "8" => 0x38,
-            "9" => 0x39,
+            "0" => 0x30, "1" => 0x31, "2" => 0x32, "3" => 0x33,
+            "4" => 0x34, "5" => 0x35, "6" => 0x36, "7" => 0x37,
+            "8" => 0x38, "9" => 0x39,
             
             _ => 0
         };
