@@ -117,8 +117,8 @@ public sealed partial class MainWindow : Window
         // Calculate window size with extra margin for ScrollViewer and borders
         // Content width: 1002 (buttons + gaps) + margins 22*2 = 1046
         // Adding extra 40px for ScrollViewer padding and window chrome
-        int physicalWidth = (int)(1022 * scalingFactor);
-        int physicalHeight = (int)(354 * scalingFactor);
+        int physicalWidth = (int)(1028 * scalingFactor);
+        int physicalHeight = (int)(360 * scalingFactor);
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -191,13 +191,13 @@ public sealed partial class MainWindow : Window
                 SendKey(keyCode);
                 
                 // Deactivate shift after typing (but not Caps Lock)
+                // Этот код реализует "липкий" Shift только для одной клавиши
                 if (_isShiftActive && IsLayoutKey(keyCode))
                 {
                     ToggleShift();
                 }
                 
                 // НЕ деактивируем Ctrl и Alt - они остаются нажатыми до повторного клика
-                // Это позволяет выбирать несколько файлов с Ctrl
             }
         }
     }
@@ -205,6 +205,13 @@ public sealed partial class MainWindow : Window
     private void ToggleShift()
     {
         _isShiftActive = !_isShiftActive;
+        
+        // >>> ИЗМЕНЕНИЕ: Отправляем состояние клавиши в систему немедленно
+        if (_isShiftActive)
+            SendModifierKeyDown(0x10); // VK_SHIFT
+        else
+            SendModifierKeyUp(0x10);
+        // <<< КОНЕЦ ИЗМЕНЕНИЯ
         
         // Lazy initialization of shift button reference
         if (_shiftButton == null)
@@ -236,6 +243,13 @@ public sealed partial class MainWindow : Window
     {
         _isCtrlActive = !_isCtrlActive;
         
+        // >>> ИЗМЕНЕНИЕ: Отправляем состояние клавиши в систему немедленно
+        if (_isCtrlActive)
+            SendModifierKeyDown(0x11); // VK_CONTROL
+        else
+            SendModifierKeyUp(0x11);
+        // <<< КОНЕЦ ИЗМЕНЕНИЯ
+        
         // Lazy initialization of ctrl button reference
         if (_ctrlButton == null)
         {
@@ -249,6 +263,13 @@ public sealed partial class MainWindow : Window
     private void ToggleAlt()
     {
         _isAltActive = !_isAltActive;
+        
+        // >>> ИЗМЕНЕНИЕ: Отправляем состояние клавиши в систему немедленно
+        if (_isAltActive)
+            SendModifierKeyDown(0x12); // VK_MENU (Alt)
+        else
+            SendModifierKeyUp(0x12);
+        // <<< КОНЕЦ ИЗМЕНЕНИЯ
         
         // Lazy initialization of alt button reference
         if (_altButton == null)
@@ -282,7 +303,8 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            _currentLayout = _englishLayout;
+            // Reset to the default language when leaving symbol mode
+            _currentLayout = (_currentLayout == _russianLayout) ? _russianLayout : _englishLayout;
         }
         
         UpdateKeyLabels();
@@ -389,20 +411,9 @@ public sealed partial class MainWindow : Window
             Logger.Warning("CRITICAL: Keyboard has focus! Keys will not be sent to target app. WS_EX_NOACTIVATE failed.");
         }
 
-        // Press modifier keys first
-        if (_isCtrlActive)
-        {
-            SendModifierKeyDown(0x11); // VK_CONTROL
-        }
-        if (_isAltActive)
-        {
-            SendModifierKeyDown(0x12); // VK_MENU (Alt)
-        }
-        if (_isShiftActive)
-        {
-            SendModifierKeyDown(0x10); // VK_SHIFT
-        }
-
+        // >>> УДАЛЕНО: Блок "Press modifier keys first" 
+        // Модификаторы Ctrl, Alt и Shift теперь нажимаются в методах Toggle...
+        
         // Проверяем, является ли это служебной клавишей (стрелки и т.д.)
         byte controlVk = GetVirtualKeyCode(key);
         if (controlVk != 0)
@@ -416,13 +427,15 @@ public sealed partial class MainWindow : Window
             var keyDef = _currentLayout.Keys[key];
             
             // For shortcuts (Ctrl/Alt pressed), we need to send VK codes, not Unicode
+            // Это важно для команд Ctrl+C/Ctrl+V
             if (_isCtrlActive || _isAltActive)
             {
                 // Try to get VK code for the key
                 byte vk = GetVirtualKeyCodeForLayoutKey(key);
                 if (vk != 0)
                 {
-                    SendVirtualKey(vk, skipModifiers: true);
+                    // Модификаторы уже нажаты в ОС, просто отправляем VK-код самой клавиши
+                    SendVirtualKey(vk, skipModifiers: true); 
                 }
                 else
                 {
@@ -461,19 +474,8 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        // Release modifier keys
-        if (_isShiftActive)
-        {
-            SendModifierKeyUp(0x10); // VK_SHIFT
-        }
-        if (_isAltActive)
-        {
-            SendModifierKeyUp(0x12); // VK_MENU (Alt)
-        }
-        if (_isCtrlActive)
-        {
-            SendModifierKeyUp(0x11); // VK_CONTROL
-        }
+        // >>> УДАЛЕНО: Блок "Release modifier keys"
+        // Модификаторы Ctrl, Alt и Shift теперь отпускаются только при повторном клике на них в методах Toggle...
     }
 
     private void SendUnicodeChar(char character)
@@ -529,6 +531,10 @@ public sealed partial class MainWindow : Window
             int error = Marshal.GetLastWin32Error();
             Logger.Error($"SendInput (Modifier Down) failed. VK: 0x{vk:X}, Win32 Error: {error}");
         }
+        else
+        {
+            Logger.Info($"Success. Sent Modifier Down 0x{vk:X}");
+        }
     }
 
     private void SendModifierKeyUp(byte vk)
@@ -550,10 +556,18 @@ public sealed partial class MainWindow : Window
             int error = Marshal.GetLastWin32Error();
             Logger.Error($"SendInput (Modifier Up) failed. VK: 0x{vk:X}, Win32 Error: {error}");
         }
+        else
+        {
+            Logger.Info($"Success. Sent Modifier Up 0x{vk:X}");
+        }
     }
 
     private void SendVirtualKey(byte vk, bool skipModifiers = false)
     {
+        // Примечание: skipModifiers не используется в этой реализации, 
+        // так как SendInput отправляет только нажатие/отпускание VK-кода, 
+        // и он автоматически сочетается с уже нажатыми модификаторами в ОС.
+        
         INPUT[] inputs = new INPUT[2];
         
         // Key Down
