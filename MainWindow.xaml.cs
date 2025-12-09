@@ -617,6 +617,56 @@ public sealed partial class MainWindow : Window
         };
     }
     
+    private byte GetVirtualKeyCodeForLayoutKey(string key)
+    {
+        // Map layout keys to their VK codes for shortcuts (Ctrl+X, etc.)
+        // This works for English layout keys
+        return key switch
+        {
+            // Letters - map to their uppercase VK codes
+            "q" => 0x51, // VK_Q
+            "w" => 0x57, // VK_W
+            "e" => 0x45, // VK_E
+            "r" => 0x52, // VK_R
+            "t" => 0x54, // VK_T
+            "y" => 0x59, // VK_Y
+            "u" => 0x55, // VK_U
+            "i" => 0x49, // VK_I
+            "o" => 0x4F, // VK_O
+            "p" => 0x50, // VK_P
+            "a" => 0x41, // VK_A
+            "s" => 0x53, // VK_S
+            "d" => 0x44, // VK_D
+            "f" => 0x46, // VK_F
+            "g" => 0x47, // VK_G
+            "h" => 0x48, // VK_H
+            "j" => 0x4A, // VK_J
+            "k" => 0x4B, // VK_K
+            "l" => 0x4C, // VK_L
+            "z" => 0x5A, // VK_Z
+            "x" => 0x58, // VK_X
+            "c" => 0x43, // VK_C
+            "v" => 0x56, // VK_V
+            "b" => 0x42, // VK_B
+            "n" => 0x4E, // VK_N
+            "m" => 0x4D, // VK_M
+            
+            // Numbers
+            "0" => 0x30,
+            "1" => 0x31,
+            "2" => 0x32,
+            "3" => 0x33,
+            "4" => 0x34,
+            "5" => 0x35,
+            "6" => 0x36,
+            "7" => 0x37,
+            "8" => 0x38,
+            "9" => 0x39,
+            
+            _ => 0
+        };
+    }
+    
     private void FindShiftButton(FrameworkElement element)
     {
         if (element is Button btn && btn.Tag as string == "Shift")
