@@ -8,21 +8,21 @@
             
             <!-- Row 1: Numbers and special chars -->
             <StackPanel Orientation="Horizontal" Spacing="6">
-                <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="1" Tag="1" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="2" Tag="2" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="3" Tag="3" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="4" Tag="4" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="5" Tag="5" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="6" Tag="6" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="7" Tag="7" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="8" Tag="8" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="9" Tag="9" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="0" Tag="0" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="-" Tag="-" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="+" Tag="+" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="=" Tag="=" Click="KeyButton_Click" Width="54" Height="30"/>
-                <Button Content="Backspace" Tag="Backspace" Click="KeyButton_Click" Width="120" Height="30"/>
+                <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="1" Tag="1" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="2" Tag="2" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="3" Tag="3" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="4" Tag="4" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="5" Tag="5" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="6" Tag="6" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="7" Tag="7" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="8" Tag="8" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="9" Tag="9" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="0" Tag="0" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="-" Tag="-" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="+" Tag="+" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="=" Tag="=" Click="KeyButton_Click" Width="54" Height="36"/>
+                <Button Content="Backspace" Tag="Backspace" Click="KeyButton_Click" Width="120" Height="36"/>
             </StackPanel>
 
             <!-- Row 2: QWERTY row -->
@@ -58,7 +58,7 @@
                 <Button Content="l" Tag="l" Click="KeyButton_Click" Width="54" Height="54"/>
                 <Button Content=":" Tag=":" Click="KeyButton_Click" Width="54" Height="54"/>
                 <Button Content=";" Tag=";" Click="KeyButton_Click" Width="54" Height="54"/>
-                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="154" Height="54"/>
+                <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="147" Height="54"/>
             </StackPanel>
 
             <!-- Row 4: ZXCV row -->
