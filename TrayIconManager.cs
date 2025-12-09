@@ -54,12 +54,11 @@ public class TrayIconManager : IDisposable
         exitItem.Click += (s, e) => ExitApplication();
         contextMenu.Items.Add(exitItem);
 
-        // FIX: Removed ContextMenuMode. Use ContextFlyout instead.
-        // _taskbarIcon.ContextMenuMode = H.NotifyIcon.Core.ContextMenuMode.PopupMenu; 
+        // Context menu assignment
         _taskbarIcon.ContextFlyout = contextMenu;
 
-        // FIX: LeftClick was renamed to Activated
-        _taskbarIcon.Activated += (s, e) => ToggleWindowVisibility();
+        // FIX: Use TrayLeftMouseUp instead of LeftClick or Activated
+        _taskbarIcon.TrayLeftMouseUp += (s, e) => ToggleWindowVisibility();
 
         // Set icon - using default icon for now
         try
@@ -68,13 +67,11 @@ public class TrayIconManager : IDisposable
             // _taskbarIcon.Icon = new Icon("icon.ico");
             // For now, we'll use the default
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            // Assuming Logger is defined elsewhere
             // Logger.Error("Failed to set tray icon", ex);
         }
 
-        // Assuming Logger is defined elsewhere
         // Logger.Info("Tray icon initialized successfully");
     }
 
@@ -100,7 +97,7 @@ public class TrayIconManager : IDisposable
                 // Logger.Info("Window restored from tray");
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Logger.Error("Failed to toggle window visibility", ex);
         }
@@ -119,7 +116,6 @@ public class TrayIconManager : IDisposable
                 _mainWindow.AppWindow.Show();
             }
 
-            // TODO: Implement settings dialog
             // Logger.Info("Settings requested (not yet implemented)");
             
             // For now, just show a message using WinUI ContentDialog
@@ -133,7 +129,7 @@ public class TrayIconManager : IDisposable
             
             await dialog.ShowAsync();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Logger.Error("Failed to show settings", ex);
         }
@@ -160,7 +156,7 @@ public class TrayIconManager : IDisposable
             // Exit the WinUI application
             _winUIApp.Exit();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Logger.Error("Error during application exit", ex);
         }
@@ -178,7 +174,7 @@ public class TrayIconManager : IDisposable
                 _taskbarIcon.ShowNotification(title, text);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Logger.Error("Failed to show notification", ex);
         }
