@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.IO;
 using Microsoft.UI.Xaml;
 
 namespace VirtualKeyboard;
@@ -37,6 +38,9 @@ public class TrayIcon : IDisposable
     private const uint TPM_RETURNCMD = 0x0100;
     private const uint TPM_RIGHTBUTTON = 0x0002;
     
+    private const uint LR_LOADFROMFILE = 0x00000010;
+    private const uint LR_DEFAULTSIZE = 0x00000040;
+    
     // Menu item IDs
     private const int MENU_SHOW = 1000;
     private const int MENU_SETTINGS = 1001;
@@ -61,7 +65,7 @@ public class TrayIcon : IDisposable
         public uint dwStateMask;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string szInfo;
-        public uint uVersion;  // uTimeout or uVersion
+        public uint uVersion;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
         public string szInfoTitle;
         public uint dwInfoFlags;
@@ -75,6 +79,9 @@ public class TrayIcon : IDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr LoadIcon(IntPtr hInstance, int lpIconName);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr LoadImage(IntPtr hInst, string lpszName, uint uType, int cxDesired, int cyDesired, uint fuLoad);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyIcon(IntPtr hIcon);
@@ -124,28 +131,16 @@ public class TrayIcon : IDisposable
         // Create message-only window for receiving tray icon messages
         _messageWindow = new TrayIconMessageWindow(this);
         
-        // Load application icon - try with module handle first
-        IntPtr hInstance = GetModuleHandle(null);
-        _hIcon = LoadIcon(hInstance, IDI_APPLICATION);
+        // Load icon
+        _hIcon = LoadTrayIcon();
         
         if (_hIcon == IntPtr.Zero)
         {
-            // Try loading standard icon
-            _hIcon = LoadIcon(IntPtr.Zero, IDI_APPLICATION);
-            Logger.Info($"Loaded standard icon: 0x{_hIcon:X}");
+            Logger.Error("Failed to load any icon!");
         }
         else
         {
-            Logger.Info($"Loaded application icon: 0x{_hIcon:X}");
-        }
-        
-        if (_hIcon == IntPtr.Zero)
-        {
-            int error = Marshal.GetLastWin32Error();
-            Logger.Error($"Failed to load icon. Error: {error}");
-            // Try information icon as fallback
-            _hIcon = LoadIcon(IntPtr.Zero, IDI_INFORMATION);
-            Logger.Info($"Loaded fallback icon: 0x{_hIcon:X}");
+            Logger.Info($"Successfully loaded icon: 0x{_hIcon:X}");
         }
         
         // Initialize NOTIFYICONDATA structure with full size for Windows Vista+
@@ -161,10 +156,64 @@ public class TrayIcon : IDisposable
             uVersion = NOTIFYICON_VERSION_4,
             dwState = 0,
             dwStateMask = 0,
-            guidItem = Guid.NewGuid() // Unique GUID for this icon
+            guidItem = Guid.NewGuid()
         };
         
         Logger.Info($"TrayIcon initialized. Structure size: {_notifyIconData.cbSize}, Icon: 0x{_hIcon:X}, Window: 0x{_messageWindow.Handle:X}");
+    }
+
+    /// <summary>
+    /// Load tray icon with priority: custom file > embedded resource > system icon
+    /// </summary>
+    private IntPtr LoadTrayIcon()
+    {
+        // Priority 1: Try to load custom icon from file
+        string appDir = AppDomain.CurrentDomain.BaseDirectory;
+        string iconPath = Path.Combine(appDir, "tray_icon.ico");
+        
+        if (File.Exists(iconPath))
+        {
+            Logger.Info($"Found custom icon file: {iconPath}");
+            IntPtr hIcon = LoadImage(IntPtr.Zero, iconPath, 1, 16, 16, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+            
+            if (hIcon != IntPtr.Zero)
+            {
+                Logger.Info("Successfully loaded custom icon from file");
+                return hIcon;
+            }
+            else
+            {
+                int error = Marshal.GetLastWin32Error();
+                Logger.Warning($"Failed to load custom icon file. Error: {error}");
+            }
+        }
+        else
+        {
+            Logger.Info($"No custom icon file found at: {iconPath}");
+        }
+        
+        // Priority 2: Try to load from module resources
+        IntPtr hInstance = GetModuleHandle(null);
+        IntPtr hIcon2 = LoadIcon(hInstance, IDI_APPLICATION);
+        
+        if (hIcon2 != IntPtr.Zero)
+        {
+            Logger.Info("Loaded application icon from module");
+            return hIcon2;
+        }
+        
+        // Priority 3: Load standard Windows icon
+        IntPtr hIcon3 = LoadIcon(IntPtr.Zero, IDI_APPLICATION);
+        
+        if (hIcon3 != IntPtr.Zero)
+        {
+            Logger.Info("Loaded standard Windows application icon");
+            return hIcon3;
+        }
+        
+        // Priority 4: Last resort - information icon
+        Logger.Warning("Using fallback information icon");
+        return LoadIcon(IntPtr.Zero, IDI_INFORMATION);
     }
 
     public void Show()

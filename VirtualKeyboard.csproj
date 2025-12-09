@@ -29,4 +29,10 @@
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
+  
+  <ItemGroup>
+  <Content Include="tray_icon.ico">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </Content>
+  </ItemGroup>
 </Project>
