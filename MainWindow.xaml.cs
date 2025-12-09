@@ -109,9 +109,9 @@ public sealed partial class MainWindow : Window
         float scalingFactor = dpi / 96f;
         
         // Calculate window size based on content (logical pixels then scale to physical)
-        // Total width: 15 buttons * 56 + 14 gaps * 6 + margins 22*2 = 840 + 84 + 44 = 968
+        // Row 1 is widest: Esc(56) + 10digits(560) + 3symbols(168) + Backspace(134) + 14gaps(84) + margins(44) = 1046
         // Total height: 5 rows * 56 + 4 gaps * 6 + margins 22*2 + extra = 280 + 24 + 44 + 50 = 398
-        int physicalWidth = (int)(968 * scalingFactor);
+        int physicalWidth = (int)(1046 * scalingFactor);
         int physicalHeight = (int)(398 * scalingFactor);
         
         var appWindow = this.AppWindow;
