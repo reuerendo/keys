@@ -22,8 +22,17 @@ public class TrayIcon : IDisposable
     private const uint NIF_MESSAGE = 0x00000001;
     private const uint NIF_ICON = 0x00000002;
     private const uint NIF_TIP = 0x00000004;
+    private const uint NIF_STATE = 0x00000008;
+    private const uint NIF_INFO = 0x00000010;
+    private const uint NIF_GUID = 0x00000020;
+    private const uint NIF_REALTIME = 0x00000040;
+    private const uint NIF_SHOWTIP = 0x00000080;
+    
+    private const uint NIS_HIDDEN = 0x00000001;
+    private const uint NIS_SHAREDICON = 0x00000002;
     
     private const int IDI_APPLICATION = 32512;
+    private const int IDI_INFORMATION = 32516;
     
     private const uint TPM_RETURNCMD = 0x0100;
     private const uint TPM_RIGHTBUTTON = 0x0002;
@@ -32,6 +41,9 @@ public class TrayIcon : IDisposable
     private const int MENU_SHOW = 1000;
     private const int MENU_SETTINGS = 1001;
     private const int MENU_EXIT = 1002;
+
+    // NOTIFYICONDATA versions
+    private const uint NOTIFYICON_VERSION_4 = 4;
 
     // Structures
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -45,14 +57,27 @@ public class TrayIcon : IDisposable
         public IntPtr hIcon;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
         public string szTip;
+        public uint dwState;
+        public uint dwStateMask;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string szInfo;
+        public uint uVersion;  // uTimeout or uVersion
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+        public string szInfoTitle;
+        public uint dwInfoFlags;
+        public Guid guidItem;
+        public IntPtr hBalloonIcon;
     }
 
     // P/Invoke
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr LoadIcon(IntPtr hInstance, int lpIconName);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
 
     [DllImport("user32.dll")]
     private static extern IntPtr CreatePopupMenu();
@@ -72,6 +97,9 @@ public class TrayIcon : IDisposable
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetModuleHandle(string lpModuleName);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
     {
@@ -83,6 +111,7 @@ public class TrayIcon : IDisposable
     private NOTIFYICONDATA _notifyIconData;
     private bool _isIconAdded;
     private TrayIconMessageWindow _messageWindow;
+    private IntPtr _hIcon;
 
     public event EventHandler ShowRequested;
     public event EventHandler SettingsRequested;
@@ -95,38 +124,71 @@ public class TrayIcon : IDisposable
         // Create message-only window for receiving tray icon messages
         _messageWindow = new TrayIconMessageWindow(this);
         
-        // Load application icon
-        IntPtr hIcon = LoadIcon(IntPtr.Zero, IDI_APPLICATION);
+        // Load application icon - try with module handle first
+        IntPtr hInstance = GetModuleHandle(null);
+        _hIcon = LoadIcon(hInstance, IDI_APPLICATION);
         
-        // Initialize NOTIFYICONDATA structure
+        if (_hIcon == IntPtr.Zero)
+        {
+            // Try loading standard icon
+            _hIcon = LoadIcon(IntPtr.Zero, IDI_APPLICATION);
+            Logger.Info($"Loaded standard icon: 0x{_hIcon:X}");
+        }
+        else
+        {
+            Logger.Info($"Loaded application icon: 0x{_hIcon:X}");
+        }
+        
+        if (_hIcon == IntPtr.Zero)
+        {
+            int error = Marshal.GetLastWin32Error();
+            Logger.Error($"Failed to load icon. Error: {error}");
+            // Try information icon as fallback
+            _hIcon = LoadIcon(IntPtr.Zero, IDI_INFORMATION);
+            Logger.Info($"Loaded fallback icon: 0x{_hIcon:X}");
+        }
+        
+        // Initialize NOTIFYICONDATA structure with full size for Windows Vista+
         _notifyIconData = new NOTIFYICONDATA
         {
             cbSize = Marshal.SizeOf(typeof(NOTIFYICONDATA)),
             hWnd = _messageWindow.Handle,
             uID = 1,
-            uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP,
+            uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP,
             uCallbackMessage = WM_TRAYICON,
-            hIcon = hIcon,
-            szTip = tooltip
+            hIcon = _hIcon,
+            szTip = tooltip,
+            uVersion = NOTIFYICON_VERSION_4,
+            dwState = 0,
+            dwStateMask = 0,
+            guidItem = Guid.NewGuid() // Unique GUID for this icon
         };
         
-        Logger.Info("TrayIcon initialized");
+        Logger.Info($"TrayIcon initialized. Structure size: {_notifyIconData.cbSize}, Icon: 0x{_hIcon:X}, Window: 0x{_messageWindow.Handle:X}");
     }
 
     public void Show()
     {
         if (!_isIconAdded)
         {
+            Logger.Info($"Adding tray icon. cbSize={_notifyIconData.cbSize}, hWnd=0x{_notifyIconData.hWnd:X}, uID={_notifyIconData.uID}, uFlags=0x{_notifyIconData.uFlags:X}, hIcon=0x{_notifyIconData.hIcon:X}");
+            
             bool result = Shell_NotifyIcon(NIM_ADD, ref _notifyIconData);
-            _isIconAdded = result;
             
             if (result)
             {
+                _isIconAdded = true;
+                
+                // Set version for balloon tips and modern behavior
+                Shell_NotifyIcon(NIM_MODIFY, ref _notifyIconData);
+                
                 Logger.Info("Tray icon added successfully");
             }
             else
             {
-                Logger.Error("Failed to add tray icon");
+                int error = Marshal.GetLastWin32Error();
+                Logger.Error($"Failed to add tray icon. Win32 Error: {error}");
+                Logger.Error($"Structure details: cbSize={_notifyIconData.cbSize}, expected={Marshal.SizeOf(typeof(NOTIFYICONDATA))}");
             }
         }
     }
@@ -220,6 +282,13 @@ public class TrayIcon : IDisposable
     public void Dispose()
     {
         Hide();
+        
+        if (_hIcon != IntPtr.Zero)
+        {
+            DestroyIcon(_hIcon);
+            _hIcon = IntPtr.Zero;
+        }
+        
         _messageWindow?.Dispose();
         Logger.Info("TrayIcon disposed");
     }
@@ -244,7 +313,7 @@ public class TrayIcon : IDisposable
         [DllImport("user32.dll")]
         private static extern IntPtr DefWindowProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
         
-        [DllImport("kernel32.dll")]
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
 
         private delegate IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
