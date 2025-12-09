@@ -111,8 +111,8 @@ public sealed partial class MainWindow : Window
         // Calculate window size with extra margin for ScrollViewer and borders
         // Content width: 1002 (buttons + gaps) + margins 22*2 = 1046
         // Adding extra 40px for ScrollViewer padding and window chrome
-        int physicalWidth = (int)(1080 * scalingFactor);
-        int physicalHeight = (int)(388 * scalingFactor);
+        int physicalWidth = (int)(1068 * scalingFactor);
+        int physicalHeight = (int)(376 * scalingFactor);
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -303,7 +303,7 @@ public sealed partial class MainWindow : Window
             Logger.Warning("CRITICAL: Keyboard has focus! Keys will not be sent to target app. WS_EX_NOACTIVATE failed.");
         }
 
-        // Check if key is in current layout
+        // Check if key is in current layout - use Unicode input
         if (_currentLayout.Keys.ContainsKey(key))
         {
             var keyDef = _currentLayout.Keys[key];
@@ -317,12 +317,21 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            // For special keys not in layout, use virtual key codes
-            byte vk = GetVirtualKeyCode(key);
-            
-            if (vk != 0)
+            // For special control keys and standalone characters not in layout
+            // Try to send as Unicode first if it's a printable character
+            if (key.Length == 1 && !char.IsControl(key[0]))
             {
-                SendVirtualKey(vk);
+                SendUnicodeChar(key[0]);
+            }
+            else
+            {
+                // For control keys, use virtual key codes
+                byte vk = GetVirtualKeyCode(key);
+                
+                if (vk != 0)
+                {
+                    SendVirtualKey(vk);
+                }
             }
         }
     }
@@ -357,7 +366,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            Logger.Info($"Success. Sent Unicode char '{character}'");
+            Logger.Info($"Success. Sent Unicode char '{character}' (U+{((int)character):X4})");
         }
     }
 
@@ -397,19 +406,21 @@ public sealed partial class MainWindow : Window
 
     private byte GetVirtualKeyCode(string key)
     {
+        // Only control keys that don't produce characters should use VK codes
         return key switch
         {
-            "Esc" => 0x1B, "Tab" => 0x09, "Caps" => 0x14,
-            "Ctrl" => 0x11, "Alt" => 0x12, "Enter" => 0x0D, "Backspace" => 0x08,
-            "1" => 0x31, "2" => 0x32, "3" => 0x33, "4" => 0x34, "5" => 0x35,
-            "6" => 0x36, "7" => 0x37, "8" => 0x38, "9" => 0x39, "0" => 0x30,
-            "-" => 0xBD, "+" => 0xBB, "=" => 0xBB,
-            "(" => 0x39, ")" => 0x30, "/" => 0xBF, "*" => 0x38,
-            ":" => 0xBA, ";" => 0xBA,
-            "<" => 0xBC, ">" => 0xBE,
-            "!" => 0x31, "?" => 0xBF,
-            "\"" => 0xDE, " " => 0x20, "," => 0xBC, "." => 0xBE,
-            "←" => 0x25, "↓" => 0x28, "→" => 0x27, "↑" => 0x26,
+            "Esc" => 0x1B,
+            "Tab" => 0x09,
+            "Caps" => 0x14,
+            "Ctrl" => 0x11,
+            "Alt" => 0x12,
+            "Enter" => 0x0D,
+            "Backspace" => 0x08,
+            " " => 0x20, // Space
+            "↑" => 0x26, // Arrow Up
+            "↓" => 0x28, // Arrow Down
+            "←" => 0x25, // Arrow Left
+            "→" => 0x27, // Arrow Right
             _ => 0
         };
     }

@@ -38,7 +38,22 @@ public class KeyboardLayout
     {
         var layout = new KeyboardLayout { Name = "English" };
 
-        // Letters
+        // Numbers row
+        layout.Keys["1"] = new KeyDefinition("1", "!", "1", "!");
+        layout.Keys["2"] = new KeyDefinition("2", "@", "2", "@");
+        layout.Keys["3"] = new KeyDefinition("3", "#", "3", "#");
+        layout.Keys["4"] = new KeyDefinition("4", "$", "4", "$");
+        layout.Keys["5"] = new KeyDefinition("5", "%", "5", "%");
+        layout.Keys["6"] = new KeyDefinition("6", "^", "6", "^");
+        layout.Keys["7"] = new KeyDefinition("7", "&", "7", "&");
+        layout.Keys["8"] = new KeyDefinition("8", "*", "8", "*");
+        layout.Keys["9"] = new KeyDefinition("9", "(", "9", "(");
+        layout.Keys["0"] = new KeyDefinition("0", ")", "0", ")");
+        layout.Keys["-"] = new KeyDefinition("-", "_", "-", "_");
+        layout.Keys["+"] = new KeyDefinition("+", "+", "+", "+");
+        layout.Keys["="] = new KeyDefinition("=", "=", "=", "=");
+
+        // QWERTY row - letters
         layout.Keys["q"] = new KeyDefinition("q", "q", true);
         layout.Keys["w"] = new KeyDefinition("w", "w", true);
         layout.Keys["e"] = new KeyDefinition("e", "e", true);
@@ -49,6 +64,14 @@ public class KeyboardLayout
         layout.Keys["i"] = new KeyDefinition("i", "i", true);
         layout.Keys["o"] = new KeyDefinition("o", "o", true);
         layout.Keys["p"] = new KeyDefinition("p", "p", true);
+        
+        // QWERTY row - special chars
+        layout.Keys["("] = new KeyDefinition("(", "(", "(", "(");
+        layout.Keys[")"] = new KeyDefinition(")", ")", ")", ")");
+        layout.Keys["/"] = new KeyDefinition("/", "?", "/", "?");
+        layout.Keys["*"] = new KeyDefinition("*", "*", "*", "*");
+
+        // ASDF row - letters
         layout.Keys["a"] = new KeyDefinition("a", "a", true);
         layout.Keys["s"] = new KeyDefinition("s", "s", true);
         layout.Keys["d"] = new KeyDefinition("d", "d", true);
@@ -58,6 +81,12 @@ public class KeyboardLayout
         layout.Keys["j"] = new KeyDefinition("j", "j", true);
         layout.Keys["k"] = new KeyDefinition("k", "k", true);
         layout.Keys["l"] = new KeyDefinition("l", "l", true);
+        
+        // ASDF row - special chars
+        layout.Keys[":"] = new KeyDefinition(":", ":", ":", ":");
+        layout.Keys[";"] = new KeyDefinition(";", ";", ";", ";");
+
+        // ZXCV row - letters
         layout.Keys["z"] = new KeyDefinition("z", "z", true);
         layout.Keys["x"] = new KeyDefinition("x", "x", true);
         layout.Keys["c"] = new KeyDefinition("c", "c", true);
@@ -65,12 +94,15 @@ public class KeyboardLayout
         layout.Keys["b"] = new KeyDefinition("b", "b", true);
         layout.Keys["n"] = new KeyDefinition("n", "n", true);
         layout.Keys["m"] = new KeyDefinition("m", "m", true);
-
-        // Special characters
-        layout.Keys[":"] = new KeyDefinition(":", ":", ":", ":");
-        layout.Keys[";"] = new KeyDefinition(";", ";", ";", ";");
+        
+        // ZXCV row - special chars
         layout.Keys["<"] = new KeyDefinition("<", "<", "<", "<");
         layout.Keys[">"] = new KeyDefinition(">", ">", ">", ">");
+        layout.Keys["!"] = new KeyDefinition("!", "!", "!", "!");
+        layout.Keys["?"] = new KeyDefinition("?", "?", "?", "?");
+
+        // Bottom row
+        layout.Keys["\""] = new KeyDefinition("\"", "\"", "\"", "\"");
         layout.Keys[","] = new KeyDefinition(",", ",", ",", ",");
         layout.Keys["."] = new KeyDefinition(".", ".", ".", ".");
 
@@ -80,6 +112,21 @@ public class KeyboardLayout
     public static KeyboardLayout CreateRussianLayout()
     {
         var layout = new KeyboardLayout { Name = "Russian" };
+
+        // Numbers and symbols - same as English
+        layout.Keys["1"] = new KeyDefinition("1", "!", "1", "!");
+        layout.Keys["2"] = new KeyDefinition("2", "\"", "2", "\"");
+        layout.Keys["3"] = new KeyDefinition("3", "№", "3", "№");
+        layout.Keys["4"] = new KeyDefinition("4", ";", "4", ";");
+        layout.Keys["5"] = new KeyDefinition("5", "%", "5", "%");
+        layout.Keys["6"] = new KeyDefinition("6", ":", "6", ":");
+        layout.Keys["7"] = new KeyDefinition("7", "?", "7", "?");
+        layout.Keys["8"] = new KeyDefinition("8", "*", "8", "*");
+        layout.Keys["9"] = new KeyDefinition("9", "(", "9", "(");
+        layout.Keys["0"] = new KeyDefinition("0", ")", "0", ")");
+        layout.Keys["-"] = new KeyDefinition("-", "_", "-", "_");
+        layout.Keys["+"] = new KeyDefinition("+", "+", "+", "+");
+        layout.Keys["="] = new KeyDefinition("=", "=", "=", "=");
 
         // Row 2 - ЙЦУКЕН
         layout.Keys["q"] = new KeyDefinition("й", "й", true);
@@ -94,6 +141,8 @@ public class KeyboardLayout
         layout.Keys["p"] = new KeyDefinition("з", "з", true);
         layout.Keys["("] = new KeyDefinition("х", "х", true);
         layout.Keys[")"] = new KeyDefinition("ъ", "ъ", true);
+        layout.Keys["/"] = new KeyDefinition("/", "/", "/", "/");
+        layout.Keys["*"] = new KeyDefinition("*", "*", "*", "*");
 
         // Row 3 - ФЫВАП
         layout.Keys["a"] = new KeyDefinition("ф", "ф", true);
@@ -118,8 +167,11 @@ public class KeyboardLayout
         layout.Keys["m"] = new KeyDefinition("ь", "ь", true);
         layout.Keys["<"] = new KeyDefinition("б", "б", true);
         layout.Keys[">"] = new KeyDefinition("ю", "ю", true);
+        layout.Keys["!"] = new KeyDefinition("!", "!", "!", "!");
+        layout.Keys["?"] = new KeyDefinition("?", "?", "?", "?");
         
-        // Special characters remain same
+        // Bottom row
+        layout.Keys["\""] = new KeyDefinition("\"", "\"", "\"", "\"");
         layout.Keys[","] = new KeyDefinition(",", ",", ",", ",");
         layout.Keys["."] = new KeyDefinition(".", ".", ".", ".");
 
@@ -129,6 +181,21 @@ public class KeyboardLayout
     public static KeyboardLayout CreateSymbolLayout()
     {
         var layout = new KeyboardLayout { Name = "Symbols" };
+
+        // Numbers row
+        layout.Keys["1"] = new KeyDefinition("1", "1", "1", "1");
+        layout.Keys["2"] = new KeyDefinition("2", "2", "2", "2");
+        layout.Keys["3"] = new KeyDefinition("3", "3", "3", "3");
+        layout.Keys["4"] = new KeyDefinition("4", "4", "4", "4");
+        layout.Keys["5"] = new KeyDefinition("5", "5", "5", "5");
+        layout.Keys["6"] = new KeyDefinition("6", "6", "6", "6");
+        layout.Keys["7"] = new KeyDefinition("7", "7", "7", "7");
+        layout.Keys["8"] = new KeyDefinition("8", "8", "8", "8");
+        layout.Keys["9"] = new KeyDefinition("9", "9", "9", "9");
+        layout.Keys["0"] = new KeyDefinition("0", "0", "0", "0");
+        layout.Keys["-"] = new KeyDefinition("-", "-", "-", "-");
+        layout.Keys["+"] = new KeyDefinition("+", "+", "+", "+");
+        layout.Keys["="] = new KeyDefinition("=", "=", "=", "=");
 
         // Row 2
         layout.Keys["q"] = new KeyDefinition("@", "@", "@", "@");
@@ -143,6 +210,8 @@ public class KeyboardLayout
         layout.Keys["p"] = new KeyDefinition("÷", "÷", "÷", "÷");
         layout.Keys["("] = new KeyDefinition("×", "×", "×", "×");
         layout.Keys[")"] = new KeyDefinition("±", "±", "±", "±");
+        layout.Keys["/"] = new KeyDefinition("/", "/", "/", "/");
+        layout.Keys["*"] = new KeyDefinition("*", "*", "*", "*");
 
         // Row 3
         layout.Keys["a"] = new KeyDefinition("{", "{", "{", "{");
@@ -167,8 +236,11 @@ public class KeyboardLayout
         layout.Keys["m"] = new KeyDefinition("'", "'", "'", "'");
         layout.Keys["<"] = new KeyDefinition("^", "^", "^", "^");
         layout.Keys[">"] = new KeyDefinition(";", ";", ";", ";");
+        layout.Keys["!"] = new KeyDefinition("!", "!", "!", "!");
+        layout.Keys["?"] = new KeyDefinition("?", "?", "?", "?");
         
         // Bottom row characters
+        layout.Keys["\""] = new KeyDefinition("\"", "\"", "\"", "\"");
         layout.Keys[","] = new KeyDefinition(",", ",", ",", ",");
         layout.Keys["."] = new KeyDefinition(".", ".", ".", ".");
 
