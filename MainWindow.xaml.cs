@@ -117,8 +117,8 @@ public sealed partial class MainWindow : Window
         // Calculate window size with extra margin for ScrollViewer and borders
         // Content width: 1002 (buttons + gaps) + margins 22*2 = 1046
         // Adding extra 40px for ScrollViewer padding and window chrome
-        int physicalWidth = (int)(1056 * scalingFactor);
-        int physicalHeight = (int)(388 * scalingFactor);
+        int physicalWidth = (int)(1046 * scalingFactor);
+        int physicalHeight = (int)(378 * scalingFactor);
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -196,15 +196,8 @@ public sealed partial class MainWindow : Window
                     ToggleShift();
                 }
                 
-                // Deactivate Ctrl and Alt after typing
-                if (_isCtrlActive)
-                {
-                    ToggleCtrl();
-                }
-                if (_isAltActive)
-                {
-                    ToggleAlt();
-                }
+                // НЕ деактивируем Ctrl и Alt - они остаются нажатыми до повторного клика
+                // Это позволяет выбирать несколько файлов с Ctrl
             }
         }
     }
@@ -410,8 +403,15 @@ public sealed partial class MainWindow : Window
             SendModifierKeyDown(0x10); // VK_SHIFT
         }
 
+        // Проверяем, является ли это служебной клавишей (стрелки и т.д.)
+        byte controlVk = GetVirtualKeyCode(key);
+        if (controlVk != 0)
+        {
+            // Это служебная клавиша - отправляем VK-код
+            SendVirtualKey(controlVk);
+        }
         // Check if key is in current layout - use Unicode input
-        if (_currentLayout.Keys.ContainsKey(key))
+        else if (_currentLayout.Keys.ContainsKey(key))
         {
             var keyDef = _currentLayout.Keys[key];
             
@@ -453,21 +453,11 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            // For special control keys and standalone characters not in layout
+            // For standalone characters not in layout
             // Try to send as Unicode first if it's a printable character
             if (key.Length == 1 && !char.IsControl(key[0]))
             {
                 SendUnicodeChar(key[0]);
-            }
-            else
-            {
-                // For control keys, use virtual key codes
-                byte vk = GetVirtualKeyCode(key);
-                
-                if (vk != 0)
-                {
-                    SendVirtualKey(vk);
-                }
             }
         }
 
@@ -598,7 +588,7 @@ public sealed partial class MainWindow : Window
 
     private byte GetVirtualKeyCode(string key)
     {
-        // Only control keys that don't produce characters should use VK codes
+        // Control keys and arrow keys that should use VK codes
         return key switch
         {
             "Esc" => 0x1B,
