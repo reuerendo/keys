@@ -41,6 +41,9 @@ public sealed partial class MainWindow : Window
     private TrayIcon _trayIcon;
     private bool _isClosing = false;
 
+    // Window positioning
+    private WindowPositionManager _positionManager;
+
     // --- Win32 Structs (Correctly Aligned for x64) ---
 
     [StructLayout(LayoutKind.Explicit, Size = 40)]
@@ -144,14 +147,39 @@ public sealed partial class MainWindow : Window
 
         ApplyNoActivateStyle();
 
+        // Initialize position manager
+        _positionManager = new WindowPositionManager(this, _thisWindowHandle);
+
         // Initialize tray icon
         InitializeTrayIcon();
 
         Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
         Logger.Info("=== MainWindow Constructor Completed ===");
         
-        this.Activated += (s, e) => ApplyNoActivateStyle();
+        this.Activated += MainWindow_Activated;
         this.Closed += MainWindow_Closed;
+    }
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
+    {
+        ApplyNoActivateStyle();
+        
+        // Позиционируем окно при активации
+        if (e.WindowActivationState != WindowActivationState.Deactivated)
+        {
+            // Используем Dispatcher для отложенного позиционирования
+            // чтобы окно успело полностью отрисоваться
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
+                {
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        _positionManager?.PositionWindow();
+                    });
+                });
+            });
+        }
     }
 
     private void InitializeTrayIcon()
@@ -209,6 +237,16 @@ public sealed partial class MainWindow : Window
         {
             ShowWindow(_thisWindowHandle, SW_SHOW);
             this.Activate();
+            
+            // Позиционируем окно после показа
+            System.Threading.Tasks.Task.Delay(100).ContinueWith(_ =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    _positionManager?.PositionWindow();
+                });
+            });
+            
             Logger.Info("Window shown from tray");
         }
         catch (Exception ex)
