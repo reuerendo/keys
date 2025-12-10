@@ -1,7 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
-using Accessibility;
 
 namespace VirtualKeyboard;
 
@@ -148,7 +147,7 @@ public class AutoShowManager : IDisposable
                 return;
             }
 
-            // Check if focused element is a text input using IAccessible
+            // Check if focused element is a text input
             if (IsTextInputElement(hwnd, idObject, idChild))
             {
                 Logger.Info($"Text input focused (hwnd=0x{hwnd:X}, obj={idObject}, child={idChild}) - showing keyboard");
@@ -166,20 +165,22 @@ public class AutoShowManager : IDisposable
     /// </summary>
     private bool IsTextInputElement(IntPtr hwnd, int idObject, int idChild)
     {
+        IntPtr pAccessible = IntPtr.Zero;
+        
         try
         {
             // Get IAccessible interface for the element
-            object obj;
-            object childObj;
-            int hr = AccessibleObjectFromEvent(hwnd, idObject, (uint)idChild, out obj, out childObj);
+            object varChild;
+            int hr = AccessibleObjectFromEvent(hwnd, idObject, (uint)idChild, out pAccessible, out varChild);
             
-            if (hr != 0 || obj == null)
+            if (hr != 0 || pAccessible == IntPtr.Zero)
             {
                 // Fallback: check window class
                 return IsEditWindowClass(hwnd);
             }
 
-            IAccessible accessible = obj as IAccessible;
+            // Get IAccessible object
+            IAccessible accessible = Marshal.GetObjectForIUnknown(pAccessible) as IAccessible;
             if (accessible == null)
             {
                 return IsEditWindowClass(hwnd);
@@ -187,14 +188,16 @@ public class AutoShowManager : IDisposable
 
             try
             {
+                // Use CHILDID_SELF for checking
+                object self = CHILDID_SELF;
+                
                 // Get role of the accessible object
-                object role = accessible.get_accRole(childObj ?? CHILDID_SELF);
+                object role = accessible.get_accRole(self);
                 
                 if (role is int roleInt)
                 {
                     // Check if role indicates text input
                     // ROLE_SYSTEM_TEXT (42) = editable text
-                    // ROLE_SYSTEM_PAGETAB (37) could have text inputs
                     // ROLE_SYSTEM_DOCUMENT (15) = document with editable content
                     if (roleInt == ROLE_SYSTEM_TEXT)
                     {
@@ -203,24 +206,31 @@ public class AutoShowManager : IDisposable
                     }
 
                     // Get state to check if editable
-                    object state = accessible.get_accState(childObj ?? CHILDID_SELF);
-                    if (state is int stateInt)
+                    try
                     {
-                        // STATE_SYSTEM_FOCUSABLE (0x100000) + check if it's editable
-                        bool isFocusable = (stateInt & STATE_SYSTEM_FOCUSABLE) != 0;
-                        bool isReadOnly = (stateInt & STATE_SYSTEM_READONLY) != 0;
-                        
-                        if (isFocusable && !isReadOnly)
+                        object state = accessible.get_accState(self);
+                        if (state is int stateInt)
                         {
-                            // Additional check: is it an edit control?
-                            if (roleInt == ROLE_SYSTEM_TEXT || 
-                                roleInt == ROLE_SYSTEM_DOCUMENT ||
-                                IsEditWindowClass(hwnd))
+                            // STATE_SYSTEM_FOCUSABLE (0x100000) + check if it's editable
+                            bool isFocusable = (stateInt & STATE_SYSTEM_FOCUSABLE) != 0;
+                            bool isReadOnly = (stateInt & STATE_SYSTEM_READONLY) != 0;
+                            
+                            if (isFocusable && !isReadOnly)
                             {
-                                Logger.Debug($"MSAA: Editable control detected (Role={roleInt}, State=0x{stateInt:X})");
-                                return true;
+                                // Additional check: is it an edit control?
+                                if (roleInt == ROLE_SYSTEM_TEXT || 
+                                    roleInt == ROLE_SYSTEM_DOCUMENT ||
+                                    IsEditWindowClass(hwnd))
+                                {
+                                    Logger.Debug($"MSAA: Editable control detected (Role={roleInt}, State=0x{stateInt:X})");
+                                    return true;
+                                }
                             }
                         }
+                    }
+                    catch
+                    {
+                        // If state check fails, fallback to class check
                     }
                 }
             }
@@ -236,6 +246,13 @@ public class AutoShowManager : IDisposable
             Logger.Debug($"Error in IsTextInputElement: {ex.Message}");
             // Fallback to class name check
             return IsEditWindowClass(hwnd);
+        }
+        finally
+        {
+            if (pAccessible != IntPtr.Zero)
+            {
+                Marshal.Release(pAccessible);
+            }
         }
     }
 
@@ -291,7 +308,7 @@ public class AutoShowManager : IDisposable
         Logger.Info("AutoShowManager disposed");
     }
 
-    #region P/Invoke and Constants
+    #region P/Invoke, COM Interfaces and Constants
 
     // Delegate for event hook callback
     private delegate void WinEventDelegate(
@@ -321,11 +338,81 @@ public class AutoShowManager : IDisposable
         IntPtr hwnd,
         int dwObjectID,
         uint dwChildID,
-        out object ppacc,
+        out IntPtr ppacc,
         out object pvarChild);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    // IAccessible interface (minimal definition for MSAA)
+    [ComImport]
+    [Guid("618736E0-3C3D-11CF-810C-00AA00389B71")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAccessible
+    {
+        [PreserveSig]
+        int get_accParent(out object ppdispParent);
+        
+        [PreserveSig]
+        int get_accChildCount(out int pcountChildren);
+        
+        [PreserveSig]
+        int get_accChild(object varChild, out object ppdispChild);
+        
+        [PreserveSig]
+        int get_accName(object varChild, out string pszName);
+        
+        [PreserveSig]
+        int get_accValue(object varChild, out string pszValue);
+        
+        [PreserveSig]
+        int get_accDescription(object varChild, out string pszDescription);
+        
+        [PreserveSig]
+        int get_accRole(object varChild, out object pvarRole);
+        
+        [PreserveSig]
+        int get_accState(object varChild, out object pvarState);
+        
+        [PreserveSig]
+        int get_accHelp(object varChild, out string pszHelp);
+        
+        [PreserveSig]
+        int get_accHelpTopic(out string pszHelpFile, object varChild, out int pidTopic);
+        
+        [PreserveSig]
+        int get_accKeyboardShortcut(object varChild, out string pszKeyboardShortcut);
+        
+        [PreserveSig]
+        int get_accFocus(out object pvarChild);
+        
+        [PreserveSig]
+        int get_accSelection(out object pvarChildren);
+        
+        [PreserveSig]
+        int get_accDefaultAction(object varChild, out string pszDefaultAction);
+        
+        [PreserveSig]
+        int accSelect(int flagsSelect, object varChild);
+        
+        [PreserveSig]
+        int accLocation(out int pxLeft, out int pyTop, out int pcxWidth, out int pcyHeight, object varChild);
+        
+        [PreserveSig]
+        int accNavigate(int navDir, object varStart, out object pvarEndUpAt);
+        
+        [PreserveSig]
+        int accHitTest(int xLeft, int yTop, out object pvarChild);
+        
+        [PreserveSig]
+        int accDoDefaultAction(object varChild);
+        
+        [PreserveSig]
+        int put_accName(object varChild, string szName);
+        
+        [PreserveSig]
+        int put_accValue(object varChild, string szValue);
+    }
 
     // Event constants
     private const uint EVENT_OBJECT_FOCUS = 0x8005;
