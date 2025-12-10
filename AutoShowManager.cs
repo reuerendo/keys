@@ -37,8 +37,8 @@ public class AutoShowManager : IDisposable
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
-    [DllImport("user32.dll")]
-    private static extern uint GetCurrentThreadId();
+	[DllImport("kernel32.dll")]
+	private static extern uint GetCurrentThreadId();
 
     [DllImport("user32.dll")]
     private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
