@@ -1,11 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Windows.Automation;
+using System.Text;
+using Accessibility;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages automatic keyboard display using Windows Event Hooks
+/// Manages automatic keyboard display using Windows Event Hooks + IAccessible (MSAA)
 /// Monitors focus changes system-wide and shows keyboard for text input controls
 /// </summary>
 public class AutoShowManager : IDisposable
@@ -16,7 +17,6 @@ public class AutoShowManager : IDisposable
     
     private IntPtr _hookHandle;
     private WinEventDelegate _hookDelegate;
-    private GCHandle _delegateHandle;
     
     // Delay to prevent immediate re-showing
     private DateTime _lastHideTime = DateTime.MinValue;
@@ -47,7 +47,7 @@ public class AutoShowManager : IDisposable
     public AutoShowManager(IntPtr keyboardWindowHandle)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        Logger.Info("AutoShowManager created (WinEventHook-based)");
+        Logger.Info("AutoShowManager created (MSAA-based)");
     }
 
     /// <summary>
@@ -63,9 +63,8 @@ public class AutoShowManager : IDisposable
 
         try
         {
-            // Create delegate and pin it to prevent GC collection
+            // Create delegate (no need to pin, .NET keeps delegates alive while hook is active)
             _hookDelegate = new WinEventDelegate(WinEventProc);
-            _delegateHandle = GCHandle.Alloc(_hookDelegate);
 
             // Set up hook for focus events
             _hookHandle = SetWinEventHook(
@@ -75,13 +74,12 @@ public class AutoShowManager : IDisposable
                 _hookDelegate,                   // pfnWinEventProc
                 0,                               // idProcess (0 = all processes)
                 0,                               // idThread (0 = all threads)
-                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+                WINEVENT_OUTOFCONTEXT);          // flags
 
             if (_hookHandle == IntPtr.Zero)
             {
-                Logger.Error("Failed to set Windows event hook");
-                if (_delegateHandle.IsAllocated)
-                    _delegateHandle.Free();
+                int error = Marshal.GetLastWin32Error();
+                Logger.Error($"Failed to set Windows event hook (Error: {error})");
                 return;
             }
 
@@ -107,10 +105,7 @@ public class AutoShowManager : IDisposable
                 Logger.Info("Windows event hook unregistered");
             }
 
-            if (_delegateHandle.IsAllocated)
-            {
-                _delegateHandle.Free();
-            }
+            _hookDelegate = null;
         }
         catch (Exception ex)
         {
@@ -147,16 +142,16 @@ public class AutoShowManager : IDisposable
                 return;
             }
 
-            // Only process window objects
-            if (idObject != OBJID_WINDOW && idObject != OBJID_CLIENT)
+            // Ignore invalid handles
+            if (hwnd == IntPtr.Zero)
             {
                 return;
             }
 
-            // Check if focused element is a text input
-            if (IsTextInputElement(hwnd))
+            // Check if focused element is a text input using IAccessible
+            if (IsTextInputElement(hwnd, idObject, idChild))
             {
-                Logger.Info($"Text input focused (hwnd=0x{hwnd:X}) - showing keyboard");
+                Logger.Info($"Text input focused (hwnd=0x{hwnd:X}, obj={idObject}, child={idChild}) - showing keyboard");
                 ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -167,56 +162,111 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Check if element is a text input control
+    /// Check if element is a text input control using IAccessible (MSAA)
     /// </summary>
-    private bool IsTextInputElement(IntPtr hwnd)
+    private bool IsTextInputElement(IntPtr hwnd, int idObject, int idChild)
     {
         try
         {
-            // Get automation element from window handle
-            AutomationElement element = AutomationElement.FromHandle(hwnd);
-            if (element == null)
-                return false;
-
-            // Get focused element
-            AutomationElement focusedElement = AutomationElement.FocusedElement;
-            if (focusedElement == null)
-                return false;
-
-            // Check control type
-            var controlType = focusedElement.GetCurrentPropertyValue(AutomationElement.ControlTypeProperty) as ControlType;
+            // Get IAccessible interface for the element
+            object obj;
+            object childObj;
+            int hr = AccessibleObjectFromEvent(hwnd, idObject, (uint)idChild, out obj, out childObj);
             
-            if (controlType == ControlType.Edit || 
-                controlType == ControlType.Document ||
-                controlType == ControlType.Text)
+            if (hr != 0 || obj == null)
             {
-                Logger.Debug($"Text control detected: {controlType.ProgrammaticName}");
-                return true;
+                // Fallback: check window class
+                return IsEditWindowClass(hwnd);
             }
 
-            // Check if control is editable (has ValuePattern)
-            if (focusedElement.TryGetCurrentPattern(ValuePattern.Pattern, out object valuePattern))
+            IAccessible accessible = obj as IAccessible;
+            if (accessible == null)
             {
-                var pattern = valuePattern as ValuePattern;
-                if (pattern != null && !pattern.Current.IsReadOnly)
+                return IsEditWindowClass(hwnd);
+            }
+
+            try
+            {
+                // Get role of the accessible object
+                object role = accessible.get_accRole(childObj ?? CHILDID_SELF);
+                
+                if (role is int roleInt)
                 {
-                    Logger.Debug("Editable control with ValuePattern detected");
-                    return true;
+                    // Check if role indicates text input
+                    // ROLE_SYSTEM_TEXT (42) = editable text
+                    // ROLE_SYSTEM_PAGETAB (37) could have text inputs
+                    // ROLE_SYSTEM_DOCUMENT (15) = document with editable content
+                    if (roleInt == ROLE_SYSTEM_TEXT)
+                    {
+                        Logger.Debug($"MSAA: Text control detected (Role={roleInt})");
+                        return true;
+                    }
+
+                    // Get state to check if editable
+                    object state = accessible.get_accState(childObj ?? CHILDID_SELF);
+                    if (state is int stateInt)
+                    {
+                        // STATE_SYSTEM_FOCUSABLE (0x100000) + check if it's editable
+                        bool isFocusable = (stateInt & STATE_SYSTEM_FOCUSABLE) != 0;
+                        bool isReadOnly = (stateInt & STATE_SYSTEM_READONLY) != 0;
+                        
+                        if (isFocusable && !isReadOnly)
+                        {
+                            // Additional check: is it an edit control?
+                            if (roleInt == ROLE_SYSTEM_TEXT || 
+                                roleInt == ROLE_SYSTEM_DOCUMENT ||
+                                IsEditWindowClass(hwnd))
+                            {
+                                Logger.Debug($"MSAA: Editable control detected (Role={roleInt}, State=0x{stateInt:X})");
+                                return true;
+                            }
+                        }
+                    }
                 }
             }
-
-            // Check if control supports text input (has TextPattern)
-            if (focusedElement.TryGetCurrentPattern(TextPattern.Pattern, out object textPattern))
+            finally
             {
-                Logger.Debug("Control with TextPattern detected");
-                return true;
+                Marshal.ReleaseComObject(accessible);
             }
 
             return false;
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Error checking text input: {ex.Message}");
+            Logger.Debug($"Error in IsTextInputElement: {ex.Message}");
+            // Fallback to class name check
+            return IsEditWindowClass(hwnd);
+        }
+    }
+
+    /// <summary>
+    /// Check if window class indicates a text input control
+    /// </summary>
+    private bool IsEditWindowClass(IntPtr hwnd)
+    {
+        try
+        {
+            StringBuilder className = new StringBuilder(256);
+            if (GetClassName(hwnd, className, className.Capacity) == 0)
+            {
+                return false;
+            }
+
+            string classStr = className.ToString();
+
+            // Check against known text input classes
+            if (classStr.Equals("Edit", StringComparison.OrdinalIgnoreCase) ||
+                classStr.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase) ||
+                classStr.Contains("Edit"))
+            {
+                Logger.Debug($"Text input class detected: {classStr}");
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
             return false;
         }
     }
@@ -253,7 +303,7 @@ public class AutoShowManager : IDisposable
         uint dwEventThread,
         uint dwmsEventTime);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWinEventHook(
         uint eventMin,
         uint eventMax,
@@ -266,16 +316,29 @@ public class AutoShowManager : IDisposable
     [DllImport("user32.dll")]
     private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 
+    [DllImport("oleacc.dll")]
+    private static extern int AccessibleObjectFromEvent(
+        IntPtr hwnd,
+        int dwObjectID,
+        uint dwChildID,
+        out object ppacc,
+        out object pvarChild);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
     // Event constants
     private const uint EVENT_OBJECT_FOCUS = 0x8005;
 
-    // Object identifiers
-    private const int OBJID_WINDOW = 0x00000000;
-    private const int OBJID_CLIENT = unchecked((int)0xFFFFFFFC);
-
     // Flags
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
-    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
+    // MSAA constants
+    private const int CHILDID_SELF = 0;
+    private const int ROLE_SYSTEM_TEXT = 42;
+    private const int ROLE_SYSTEM_DOCUMENT = 15;
+    private const int STATE_SYSTEM_FOCUSABLE = 0x100000;
+    private const int STATE_SYSTEM_READONLY = 0x40;
 
     #endregion
 }
