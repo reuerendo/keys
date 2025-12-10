@@ -56,6 +56,8 @@ public class AutoShowManager : IDisposable
         }
         catch (Exception ex)
         {
+            // Если инициализация не удалась, это может быть из-за отсутствия UIA, 
+            // но в Windows это маловероятно. Логируем ошибку.
             Logger.Error("Failed to initialize UI Automation. Auto-show may not work.", ex);
         }
     }
@@ -111,34 +113,33 @@ public class AutoShowManager : IDisposable
             }
 
             // 3. Получаем элемент под фокусом через UI Automation
-            // Это работает для Chrome, Edge, Word, Telegram и т.д.
             IUIAutomationElement focusedElement = null;
             try 
             {
+                // Примечание: GetFocusedElement может быть медленным, 
+                // поэтому вызываем его только в случае необходимости.
                 _uiAutomation.GetFocusedElement(out focusedElement);
             }
             catch 
             {
-                // Иногда UIA выбрасывает исключение, если фокус меняется в момент опроса
+                // Игнорируем исключения, если фокус быстро меняется.
                 return;
             }
 
             if (focusedElement != null)
             {
-                // Получаем тип контрола
-                int controlType = focusedElement.CurrentControlType;
+                int controlType = 0;
                 
+                // ИСХОДНАЯ ОШИБКА: 
+                // Заменено focusedElement.CurrentControlType на прямой вызов get_CurrentControlType, 
+                // чтобы избежать ошибки CS0423 в интерфейсе [ComImport].
+                focusedElement.get_CurrentControlType(out controlType);
+
                 // Проверяем, является ли это полем ввода
                 bool isTextInput = IsTextControl(controlType);
                 
-                // Дополнительная проверка: не "только для чтения"
-                // (Некоторые лейблы могут иметь фокус, но не принимать ввод)
-                // Примечание: проверка IsReadOnly может быть медленной, 
-                // поэтому используем её только если тип контрола подходящий.
-                
                 if (isTextInput)
                 {
-                    // Логируем только если состояние изменилось, чтобы не спамить в лог
                     if (!_wasKeyboardShown)
                     {
                         Logger.Info($"Text input detected (Type ID: {controlType}). Requesting keyboard.");
@@ -162,12 +163,12 @@ public class AutoShowManager : IDisposable
     private bool IsTextControl(int controlType)
     {
         // ID типов контролов согласно документации Microsoft UIA:
-        // UIA_EditControlTypeId = 50004 (Стандартные поля ввода, TextBox)
-        // UIA_DocumentControlTypeId = 50030 (Word, содержимое веб-страницы в браузере)
-        // UIA_ComboBoxControlTypeId = 50003 (Выпадающие списки с вводом)
+        // 50004: UIA_EditControlTypeId (Стандартные поля ввода, TextBox)
+        // 50030: UIA_DocumentControlTypeId (Word, содержимое веб-страницы в браузере)
+        // 50003: UIA_ComboBoxControlTypeId (Выпадающие списки с вводом)
         
         return controlType == 50004 || // Edit
-               controlType == 50030 || // Document (Chrome/Edge content)
+               controlType == 50030 || // Document 
                controlType == 50003;   // ComboBox
     }
 
@@ -182,7 +183,12 @@ public class AutoShowManager : IDisposable
         // Освобождаем COM объект
         if (_uiAutomation != null)
         {
-            Marshal.ReleaseComObject(_uiAutomation);
+            // Убедимся, что ReleaseComObject вызывается для правильной очистки
+            try
+            {
+                Marshal.ReleaseComObject(_uiAutomation);
+            }
+            catch { }
             _uiAutomation = null;
         }
         Logger.Info("AutoShowManager disposed");
@@ -190,10 +196,11 @@ public class AutoShowManager : IDisposable
 }
 
 // --- COM Interfaces Definitions ---
-// Определяем интерфейсы здесь, чтобы не требовать добавления внешних ссылок (DLL)
+// Определяем интерфейсы здесь. Не менять их, если не требуется прямого доступа к COM!
 
 [ComImport]
 [Guid("ff48dba4-60ef-4201-aa87-54103eef594e")]
+// Это CoClass для создания объекта UIA.
 public class CUIAutomation
 {
 }
@@ -201,18 +208,20 @@ public class CUIAutomation
 [ComImport]
 [Guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+// IUIAutomation: основной интерфейс для работы с UIA.
 public interface IUIAutomation
 {
     void CompareElements(IUIAutomationElement el1, IUIAutomationElement el2, out int areSame);
     void CompareRuntimeIds(IntPtr runId1, IntPtr runId2, out int areSame);
     void GetRootElement(out IUIAutomationElement root);
     void GetFocusedElement(out IUIAutomationElement element);
-    // Остальные методы интерфейса опущены для краткости, так как они нам не нужны
+    // Остальные методы интерфейса опущены для краткости.
 }
 
 [ComImport]
 [Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+// IUIAutomationElement: представляет UI-элемент.
 public interface IUIAutomationElement
 {
     void SetFocus();
@@ -227,8 +236,9 @@ public interface IUIAutomationElement
     void GetCurrentPattern(int patternId, out object retVal);
     void GetCachedPattern(int patternId, out object retVal);
     
-    // Свойства элемента
+    // Свойства элемента (должны быть методами, согласно COM)
     void get_CurrentProcessId(out int retVal);
+    // МЕТОД, который нам нужен:
     void get_CurrentControlType(out int retVal);
     void get_CurrentLocalizedControlType(out string retVal);
     void get_CurrentName(out string retVal);
@@ -237,16 +247,3 @@ public interface IUIAutomationElement
     void get_CurrentHasKeyboardFocus(out int retVal);
     void get_CurrentIsKeyboardFocusable(out int retVal);
     void get_CurrentIsEnabled(out int retVal);
-    
-    // Вспомогательное свойство для C# (чтобы не вызывать get_CurrentControlType вручную)
-    int CurrentControlType 
-    { 
-        get 
-        { 
-            try { 
-                get_CurrentControlType(out int val); 
-                return val; 
-            } catch { return 0; }
-        } 
-    }
-}
