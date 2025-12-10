@@ -47,10 +47,38 @@ public class AutoShowManager : IDisposable
         _keyboardWindowHandle = keyboardWindowHandle;
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
+        InitializeAutomation();
+    }
+
+    private void InitializeAutomation()
+    {
         try
         {
-            _automation = new CUIAutomation() as IUIAutomation;
-            Logger.Info("UI Automation interface initialized successfully.");
+            // Попытка 1: Стандартное создание
+            try 
+            {
+                _automation = new CUIAutomation() as IUIAutomation;
+            }
+            catch { /* Игнорируем, попробуем второй метод */ }
+
+            // Попытка 2: Через Activator (более надежно для COM в .NET Core/5+)
+            if (_automation == null)
+            {
+                Type type = Type.GetTypeFromCLSID(new Guid("ff48dba4-60ef-4201-aa87-54103eef594e")); // CLSID_CUIAutomation
+                if (type != null)
+                {
+                    _automation = Activator.CreateInstance(type) as IUIAutomation;
+                }
+            }
+
+            if (_automation != null)
+            {
+                Logger.Info("UI Automation interface initialized successfully.");
+            }
+            else
+            {
+                Logger.Error("CRITICAL: Failed to create IUIAutomation instance. Auto-show will not work.");
+            }
         }
         catch (Exception ex)
         {
@@ -60,7 +88,14 @@ public class AutoShowManager : IDisposable
 
     private void SubscribeToFocusEvents()
     {
-        if (_automation == null || _focusHandler != null) return;
+        // Добавляем логирование причины выхода
+        if (_automation == null) 
+        {
+            Logger.Warning("Attempted to subscribe to focus events, but Automation is null.");
+            return;
+        }
+        
+        if (_focusHandler != null) return;
 
         try
         {
