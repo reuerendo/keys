@@ -6,8 +6,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Manages automatic keyboard visibility using Microsoft UI Automation (UIA).
-/// Replaces legacy polling/Win32 hooks with reliable event-based focus tracking.
-/// Works with Browsers, WPF, UWP, and standard Win32 apps.
+/// Works with Browsers (Chrome, Edge), Office, WPF, UWP, and standard Win32 apps.
 /// </summary>
 public class AutoShowManager : IDisposable
 {
@@ -15,11 +14,6 @@ public class AutoShowManager : IDisposable
     private const int UIA_EditControlTypeId = 50004;
     private const int UIA_DocumentControlTypeId = 50030;
     
-    // UIA Property IDs
-    private const int UIA_ControlTypePropertyId = 30003;
-    private const int UIA_NativeWindowHandlePropertyId = 30020;
-    private const int UIA_IsReadOnlyPropertyId = 30046;
-
     private readonly IntPtr _keyboardWindowHandle;
     private readonly DispatcherQueue _dispatcherQueue;
     
@@ -55,7 +49,6 @@ public class AutoShowManager : IDisposable
 
         try
         {
-            // Initialize the UIA Object
             _automation = new CUIAutomation() as IUIAutomation;
             Logger.Info("UI Automation interface initialized successfully.");
         }
@@ -72,7 +65,7 @@ public class AutoShowManager : IDisposable
         try
         {
             _focusHandler = new FocusChangedHandler(this);
-            _automation.AddFocusChangedEventHandler(null, _focusHandler);
+            _automation.AddFocusChangedEventHandler(IntPtr.Zero, _focusHandler);
             Logger.Info("Subscribed to global focus change events.");
         }
         catch (Exception ex)
@@ -97,44 +90,24 @@ public class AutoShowManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Process the focus event. This is called from a background RPC thread,
-    /// so we must be careful with threading and COM context.
-    /// </summary>
     private void OnFocusChanged(IUIAutomationElement element)
     {
         if (element == null || _isDisposed) return;
 
         try
         {
-            // 1. Check Control Type (Edit or Document)
             int controlType = element.CurrentControlType;
             
-            // Check if it is an input field
-            // 50004 = Edit (TextBox, PasswordBox, Browser Address Bar)
-            // 50030 = Document (Word, Browser Content Area)
+            // 50004 = Edit, 50030 = Document
             bool isInput = (controlType == UIA_EditControlTypeId || controlType == UIA_DocumentControlTypeId);
 
             if (!isInput) return;
 
-            // 2. Filter out our own window to prevent loops
             IntPtr nativeHwnd = (IntPtr)element.CurrentNativeWindowHandle;
             if (nativeHwnd == _keyboardWindowHandle) return;
 
-            // 3. Optional: Check if ReadOnly (some browsers don't report this correctly, but good to check)
-            // Note: Accessing CurrentIsReadOnly can sometimes be slow or fail, wrapping in try-catch block specifically
-            try 
-            {
-                 // Using GetCachedPropertyValue if you set up caching, but here we access Current.
-                 // If the property is not supported, it might return false default.
-                 // We skip this check for simplicity to ensure maximum compatibility, 
-                 // or you can implement it if you find the keyboard popping up on read-only docs.
-            }
-            catch { }
-
             Logger.Info($"Input focus detected. Type: {controlType}, HWND: 0x{nativeHwnd:X}");
 
-            // 4. Marshal to UI Thread to show keyboard
             _dispatcherQueue.TryEnqueue(() =>
             {
                 OnShowKeyboardRequested();
@@ -142,7 +115,6 @@ public class AutoShowManager : IDisposable
         }
         catch (Exception ex)
         {
-            // COM elements can become invalid quickly if the UI changes rapidly
             Logger.Debug($"Error processing focus event: {ex.Message}");
         }
     }
@@ -159,7 +131,6 @@ public class AutoShowManager : IDisposable
         
         UnsubscribeFromFocusEvents();
         
-        // Release COM object
         if (_automation != null)
         {
             Marshal.ReleaseComObject(_automation);
@@ -169,28 +140,15 @@ public class AutoShowManager : IDisposable
         Logger.Info("AutoShowManager (UIA) disposed");
     }
 
-    // =========================================================================
-    // Internal Handler Class
-    // =========================================================================
-    
     private class FocusChangedHandler : IUIAutomationFocusChangedEventHandler
     {
         private readonly AutoShowManager _manager;
-
-        public FocusChangedHandler(AutoShowManager manager)
-        {
-            _manager = manager;
-        }
-
-        public void HandleFocusChangedEvent(IUIAutomationElement sender)
-        {
-            _manager.OnFocusChanged(sender);
-        }
+        public FocusChangedHandler(AutoShowManager manager) => _manager = manager;
+        public void HandleFocusChangedEvent(IUIAutomationElement sender) => _manager.OnFocusChanged(sender);
     }
 
     // =========================================================================
-    // COM Interfaces & Imports
-    // Definitions required to use UI Automation without external references
+    // COM Interfaces
     // =========================================================================
 
     [ComImport]
@@ -213,12 +171,15 @@ public class AutoShowManager : IDisposable
         void GetElementFromHandleBuildCache(IntPtr hwnd, IntPtr cacheRequest, out IUIAutomationElement element);
         void GetFocusedElementBuildCache(IntPtr cacheRequest, out IUIAutomationElement element);
         void CreateTreeWalker(IntPtr pCondition, out IntPtr walker);
-        get_ControlViewWalker(out IntPtr walker);
-        get_ContentViewWalker(out IntPtr walker);
-        get_RawViewWalker(out IntPtr walker);
-        get_RawViewCondition(out IntPtr condition);
-        get_ControlViewCondition(out IntPtr condition);
-        get_ContentViewCondition(out IntPtr condition);
+        
+        // Corrected signatures: explicit void return type
+        void get_ControlViewWalker(out IntPtr walker);
+        void get_ContentViewWalker(out IntPtr walker);
+        void get_RawViewWalker(out IntPtr walker);
+        void get_RawViewCondition(out IntPtr condition);
+        void get_ControlViewCondition(out IntPtr condition);
+        void get_ContentViewCondition(out IntPtr condition);
+        
         void CreateCacheRequest(out IntPtr cacheRequest);
         void CreateTrueCondition(out IntPtr newCondition);
         void CreateFalseCondition(out IntPtr newCondition);
@@ -236,12 +197,14 @@ public class AutoShowManager : IDisposable
         void AddStructureChangedEventHandler(IUIAutomationElement element, int scope, IntPtr cacheRequest, IntPtr handler);
         void RemoveStructureChangedEventHandler(IUIAutomationElement element, IntPtr handler);
         
-        // This is the one we use
+        // This is the target method we need
         void AddFocusChangedEventHandler(IntPtr cacheRequest, IUIAutomationFocusChangedEventHandler handler);
         void RemoveFocusChangedEventHandler(IUIAutomationFocusChangedEventHandler handler);
         
         void RemoveAllEventHandlers();
-        // ... (remaining methods omitted for brevity as they are not used)
+        void IntentionallyUnused1();
+        void IntentionallyUnused2();
+        void IntentionallyUnused3();
     }
 
     [ComImport]
@@ -267,7 +230,7 @@ public class AutoShowManager : IDisposable
         void GetCachedParent(out IUIAutomationElement parent);
         void GetCachedChildren(out IntPtr children);
         
-        // Property Getters
+        // Properties
         int CurrentProcessId { get; }
         int CurrentControlType { get; }
         string CurrentLocalizedControlType { get; }
@@ -292,7 +255,7 @@ public class AutoShowManager : IDisposable
         int CurrentIsRequiredForForm { get; }
         int CurrentItemStatus { get; }
         string CurrentItemStatusAsString { get; }
-        string CurrentBoundingRectangle { get; } // Rect actually
+        string CurrentBoundingRectangle { get; }
         int CurrentLabeledBy { get; }
         int CurrentAriaRole { get; }
         int CurrentAriaProperties { get; }
@@ -301,8 +264,6 @@ public class AutoShowManager : IDisposable
         int CurrentDescribedBy { get; }
         int CurrentFlowsTo { get; }
         string CurrentProviderDescription { get; }
-        
-        // Cache getters omitted for brevity
     }
 
     [ComImport]
