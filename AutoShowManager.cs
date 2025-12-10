@@ -1,39 +1,105 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
-using Microsoft.UI.Dispatching;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages automatic keyboard visibility based on text input focus detection.
-/// Uses the same approach as system IME and On-Screen Keyboard (OSK).
+/// Manages automatic keyboard display when text input fields receive focus
 /// </summary>
 public class AutoShowManager : IDisposable
 {
-    // WinEvent constants
+    #region Win32 Constants and Delegates
+
     private const uint EVENT_OBJECT_FOCUS = 0x8005;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     
-    // Window class name buffer size
-    private const int MAX_CLASS_NAME = 256;
-    
+    private delegate void WinEventDelegate(
+        IntPtr hWinEventHook,
+        uint eventType,
+        IntPtr hwnd,
+        int idObject,
+        int idChild,
+        uint dwEventThread,
+        uint dwmsEventTime);
+
+    #endregion
+
+    #region Win32 API Imports
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        IntPtr hmodWinEventProc,
+        WinEventDelegate lpfnWinEventProc,
+        uint idProcess,
+        uint idThread,
+        uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    #endregion
+
+    #region Fields
+
     private readonly IntPtr _keyboardWindowHandle;
-    private readonly DispatcherQueue _dispatcherQueue;
-    
-    private IntPtr _focusHook;
+    private IntPtr _hookHandle;
     private WinEventDelegate _hookDelegate;
-    private System.Threading.Timer _focusCheckTimer;
-    
-    private IntPtr _lastFocusedControl = IntPtr.Zero;
-    private bool _lastInputState = false;
-    
     private bool _isEnabled;
-    private bool _isDisposed;
+    private bool _disposed;
+    
+    // Track last focused window to avoid duplicate triggers
+    private IntPtr _lastFocusedWindow = IntPtr.Zero;
 
+    // Known text input control class names
+    private static readonly string[] TextInputClasses = new[]
+    {
+        "Edit",                    // Standard Windows edit control
+        "RichEdit",                // Rich edit control
+        "RichEdit20A",             // Rich edit 2.0 ANSI
+        "RichEdit20W",             // Rich edit 2.0 Unicode
+        "RichEdit50W",             // Rich edit 5.0
+        "RICHEDIT60W",             // Rich edit 6.0
+        "TextBox",                 // WPF TextBox
+        "TextBlock",               // WPF TextBlock
+        "Windows.UI.Xaml.Controls.TextBox", // WinUI TextBox
+        "Chrome_RenderWidgetHostHWND", // Chrome/Edge browser text fields
+        "MozillaWindowClass",      // Firefox
+    };
+
+    #endregion
+
+    #region Events
+
+    /// <summary>
+    /// Raised when keyboard should be shown due to text field focus
+    /// </summary>
     public event EventHandler ShowKeyboardRequested;
-    public event EventHandler HideKeyboardRequested;
 
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// Gets or sets whether auto-show is enabled
+    /// </summary>
     public bool IsEnabled
     {
         get => _isEnabled;
@@ -42,39 +108,53 @@ public class AutoShowManager : IDisposable
             if (_isEnabled != value)
             {
                 _isEnabled = value;
-                if (_isEnabled)
-                    Start();
-                else
-                    Stop();
                 
-                Logger.Info($"AutoShow {(_isEnabled ? "enabled" : "disabled")}");
+                if (_isEnabled)
+                {
+                    StartMonitoring();
+                }
+                else
+                {
+                    StopMonitoring();
+                }
+                
+                Logger.Info($"AutoShowManager enabled: {_isEnabled}");
             }
         }
     }
 
+    #endregion
+
+    #region Constructor
+
     public AutoShowManager(IntPtr keyboardWindowHandle)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-        
         Logger.Info("AutoShowManager initialized");
     }
 
-    private void Start()
+    #endregion
+
+    #region Monitoring Control
+
+    /// <summary>
+    /// Start monitoring for text field focus events
+    /// </summary>
+    private void StartMonitoring()
     {
-        if (_focusHook != IntPtr.Zero)
+        if (_hookHandle != IntPtr.Zero)
         {
-            Logger.Warning("AutoShow already started");
+            Logger.Warning("AutoShow monitoring already started");
             return;
         }
 
         try
         {
-            // Create delegate and keep reference to prevent GC
-            _hookDelegate = new WinEventDelegate(OnFocusChanged);
+            // Keep delegate reference to prevent GC
+            _hookDelegate = new WinEventDelegate(WinEventCallback);
             
-            // Hook focus change events
-            _focusHook = SetWinEventHook(
+            // Set hook for focus events
+            _hookHandle = SetWinEventHook(
                 EVENT_OBJECT_FOCUS,
                 EVENT_OBJECT_FOCUS,
                 IntPtr.Zero,
@@ -83,422 +163,218 @@ public class AutoShowManager : IDisposable
                 0,
                 WINEVENT_OUTOFCONTEXT);
 
-            if (_focusHook != IntPtr.Zero)
+            if (_hookHandle == IntPtr.Zero)
             {
-                Logger.Info("✓ Focus event hook installed");
-                
-                // Start polling timer as backup (500ms interval)
-                _focusCheckTimer = new System.Threading.Timer(
-                    CheckFocusState, 
-                    null, 
-                    500, 
-                    500);
-                
-                Logger.Info("✓ Focus polling timer started");
-                
-                // Check initial state
-                CheckFocusState(null);
+                Logger.Error("Failed to set WinEvent hook for auto-show");
             }
             else
             {
-                Logger.Error("Failed to install focus event hook");
+                Logger.Info("AutoShow monitoring started successfully");
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to start AutoShow", ex);
-        }
-    }
-
-    private void Stop()
-    {
-        _focusCheckTimer?.Dispose();
-        _focusCheckTimer = null;
-
-        if (_focusHook != IntPtr.Zero)
-        {
-            UnhookWinEvent(_focusHook);
-            _focusHook = IntPtr.Zero;
-            Logger.Info("Focus event hook removed");
-        }
-        
-        _lastFocusedControl = IntPtr.Zero;
-        _lastInputState = false;
-    }
-
-    /// <summary>
-    /// Called when focus changes (via WinEvent hook)
-    /// </summary>
-    private void OnFocusChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, 
-        int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
-    {
-        if (_isDisposed || hwnd == IntPtr.Zero || hwnd == _keyboardWindowHandle)
-            return;
-
-        try
-        {
-            // hwnd from WinEvent is the actual focused control
-            ProcessFocusChange(hwnd);
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error in focus change handler: {ex.Message}");
+            Logger.Error("Exception starting AutoShow monitoring", ex);
         }
     }
 
     /// <summary>
-    /// Polling timer callback - checks focus state periodically
+    /// Stop monitoring for text field focus events
     /// </summary>
-    private void CheckFocusState(object state)
+    private void StopMonitoring()
     {
-        if (_isDisposed)
-            return;
-
-        try
+        if (_hookHandle != IntPtr.Zero)
         {
-            // Get the actual focused control from the foreground window's thread
-            IntPtr foregroundWindow = GetForegroundWindow();
-            if (foregroundWindow == IntPtr.Zero || foregroundWindow == _keyboardWindowHandle)
+            try
             {
-                // No foreground window or keyboard has focus
-                ProcessFocusChange(IntPtr.Zero);
+                UnhookWinEvent(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+                _lastFocusedWindow = IntPtr.Zero;
+                Logger.Info("AutoShow monitoring stopped");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Exception stopping AutoShow monitoring", ex);
+            }
+        }
+    }
+
+    #endregion
+
+    #region Event Callback
+
+    /// <summary>
+    /// Callback for Windows focus events
+    /// </summary>
+    private void WinEventCallback(
+        IntPtr hWinEventHook,
+        uint eventType,
+        IntPtr hwnd,
+        int idObject,
+        int idChild,
+        uint dwEventThread,
+        uint dwmsEventTime)
+    {
+        try
+        {
+            // Ignore if disabled or invalid window
+            if (!_isEnabled || hwnd == IntPtr.Zero)
+                return;
+
+            // Skip if this is the keyboard window itself
+            if (hwnd == _keyboardWindowHandle)
+            {
+                Logger.Debug("Focus on keyboard window - ignoring");
                 return;
             }
 
-            // Get the thread's focused control
-            IntPtr focusedControl = GetThreadFocusedControl(foregroundWindow);
-            
-            if (focusedControl != IntPtr.Zero)
+            // Skip if same window as last time (avoid duplicates)
+            if (hwnd == _lastFocusedWindow)
+                return;
+
+            // Check if the focused window is a text input control
+            if (IsTextInputControl(hwnd))
             {
-                ProcessFocusChange(focusedControl);
-            }
-            else
-            {
-                // No specific control focused, check the window itself
-                ProcessFocusChange(foregroundWindow);
+                _lastFocusedWindow = hwnd;
+                
+                string className = GetWindowClassName(hwnd);
+                Logger.Info($"Text input focused: {className} (0x{hwnd:X})");
+                
+                // Trigger keyboard show event
+                ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
             }
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Error in focus check timer: {ex.Message}");
+            Logger.Error("Exception in WinEvent callback", ex);
         }
     }
 
-    /// <summary>
-    /// Gets the focused control in the foreground window's thread
-    /// </summary>
-    private IntPtr GetThreadFocusedControl(IntPtr foregroundWindow)
-    {
-        try
-        {
-            uint threadId = GetWindowThreadProcessId(foregroundWindow, out _);
-            
-            GUITHREADINFO guiInfo = new GUITHREADINFO();
-            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
-            
-            if (GetGUIThreadInfo(threadId, ref guiInfo))
-            {
-                // Return the focused control if it exists
-                if (guiInfo.hwndFocus != IntPtr.Zero)
-                {
-                    return guiInfo.hwndFocus;
-                }
-            }
-            
-            return IntPtr.Zero;
-        }
-        catch
-        {
-            return IntPtr.Zero;
-        }
-    }
+    #endregion
+
+    #region Helper Methods
 
     /// <summary>
-    /// Core logic: determine if focused control is a text input
-    /// </summary>
-    private void ProcessFocusChange(IntPtr hwnd)
-    {
-        // Skip if same control is still focused
-        if (hwnd == _lastFocusedControl)
-            return;
-
-        _lastFocusedControl = hwnd;
-        
-        bool isTextInput = hwnd != IntPtr.Zero && IsTextInputControl(hwnd);
-        
-        // Only trigger events on state change
-        if (isTextInput != _lastInputState)
-        {
-            _lastInputState = isTextInput;
-            
-            if (hwnd != IntPtr.Zero)
-            {
-                string className = GetWindowClassName(hwnd);
-                Logger.Info($"Input state changed: {isTextInput} (HWND=0x{hwnd:X}, Class={className})");
-            }
-            else
-            {
-                Logger.Info($"Input state changed: {isTextInput} (no focus)");
-            }
-            
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                if (isTextInput)
-                    ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
-                else
-                    HideKeyboardRequested?.Invoke(this, EventArgs.Empty);
-            });
-        }
-    }
-
-    /// <summary>
-    /// Determines if the given window handle is a text input control.
-    /// Uses the same detection logic as system IME and OSK.
+    /// Check if the given window is a text input control
     /// </summary>
     private bool IsTextInputControl(IntPtr hwnd)
     {
         try
         {
             string className = GetWindowClassName(hwnd);
+            
             if (string.IsNullOrEmpty(className))
                 return false;
 
-            // Known text input control classes
-            string[] textInputClasses = new[]
+            // Check against known text input class names
+            foreach (string textClass in TextInputClasses)
             {
-                // Standard Win32 edit controls
-                "Edit",
-                "RichEdit",
-                "RICHEDIT20A",
-                "RICHEDIT20W",
-                "RICHEDIT50W",
-                
-                // Browser content areas (Chromium, Firefox, IE)
-                "Chrome_RenderWidgetHostHWND",
-                "MozillaContentWindowClass",
-                "Internet Explorer_Server",
-                
-                // Office applications
-                "_WwG",                    // Word
-                "EXCEL7",                  // Excel
-                "mdiClass",                // Office MDI child
-                
-                // WinUI 3 / UWP controls
-                "TextBox",
-                "RichEditBox",
-                "Windows.UI.Core.CoreWindow",
-                
-                // Code editors
-                "Scintilla",
-                "SciTEWindow",
-                
-                // Console
-                "ConsoleWindowClass",
-                
-                // Other common controls
-                "ThunderRT6TextBox",       // VB6
-                "WindowsForms10.EDIT",     // WinForms
-            };
-
-            // Direct class name match
-            foreach (string inputClass in textInputClasses)
-            {
-                if (className.Equals(inputClass, StringComparison.OrdinalIgnoreCase))
+                if (className.IndexOf(textClass, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    // For browser content areas, verify text input is actually active
-                    if (className.Contains("Chrome_RenderWidgetHostHWND") ||
-                        className.Contains("MozillaContentWindowClass"))
-                    {
-                        bool hasTextInput = HasTextCaret(hwnd);
-                        Logger.Debug($"Browser content area: {className}, HasCaret={hasTextInput}");
-                        return hasTextInput;
-                    }
-                    
-                    Logger.Debug($"✓ Text input detected: {className}");
+                    Logger.Debug($"Detected text input: {className}");
                     return true;
                 }
-            }
-
-            // Partial match for versioned controls (e.g., "WindowsForms10.EDIT.app.0.378734a")
-            if (className.Contains("EDIT", StringComparison.OrdinalIgnoreCase) ||
-                className.Contains("RichEdit", StringComparison.OrdinalIgnoreCase))
-            {
-                // Verify it's not read-only
-                if (!IsReadOnly(hwnd))
-                {
-                    Logger.Debug($"✓ Text input detected (partial match): {className}");
-                    return true;
-                }
-            }
-
-            // For unknown controls, check if they have text caret (actual text input active)
-            if (HasTextCaret(hwnd) && IsEditableControl(hwnd))
-            {
-                Logger.Debug($"✓ Text input detected (has caret): {className}");
-                return true;
             }
 
             return false;
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Error in IsTextInputControl: {ex.Message}");
+            Logger.Error("Exception checking if control is text input", ex);
             return false;
         }
     }
 
     /// <summary>
-    /// Checks if control has text caret (text cursor)
-    /// </summary>
-    private bool HasTextCaret(IntPtr hwnd)
-    {
-        try
-        {
-            uint threadId = GetWindowThreadProcessId(hwnd, out _);
-            
-            GUITHREADINFO guiInfo = new GUITHREADINFO();
-            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
-            
-            if (GetGUIThreadInfo(threadId, ref guiInfo))
-            {
-                // Check if there's a text caret and it belongs to this control or its children
-                if (guiInfo.hwndCaret != IntPtr.Zero && guiInfo.hwndCaret != _keyboardWindowHandle)
-                {
-                    // Caret can be in the control itself or its child
-                    IntPtr caretParent = guiInfo.hwndCaret;
-                    for (int i = 0; i < 10; i++)
-                    {
-                        if (caretParent == hwnd)
-                            return true;
-                        
-                        caretParent = GetParent(caretParent);
-                        if (caretParent == IntPtr.Zero)
-                            break;
-                    }
-                    
-                    // Also check if hwnd is the caret itself
-                    if (guiInfo.hwndCaret == hwnd)
-                        return true;
-                }
-            }
-            
-            return false;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Checks if control is read-only
-    /// </summary>
-    private bool IsReadOnly(IntPtr hwnd)
-    {
-        const int GWL_STYLE = -16;
-        const int ES_READONLY = 0x0800;
-        
-        try
-        {
-            int style = GetWindowLong(hwnd, GWL_STYLE);
-            return (style & ES_READONLY) != 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Checks if control can be edited (not disabled, not read-only)
-    /// </summary>
-    private bool IsEditableControl(IntPtr hwnd)
-    {
-        const int GWL_STYLE = -16;
-        const int WS_DISABLED = 0x08000000;
-        const int ES_READONLY = 0x0800;
-        
-        try
-        {
-            int style = GetWindowLong(hwnd, GWL_STYLE);
-            return (style & WS_DISABLED) == 0 && (style & ES_READONLY) == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Gets window class name
+    /// Get the class name of a window
     /// </summary>
     private string GetWindowClassName(IntPtr hwnd)
     {
-        StringBuilder className = new StringBuilder(MAX_CLASS_NAME);
-        
-        if (GetClassName(hwnd, className, MAX_CLASS_NAME) > 0)
+        try
         {
-            return className.ToString();
+            StringBuilder className = new StringBuilder(256);
+            int length = GetClassName(hwnd, className, className.Capacity);
+            
+            if (length > 0)
+            {
+                return className.ToString();
+            }
+            
+            return string.Empty;
         }
-        
-        return string.Empty;
+        catch (Exception ex)
+        {
+            Logger.Error("Exception getting window class name", ex);
+            return string.Empty;
+        }
     }
+
+    /// <summary>
+    /// Get focused control in the current thread
+    /// </summary>
+    private IntPtr GetFocusedControl(IntPtr foregroundWindow)
+    {
+        try
+        {
+            // Get foreground window thread
+            uint foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, out _);
+            uint currentThreadId = GetWindowThreadProcessId(_keyboardWindowHandle, out _);
+
+            // Attach to foreground thread to get its focus
+            if (foregroundThreadId != currentThreadId)
+            {
+                AttachThreadInput(currentThreadId, foregroundThreadId, true);
+                IntPtr focusedControl = GetFocus();
+                AttachThreadInput(currentThreadId, foregroundThreadId, false);
+                
+                return focusedControl;
+            }
+            
+            return GetFocus();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Exception getting focused control", ex);
+            return IntPtr.Zero;
+        }
+    }
+
+    #endregion
+
+    #region IDisposable
 
     public void Dispose()
     {
-        if (_isDisposed)
-            return;
-        
-        _isDisposed = true;
-        Stop();
-        
-        Logger.Info("AutoShowManager disposed");
+        Dispose(true);
+        GC.SuppressFinalize(this);
     }
 
-    // =========================================================================
-    // Native Methods & Structures
-    // =========================================================================
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct GUITHREADINFO
+    protected virtual void Dispose(bool disposing)
     {
-        public int cbSize;
-        public int flags;
-        public IntPtr hwndActive;
-        public IntPtr hwndFocus;
-        public IntPtr hwndCapture;
-        public IntPtr hwndMenuOwner;
-        public IntPtr hwndMoveSize;
-        public IntPtr hwndCaret;
-        public System.Drawing.Rectangle rcCaret;
+        if (!_disposed)
+        {
+            if (disposing)
+            {
+                // Managed cleanup
+                StopMonitoring();
+            }
+
+            // Unmanaged cleanup
+            if (_hookHandle != IntPtr.Zero)
+            {
+                UnhookWinEvent(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+            }
+
+            _disposed = true;
+            Logger.Info("AutoShowManager disposed");
+        }
     }
 
-    private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, 
-        IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+    ~AutoShowManager()
+    {
+        Dispose(false);
+    }
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, 
-        IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, 
-        uint idProcess, uint idThread, uint dwFlags);
-
-    [DllImport("user32.dll")]
-    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetParent(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    #endregion
 }
