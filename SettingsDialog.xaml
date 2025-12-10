@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="VirtualKeyboard.SettingsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="Настройки"
+    PrimaryButtonText="Сохранить"
+    CloseButtonText="Отмена"
+    DefaultButton="Primary"
+    PrimaryButtonClick="SaveButton_Click"
+    CloseButtonClick="CancelButton_Click">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="600">
+        <StackPanel Spacing="24" Padding="8">
+            
+            <!-- Keyboard Scale Section -->
+            <StackPanel Spacing="12">
+                <TextBlock 
+                    Text="Размер клавиатуры" 
+                    FontSize="16" 
+                    FontWeight="SemiBold"/>
+                
+                <TextBlock 
+                    Text="Измените размер виртуальной клавиатуры от 50% до 150%" 
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap"
+                    Margin="0,0,0,8"/>
+                
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Slider 
+                        x:Name="ScaleSlider"
+                        Grid.Column="0"
+                        Minimum="50" 
+                        Maximum="150" 
+                        Value="100"
+                        StepFrequency="5"
+                        TickFrequency="10"
+                        TickPlacement="BottomRight"
+                        ValueChanged="ScaleSlider_ValueChanged"
+                        VerticalAlignment="Center"/>
+                    
+                    <TextBlock 
+                        x:Name="ScaleValueText"
+                        Grid.Column="1"
+                        Text="100%"
+                        FontSize="20"
+                        FontWeight="SemiBold"
+                        MinWidth="60"
+                        TextAlignment="Right"
+                        VerticalAlignment="Center"/>
+                </Grid>
+                
+                <Border 
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="12"
+                    Margin="0,8,0,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="💡 "/>
+                            <Run Text="Изменение размера вступит в силу после перезапуска приложения"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Future Settings Placeholder -->
+            <StackPanel Spacing="12" Opacity="0.5">
+                <TextBlock 
+                    Text="Дополнительные настройки" 
+                    FontSize="16" 
+                    FontWeight="SemiBold"/>
+                
+                <TextBlock 
+                    Text="Скоро здесь появятся дополнительные опции:"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap"/>
+                
+                <StackPanel Spacing="4" Margin="16,4,0,0">
+                    <TextBlock 
+                        Text="• Язык интерфейса"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock 
+                        Text="• Горячие клавиши"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock 
+                        Text="• Автозапуск"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock 
+                        Text="• Прозрачность окна"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </StackPanel>
+            
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>
