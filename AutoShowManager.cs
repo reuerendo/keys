@@ -64,7 +64,7 @@ public class AutoShowManager : IDisposable
         try
         {
             // Create ITfThreadMgr instance
-            var threadMgrGuid = typeof(ITfThreadMgr).GUID;
+            Guid threadMgrGuid = typeof(ITfThreadMgr).GUID;
             var clsid = new Guid("529a9e6b-6587-4f23-ab9e-9c7d683e3c50"); // CLSID_TF_ThreadMgr
             
             var hr = CoCreateInstance(
@@ -96,7 +96,8 @@ public class AutoShowManager : IDisposable
             // Create and register event sink
             _eventSink = new TsfEventSink(this);
             
-            var sourceGuid = typeof(ITfThreadMgrEventSink).GUID;
+            // Create local copy of GUID for ref parameter
+            Guid sourceGuid = typeof(ITfThreadMgrEventSink).GUID;
             var sinkPtr = Marshal.GetComInterfaceForObject(_eventSink, typeof(ITfThreadMgrEventSink));
             
             hr = _threadMgr.AdviseSink(ref sourceGuid, sinkPtr, out _eventSinkCookie);
@@ -125,7 +126,6 @@ public class AutoShowManager : IDisposable
         {
             if (_threadMgr != null && _eventSinkCookie != 0)
             {
-                var sourceGuid = typeof(ITfThreadMgrEventSink).GUID;
                 _threadMgr.UnadviseSink(_eventSinkCookie);
                 _eventSinkCookie = 0;
                 Logger.Info("TSF event sink unregistered");
@@ -172,9 +172,10 @@ public class AutoShowManager : IDisposable
             }
 
             // Get context information
-            Guid guidAttribute;
+            // Create local copies of GUIDs because ref parameters cannot use static readonly fields
+            Guid inputScopeGuid = TF_ATTRIBUTE_GUID.TF_ATTR_INPUT_SCOPE;
             int hr = context.GetAttribute(
-                ref TF_ATTRIBUTE_GUID.TF_ATTR_INPUT_SCOPE,
+                ref inputScopeGuid,
                 out ITfProperty property);
 
             if (hr == 0 && property != null)
@@ -187,7 +188,8 @@ public class AutoShowManager : IDisposable
             {
                 // Even without input scope, check if it's a text context
                 // by checking if context supports text operations
-                hr = context.GetProperty(ref TF_PROPERTY_GUID.TFPROP_TEXTOWNER, out property);
+                Guid textOwnerGuid = TF_PROPERTY_GUID.TFPROP_TEXTOWNER;
+                hr = context.GetProperty(ref textOwnerGuid, out property);
                 if (hr == 0 && property != null)
                 {
                     Logger.Info("Text owner context detected - showing keyboard");
