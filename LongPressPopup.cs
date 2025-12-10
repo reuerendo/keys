@@ -13,6 +13,7 @@ namespace VirtualKeyboard;
 public class LongPressPopup
 {
     private const int LONG_PRESS_DELAY_MS = 300;
+    private const double POPUP_MARGIN = 8; // Margin from window edges
     
     private Popup _popup;
     private StackPanel _popupPanel;
@@ -166,7 +167,7 @@ public class LongPressPopup
             Logger.Debug($"Added popup button: {option.Display}");
         }
 
-        // КРИТИЧЕСКИ ВАЖНО: Установить XamlRoot для popup
+        // Set XamlRoot for popup
         if (_rootElement?.XamlRoot != null)
         {
             _popup.XamlRoot = _rootElement.XamlRoot;
@@ -180,15 +181,64 @@ public class LongPressPopup
 
         try
         {
+            // Calculate popup dimensions
+            _popupPanel.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double popupWidth = _popupPanel.DesiredSize.Width;
+            double popupHeight = _popupPanel.DesiredSize.Height;
+            
+            // Get button position relative to root element
             var transform = sourceButton.TransformToVisual(_rootElement);
-            var point = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
-
-            _popup.HorizontalOffset = point.X;
-            _popup.VerticalOffset = point.Y - 60;
+            var buttonPosition = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+            
+            // Get root element (window) dimensions
+            double windowWidth = _rootElement.ActualWidth;
+            double windowHeight = _rootElement.ActualHeight;
+            
+            Logger.Debug($"Window size: {windowWidth}x{windowHeight}, Button pos: {buttonPosition.X},{buttonPosition.Y}, Popup size: {popupWidth}x{popupHeight}");
+            
+            // Calculate horizontal position
+            double horizontalOffset = buttonPosition.X;
+            
+            // Check if popup goes beyond right edge
+            if (horizontalOffset + popupWidth > windowWidth - POPUP_MARGIN)
+            {
+                // Align to right edge of window
+                horizontalOffset = windowWidth - popupWidth - POPUP_MARGIN;
+                Logger.Debug($"Popup adjusted to right edge: {horizontalOffset}");
+            }
+            
+            // Check if popup goes beyond left edge
+            if (horizontalOffset < POPUP_MARGIN)
+            {
+                horizontalOffset = POPUP_MARGIN;
+                Logger.Debug($"Popup adjusted to left edge: {horizontalOffset}");
+            }
+            
+            // Calculate vertical position - try to show above button first
+            double verticalOffset = buttonPosition.Y - popupHeight - 8; // 8px gap above button
+            
+            // Check if popup goes beyond top edge
+            if (verticalOffset < POPUP_MARGIN)
+            {
+                // Show below button instead
+                verticalOffset = buttonPosition.Y + sourceButton.ActualHeight + 8; // 8px gap below button
+                Logger.Debug($"Popup positioned below button: {verticalOffset}");
+                
+                // Check if it goes beyond bottom edge
+                if (verticalOffset + popupHeight > windowHeight - POPUP_MARGIN)
+                {
+                    // Position at bottom edge
+                    verticalOffset = windowHeight - popupHeight - POPUP_MARGIN;
+                    Logger.Debug($"Popup adjusted to bottom edge: {verticalOffset}");
+                }
+            }
+            
+            _popup.HorizontalOffset = horizontalOffset;
+            _popup.VerticalOffset = verticalOffset;
 
             _popup.IsOpen = true;
             
-            Logger.Info($"Popup opened at position X={point.X}, Y={point.Y - 60}");
+            Logger.Info($"Popup opened at position X={horizontalOffset}, Y={verticalOffset}");
         }
         catch (Exception ex)
         {
@@ -290,7 +340,7 @@ public class LongPressPopup
 				["+"] = new List<LongPressOption>
                 {
                     new LongPressOption("±", "±"),
-                    new LongPressOption("∑", "∑")
+                    new LongPressOption("∓", "∓")
                 },
 				["="] = new List<LongPressOption>
                 {
@@ -448,7 +498,7 @@ public class LongPressPopup
 				["+"] = new List<LongPressOption>
                 {
                     new LongPressOption("±", "±"),
-                    new LongPressOption("∑", "∑")
+                    new LongPressOption("∓", "∓")
                 },
 				["="] = new List<LongPressOption>
                 {
@@ -500,7 +550,7 @@ public class LongPressPopup
                 {
                     new LongPressOption("–", "–"),
                     new LongPressOption("—", "—"),
-                    new LongPressOption("−", "−")
+                    new LongPressOption("∓", "∓")
                 }
             }
         };
