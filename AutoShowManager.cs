@@ -12,7 +12,6 @@ public class AutoShowManager : IDisposable
 {
     private const uint EVENT_OBJECT_FOCUS = 0x8005;
     private const uint EVENT_OBJECT_VALUECHANGE = 0x800E;
-    private const uint EVENT_OBJECT_STATECHANGE = 0x800A;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
     
     private readonly IntPtr _keyboardWindowHandle;
@@ -81,7 +80,7 @@ public class AutoShowManager : IDisposable
 
         try
         {
-            // Hook 1: Основной - события фокуса
+            // Hook 1: Main focus events
             _hookHandleFocus = SetWinEventHook(
                 EVENT_OBJECT_FOCUS,
                 EVENT_OBJECT_FOCUS,
@@ -91,7 +90,7 @@ public class AutoShowManager : IDisposable
                 0,
                 WINEVENT_OUTOFCONTEXT);
 
-            // Hook 2: Дополнительный - изменение значений (для полей ввода)
+            // Hook 2: Value change events (for input fields)
             _hookHandleValueChange = SetWinEventHook(
                 EVENT_OBJECT_VALUECHANGE,
                 EVENT_OBJECT_VALUECHANGE,
@@ -105,7 +104,7 @@ public class AutoShowManager : IDisposable
             {
                 Logger.Info("✓ Subscribed to focus events (WinEvents Enhanced)");
                 
-                // Запускаем таймер для периодической проверки фокуса (fallback для сложных приложений)
+                // Start timer for periodic focus checking (for complex applications)
                 _focusCheckTimer = new System.Threading.Timer(CheckFocusTimer, null, 500, 500);
                 Logger.Info("✓ Started focus monitoring timer");
             }
@@ -151,13 +150,13 @@ public class AutoShowManager : IDisposable
             if (focusedWindow == IntPtr.Zero || focusedWindow == _keyboardWindowHandle)
                 return;
 
-            // Проверяем только если фокус сменился
+            // Check only if focus changed
             if (focusedWindow != _lastFocusedWindow)
             {
                 _lastFocusedWindow = focusedWindow;
                 
-                // Проверяем наличие каретки (текстового курсора)
-                if (HasTextCaret(focusedWindow))
+                // Check for text caret presence
+                if (HasTextCaret(focusedWindow) && IsActualInputElement(focusedWindow))
                 {
                     Logger.Info($"Text input detected via timer: HWND=0x{focusedWindow:X}");
                     
@@ -182,7 +181,7 @@ public class AutoShowManager : IDisposable
 
         try
         {
-            if (IsInputElement(hwnd))
+            if (IsActualInputElement(hwnd))
             {
                 string className = GetWindowClassName(hwnd);
                 Logger.Info($"Input focus detected: HWND=0x{hwnd:X}, Class={className}, Event=0x{eventType:X}");
@@ -199,78 +198,111 @@ public class AutoShowManager : IDisposable
         }
     }
 
-    private bool IsInputElement(IntPtr hwnd)
+    private bool IsActualInputElement(IntPtr hwnd)
     {
         try
         {
             string className = GetWindowClassName(hwnd);
             
-            // Расширенный список классов окон для различных приложений
+            // Exclude main application windows (browsers, editors main windows)
+            string[] excludedClasses = new[]
+            {
+                "MozillaWindowClass",           // Firefox main window
+                "Chrome_WidgetWin_1",            // Chrome main window
+                "ApplicationFrameWindow",        // UWP app frame
+                "Notepad",                       // Notepad main window
+                "OpusApp",                       // Word main window
+                "XLMAIN",                        // Excel main window
+                "PPTFrameClass",                 // PowerPoint main window
+                "SciTEWindow"                    // SciTE main window
+            };
+
+            // Check if this is an excluded main window
+            foreach (string excludedClass in excludedClasses)
+            {
+                if (className.Equals(excludedClass, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Debug($"Excluded main window: {className}");
+                    return false;
+                }
+            }
+
+            // Specific input element classes
             string[] inputClasses = new[]
             {
-                // Стандартные Windows элементы
+                // Standard Windows input controls
                 "Edit", "RichEdit", "RICHEDIT", "RICHEDIT20", "RICHEDIT50W",
                 
-                // Браузеры Chromium (Chrome, Edge, Opera, Brave)
+                // Chromium browsers (Chrome, Edge, Opera, Brave) - content areas only
                 "Chrome_RenderWidgetHostHWND",
-                "Chrome_WidgetWin_0", "Chrome_WidgetWin_1",
+                "Chrome_WidgetWin_0",
                 
-                // Firefox
-                "MozillaWindowClass", "MozillaContentWindowClass",
+                // Firefox content areas
+                "MozillaContentWindowClass",
                 
                 // Internet Explorer
                 "Internet Explorer_Server",
                 
-                // Office приложения
-                "_WwG", "OpusApp", "EXCEL7", "PPTFrameClass",
+                // Office input areas
+                "_WwG",
+                "EXCEL7",
                 
-                // UWP / WinUI 3 приложения
-                "Windows.UI.Core.CoreWindow",
-                "ApplicationFrameInputSinkWindow",
+                // UWP / WinUI 3 input controls
                 "TextBox", "RichEditBox",
+                "Windows.UI.Core.CoreWindow",
                 
-                // WPF приложения
+                // WPF (needs additional checking)
                 "HwndWrapper",
                 
-                // Прочие
-                "ThunderRT6TextBox", // Visual Basic
-                "Scintilla", "SciTEWindow", // Редакторы кода
-                "ConsoleWindowClass" // Консоль
+                // Other input controls
+                "ThunderRT6TextBox",     // Visual Basic
+                "Scintilla",             // Code editors
+                "ConsoleWindowClass"     // Console
             };
 
-            // Проверяем прямое совпадение или частичное содержание
+            // Check direct match or partial match
             foreach (string inputClass in inputClasses)
             {
                 if (className.Equals(inputClass, StringComparison.OrdinalIgnoreCase) ||
                     className.Contains(inputClass, StringComparison.OrdinalIgnoreCase))
                 {
-                    return true;
-                }
-            }
-
-            // Дополнительная проверка: есть ли у окна каретка (текстовый курсор)
-            if (HasTextCaret(hwnd))
-            {
-                Logger.Debug($"Text caret detected in: {className}");
-                return true;
-            }
-
-            // Проверка родительского окна (для вложенных элементов)
-            IntPtr parent = GetParent(hwnd);
-            if (parent != IntPtr.Zero && parent != hwnd)
-            {
-                string parentClass = GetWindowClassName(parent);
-                foreach (string inputClass in inputClasses)
-                {
-                    if (parentClass.Contains(inputClass, StringComparison.OrdinalIgnoreCase))
+                    // Additional check for text caret to ensure it's really an input field
+                    if (HasTextCaret(hwnd))
                     {
-                        Logger.Debug($"Parent window is input: {parentClass}");
+                        Logger.Debug($"Valid input element with caret: {className}");
                         return true;
                     }
                 }
             }
 
+            // For complex applications, check if there's a text caret
+            // and the element has input-related styles
+            if (HasTextCaret(hwnd) && IsEditableControl(hwnd))
+            {
+                Logger.Debug($"Text caret detected in editable control: {className}");
+                return true;
+            }
+
             return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool IsEditableControl(IntPtr hwnd)
+    {
+        try
+        {
+            // Check if control has ES_READONLY style (if not, it's editable)
+            const int GWL_STYLE = -16;
+            const int ES_READONLY = 0x0800;
+            
+            int style = GetWindowLong(hwnd, GWL_STYLE);
+            
+            // If ES_READONLY is not set, it's editable
+            return (style & ES_READONLY) == 0;
         }
         catch
         {
@@ -302,7 +334,7 @@ public class AutoShowManager : IDisposable
             
             if (GetGUIThreadInfo(threadId, ref guiInfo))
             {
-                // Если есть каретка и окно с кареткой не наша клавиатура
+                // If there's a caret and the caret window is not our keyboard
                 if (guiInfo.hwndCaret != IntPtr.Zero && guiInfo.hwndCaret != _keyboardWindowHandle)
                 {
                     return true;
@@ -374,4 +406,7 @@ public class AutoShowManager : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 }
