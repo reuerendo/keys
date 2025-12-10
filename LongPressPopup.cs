@@ -174,6 +174,25 @@ public class LongPressPopup
         }
     }
 
+    private string _currentLayoutName = "English";
+
+    /// <summary>
+    /// Set current layout name (call this from MainWindow when layout changes)
+    /// </summary>
+    public void SetCurrentLayout(string layoutName)
+    {
+        _currentLayoutName = layoutName;
+        Logger.Info($"Long-press layout changed to: {layoutName}");
+    }
+
+    /// <summary>
+    /// Get current layout name
+    /// </summary>
+    private string GetCurrentLayoutName()
+    {
+        return _currentLayoutName;
+    }
+
     /// <summary>
     /// Get long-press options for a specific key and layout
     /// </summary>
@@ -289,36 +308,6 @@ public class LongPressPopup
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// Get current layout name from LayoutManager
-    /// This is a simplified version - you may need to inject LayoutManager reference
-    /// </summary>
-    private string GetCurrentLayoutName()
-    {
-        // For now, return a default. In real implementation, 
-        // you should get this from LayoutManager
-        return "English";
-    }
-
-    /// <summary>
-    /// Set current layout name (call this from MainWindow when layout changes)
-    /// </summary>
-    public void SetCurrentLayout(string layoutName)
-    {
-        // Store layout name for later use
-        _currentLayoutName = layoutName;
-    }
-
-    private string _currentLayoutName = "English";
-
-    /// <summary>
-    /// Get current layout name (using stored value)
-    /// </summary>
-    private string GetCurrentLayoutName()
-    {
-        return _currentLayoutName;
     }
 
     /// <summary>
