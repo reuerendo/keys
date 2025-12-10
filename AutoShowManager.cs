@@ -54,35 +54,33 @@ public class AutoShowManager : IDisposable
     {
         try
         {
-            // Попытка 1: Стандартное создание
-            try 
+            // Используем прямой системный вызов CoCreateInstance для надежности
+            Guid clsidCUIAutomation = new Guid("ff48dba4-60ef-4201-aa87-54103eef594e");
+            Guid iidIUIAutomation = new Guid("30cbe57d-d9d0-452a-ab13-7ac4f9d6b233");
+            
+            // 1 = CLSCTX_INPROC_SERVER
+            int hr = CoCreateInstance(clsidCUIAutomation, IntPtr.Zero, 1, iidIUIAutomation, out object obj);
+            
+            if (hr >= 0 && obj != null)
             {
-                _automation = new CUIAutomation() as IUIAutomation;
-            }
-            catch { /* Игнорируем, попробуем второй метод */ }
-
-            // Попытка 2: Через Activator (более надежно для COM в .NET Core/5+)
-            if (_automation == null)
-            {
-                Type type = Type.GetTypeFromCLSID(new Guid("ff48dba4-60ef-4201-aa87-54103eef594e")); // CLSID_CUIAutomation
-                if (type != null)
-                {
-                    _automation = Activator.CreateInstance(type) as IUIAutomation;
-                }
-            }
-
-            if (_automation != null)
-            {
-                Logger.Info("UI Automation interface initialized successfully.");
+                _automation = obj as IUIAutomation;
+                Logger.Info("UI Automation interface initialized successfully via CoCreateInstance.");
             }
             else
             {
-                Logger.Error("CRITICAL: Failed to create IUIAutomation instance. Auto-show will not work.");
+                // Если не вышло, пробуем старый метод как запасной вариант
+                Logger.Warning($"CoCreateInstance failed (HRESULT: 0x{hr:X}). Trying fallback...");
+                _automation = new CUIAutomation() as IUIAutomation;
+            }
+
+            if (_automation == null)
+            {
+                Logger.Error("CRITICAL: Failed to create IUIAutomation instance via all methods. Auto-show will not work.");
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to initialize UI Automation. Auto-show will not work.", ex);
+            Logger.Error("Failed to initialize UI Automation.", ex);
         }
     }
 
@@ -181,6 +179,18 @@ public class AutoShowManager : IDisposable
         public FocusChangedHandler(AutoShowManager manager) => _manager = manager;
         public void HandleFocusChangedEvent(IUIAutomationElement sender) => _manager.OnFocusChanged(sender);
     }
+	
+// =========================================================================
+    // Native Methods
+    // =========================================================================
+
+    [DllImport("ole32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int CoCreateInstance(
+        [In, MarshalAs(UnmanagedType.LPStruct)] Guid rclsid,
+        IntPtr pUnkOuter,
+        int dwClsContext,
+        [In, MarshalAs(UnmanagedType.LPStruct)] Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out object ppv);
 
     // =========================================================================
     // COM Interfaces
