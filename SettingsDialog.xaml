@@ -76,6 +76,42 @@
                 </Border>
             </StackPanel>
 
+            <!-- Auto Show Keyboard Section -->
+            <StackPanel Spacing="12">
+                <TextBlock 
+                    Text="Автоматический показ" 
+                    FontSize="16" 
+                    FontWeight="SemiBold"/>
+                
+                <CheckBox 
+                    x:Name="AutoShowCheckBox"
+                    Content="Автоматически показывать клавиатуру"
+                    IsChecked="False"/>
+                
+                <TextBlock 
+                    Text="При включении этой опции клавиатура будет автоматически появляться при клике на полях ввода текста в других приложениях."
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap"
+                    Margin="32,0,0,0"/>
+                
+                <Border 
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="12"
+                    Margin="0,8,0,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="ℹ️ "/>
+                            <Run Text="Работает с большинством текстовых полей в Windows приложениях"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
             <!-- Future Settings Placeholder -->
             <StackPanel Spacing="12" Opacity="0.5">
                 <TextBlock 

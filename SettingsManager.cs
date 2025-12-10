@@ -29,6 +29,7 @@ public class SettingsManager
     public class AppSettings
     {
         public double KeyboardScale { get; set; } = 1.0; // Default 100%
+        public bool AutoShowKeyboard { get; set; } = false; // Auto-show on text input focus
     }
 
     private AppSettings _settings;
@@ -51,7 +52,7 @@ public class SettingsManager
             {
                 string json = File.ReadAllText(SettingsPath);
                 _settings = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings) ?? new AppSettings();
-                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}");
+                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}");
             }
             else
             {
@@ -82,7 +83,7 @@ public class SettingsManager
             string json = JsonSerializer.Serialize(_settings, SettingsJsonContext.Default.AppSettings);
             File.WriteAllText(SettingsPath, json);
             
-            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}");
+            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}");
         }
         catch (Exception ex)
         {
@@ -113,5 +114,22 @@ public class SettingsManager
     public void SetKeyboardScalePercent(int percent)
     {
         SetKeyboardScale(percent / 100.0);
+    }
+
+    /// <summary>
+    /// Set auto-show keyboard setting
+    /// </summary>
+    public void SetAutoShowKeyboard(bool enabled)
+    {
+        _settings.AutoShowKeyboard = enabled;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Get auto-show keyboard setting
+    /// </summary>
+    public bool GetAutoShowKeyboard()
+    {
+        return _settings.AutoShowKeyboard;
     }
 }

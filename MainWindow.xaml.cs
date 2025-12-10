@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
     private readonly SettingsManager _settingsManager;
+    private AutoShowManager _autoShowManager;
     private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
 
@@ -54,6 +55,11 @@ public sealed partial class MainWindow : Window
         _layoutManager = new LayoutManager();
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
+        
+        // Initialize auto-show manager
+        _autoShowManager = new AutoShowManager(_thisWindowHandle);
+        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
+        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
         if (this.Content is FrameworkElement rootElement)
         {
@@ -79,6 +85,12 @@ public sealed partial class MainWindow : Window
         SetupLongPressHandlers(this.Content as FrameworkElement);
         
         Logger.Info("Long-press handlers initialized");
+    }
+
+    private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
+    {
+        Logger.Info("Auto-show triggered by text input focus");
+        ShowWindow();
     }
 
     private void SetupLongPressHandlers(FrameworkElement element)
@@ -455,6 +467,15 @@ public sealed partial class MainWindow : Window
             
             await dialog.ShowAsync();
             
+            // Update auto-show setting immediately
+            if (dialog.RequiresAutoShowUpdate)
+            {
+                bool newAutoShowValue = _settingsManager.GetAutoShowKeyboard();
+                _autoShowManager.IsEnabled = newAutoShowValue;
+                Logger.Info($"AutoShow setting updated to: {newAutoShowValue}");
+            }
+            
+            // Handle restart if scale changed
             if (dialog.RequiresRestart)
             {
                 await ShowRestartDialog();
@@ -518,6 +539,7 @@ public sealed partial class MainWindow : Window
             _isClosing = true;
             ResetAllModifiers();
             
+            _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
             Logger.Info("Application exiting");
             Application.Current.Exit();
@@ -537,6 +559,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
         }
     }
