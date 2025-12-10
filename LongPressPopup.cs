@@ -12,7 +12,7 @@ namespace VirtualKeyboard;
 /// </summary>
 public class LongPressPopup
 {
-    private const int LONG_PRESS_DELAY_MS = 500; // Delay before showing popup
+    private const int LONG_PRESS_DELAY_MS = 500;
     
     private Popup _popup;
     private StackPanel _popupPanel;
@@ -32,9 +32,6 @@ public class LongPressPopup
         Logger.Info("LongPressPopup initialized");
     }
 
-    /// <summary>
-    /// Initialize popup UI element
-    /// </summary>
     private void InitializePopup()
     {
         _popupPanel = new StackPanel
@@ -63,9 +60,6 @@ public class LongPressPopup
         Logger.Debug("Popup UI initialized");
     }
 
-    /// <summary>
-    /// Initialize long press timer
-    /// </summary>
     private void InitializeLongPressTimer()
     {
         _longPressTimer = new DispatcherTimer
@@ -77,9 +71,6 @@ public class LongPressPopup
         Logger.Debug($"Long press timer initialized with {LONG_PRESS_DELAY_MS}ms delay");
     }
 
-    /// <summary>
-    /// Start tracking button press
-    /// </summary>
     public void StartPress(Button button, string layoutName)
     {
         _currentButton = button;
@@ -93,7 +84,6 @@ public class LongPressPopup
             return;
         }
 
-        // Check if this key has long-press options
         var options = GetLongPressOptions(keyTag, layoutName);
         if (options != null && options.Count > 0)
         {
@@ -106,9 +96,6 @@ public class LongPressPopup
         }
     }
 
-    /// <summary>
-    /// Cancel button press tracking
-    /// </summary>
     public void CancelPress()
     {
         if (_longPressTimer.IsEnabled)
@@ -119,9 +106,6 @@ public class LongPressPopup
         _currentButton = null;
     }
 
-    /// <summary>
-    /// Hide popup if visible
-    /// </summary>
     public void HidePopup()
     {
         if (_popup.IsOpen)
@@ -132,9 +116,6 @@ public class LongPressPopup
         }
     }
 
-    /// <summary>
-    /// Handle long press timer tick
-    /// </summary>
     private void LongPressTimer_Tick(object sender, object e)
     {
         _longPressTimer.Stop();
@@ -155,9 +136,6 @@ public class LongPressPopup
         ShowPopup(_currentButton, keyTag, layoutName);
     }
 
-    /// <summary>
-    /// Show popup with character options
-    /// </summary>
     private void ShowPopup(Button sourceButton, string keyTag, string layoutName)
     {
         var options = GetLongPressOptions(keyTag, layoutName);
@@ -169,10 +147,8 @@ public class LongPressPopup
 
         Logger.Info($"Showing popup for '{keyTag}' with {options.Count} options");
 
-        // Clear previous buttons
         _popupPanel.Children.Clear();
 
-        // Create button for each option
         foreach (var option in options)
         {
             var btn = new Button
@@ -190,14 +166,25 @@ public class LongPressPopup
             Logger.Debug($"Added popup button: {option.Display}");
         }
 
-        // Position popup above the source button
+        // КРИТИЧЕСКИ ВАЖНО: Установить XamlRoot для popup
+        if (_rootElement?.XamlRoot != null)
+        {
+            _popup.XamlRoot = _rootElement.XamlRoot;
+            Logger.Debug("XamlRoot set for popup");
+        }
+        else
+        {
+            Logger.Error("XamlRoot is null - popup will not show!");
+            return;
+        }
+
         try
         {
             var transform = sourceButton.TransformToVisual(_rootElement);
             var point = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
 
             _popup.HorizontalOffset = point.X;
-            _popup.VerticalOffset = point.Y - 60; // Position above button
+            _popup.VerticalOffset = point.Y - 60;
 
             _popup.IsOpen = true;
             
@@ -209,9 +196,6 @@ public class LongPressPopup
         }
     }
 
-    /// <summary>
-    /// Handle popup button click
-    /// </summary>
     private void PopupButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string value)
@@ -224,38 +208,27 @@ public class LongPressPopup
 
     private string _currentLayoutName = "English";
 
-    /// <summary>
-    /// Set current layout name (call this from MainWindow when layout changes)
-    /// </summary>
     public void SetCurrentLayout(string layoutName)
     {
         _currentLayoutName = layoutName;
         Logger.Info($"Long-press layout changed to: {layoutName}");
     }
 
-    /// <summary>
-    /// Get current layout name
-    /// </summary>
     private string GetCurrentLayoutName()
     {
         return _currentLayoutName;
     }
 
-    /// <summary>
-    /// Get long-press options for a specific key and layout
-    /// </summary>
     private List<LongPressOption> GetLongPressOptions(string keyTag, string layoutName)
     {
-        // Define long-press options for each layout
         var optionsMap = new Dictionary<string, Dictionary<string, List<LongPressOption>>>
         {
-            // English layout
             ["English"] = new Dictionary<string, List<LongPressOption>>
             {
                 ["."] = new List<LongPressOption>
                 {
-                    new LongPressOption("…", "…"), // Ellipsis
-                    new LongPressOption("·", "·")  // Middle dot
+                    new LongPressOption("…", "…"),
+                    new LongPressOption("·", "·")
                 },
                 ["a"] = new List<LongPressOption>
                 {
@@ -305,12 +278,11 @@ public class LongPressPopup
                 },
                 ["-"] = new List<LongPressOption>
                 {
-                    new LongPressOption("–", "–"), // En dash
-                    new LongPressOption("—", "—")  // Em dash
+                    new LongPressOption("–", "–"),
+                    new LongPressOption("—", "—")
                 }
             },
             
-            // Russian layout
             ["Russian"] = new Dictionary<string, List<LongPressOption>>
             {
                 ["."] = new List<LongPressOption>
@@ -318,7 +290,7 @@ public class LongPressPopup
                     new LongPressOption("…", "…"),
                     new LongPressOption("·", "·")
                 },
-                ["q"] = new List<LongPressOption> // й
+                ["q"] = new List<LongPressOption>
                 {
                     new LongPressOption("ё", "ё")
                 },
@@ -329,20 +301,19 @@ public class LongPressPopup
                 }
             },
             
-            // Symbols layout
             ["Symbols"] = new Dictionary<string, List<LongPressOption>>
             {
                 ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
                     new LongPressOption("·", "·"),
-                    new LongPressOption("•", "•") // Bullet
+                    new LongPressOption("•", "•")
                 },
                 ["-"] = new List<LongPressOption>
                 {
                     new LongPressOption("–", "–"),
                     new LongPressOption("—", "—"),
-                    new LongPressOption("−", "−") // Minus sign
+                    new LongPressOption("−", "−")
                 }
             }
         };
@@ -359,9 +330,6 @@ public class LongPressPopup
         return null;
     }
 
-    /// <summary>
-    /// Represents a long-press character option
-    /// </summary>
     public class LongPressOption
     {
         public string Display { get; set; }
