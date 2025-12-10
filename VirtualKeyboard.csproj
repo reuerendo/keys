@@ -21,14 +21,20 @@
 	<PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1" />
-  </ItemGroup>
+	<ItemGroup>
+	  <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" />
+	  <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <Manifest Include="$(ApplicationManifest)" />
-  </ItemGroup>
+	<ItemGroup>
+	  <Reference Include="UIAutomationClient" />
+	  <Reference Include="UIAutomationTypes" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <TrimmerRootAssembly Include="UIAutomationClient" />
+	  <TrimmerRootAssembly Include="UIAutomationTypes" />
+	</ItemGroup>
   
   <ItemGroup>
   <Content Include="tray_icon.ico">
