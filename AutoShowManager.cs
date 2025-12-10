@@ -54,28 +54,29 @@ public class AutoShowManager : IDisposable
     {
         try
         {
-            // Используем прямой системный вызов CoCreateInstance для надежности
-            Guid clsidCUIAutomation = new Guid("ff48dba4-60ef-4201-aa87-54103eef594e");
+            // Определяем GUID-ы
             Guid iidIUIAutomation = new Guid("30cbe57d-d9d0-452a-ab13-7ac4f9d6b233");
+            Guid clsidCUIAutomation = new Guid("ff48dba4-60ef-4201-aa87-54103eef594e");
+            Guid clsidCUIAutomation8 = new Guid("e22ad333-b25f-460c-83d0-0581107395c9"); // Windows 8+
             
-            // 1 = CLSCTX_INPROC_SERVER
+            // Пытаемся создать стандартный CUIAutomation
             int hr = CoCreateInstance(clsidCUIAutomation, IntPtr.Zero, 1, iidIUIAutomation, out object obj);
             
+            // Если получили ошибку (например, E_NOINTERFACE 0x80004002), пробуем CUIAutomation8
+            if (hr < 0)
+            {
+                Logger.Warning($"Standard CUIAutomation failed (HR: 0x{hr:X}). Trying CUIAutomation8...");
+                hr = CoCreateInstance(clsidCUIAutomation8, IntPtr.Zero, 1, iidIUIAutomation, out obj);
+            }
+
             if (hr >= 0 && obj != null)
             {
                 _automation = obj as IUIAutomation;
-                Logger.Info("UI Automation interface initialized successfully via CoCreateInstance.");
+                Logger.Info($"UI Automation initialized successfully (HRESULT: 0x{hr:X}).");
             }
             else
             {
-                // Если не вышло, пробуем старый метод как запасной вариант
-                Logger.Warning($"CoCreateInstance failed (HRESULT: 0x{hr:X}). Trying fallback...");
-                _automation = new CUIAutomation() as IUIAutomation;
-            }
-
-            if (_automation == null)
-            {
-                Logger.Error("CRITICAL: Failed to create IUIAutomation instance via all methods. Auto-show will not work.");
+                Logger.Error($"CRITICAL: Failed to create IUIAutomation via both CLSIDs. Last HR: 0x{hr:X}");
             }
         }
         catch (Exception ex)
