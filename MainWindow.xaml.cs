@@ -30,7 +30,7 @@ public sealed partial class MainWindow : Window
     private readonly LayoutManager _layoutManager;
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
-    private readonly LongPressPopup _longPressPopup;
+    private LongPressPopup _longPressPopup; // Changed from readonly to allow assignment after constructor
     private TrayIcon _trayIcon;
 
     private bool _isClosing = false;
@@ -54,8 +54,11 @@ public sealed partial class MainWindow : Window
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         
-        // Initialize long-press popup (after UI is loaded)
-        this.Loaded += MainWindow_Loaded;
+        // Subscribe to Content.Loaded event instead of Window.Loaded
+        if (this.Content is FrameworkElement rootElement)
+        {
+            rootElement.Loaded += MainWindow_Loaded;
+        }
         
         // Configure window size (but not position yet)
         ConfigureWindowSize();
