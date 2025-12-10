@@ -21,12 +21,15 @@ public class LongPressPopup
     private FrameworkElement _rootElement;
     
     public event EventHandler<string> CharacterSelected;
+    public bool IsPopupOpen => _popup?.IsOpen ?? false;
 
     public LongPressPopup(FrameworkElement rootElement)
     {
         _rootElement = rootElement;
         InitializePopup();
         InitializeLongPressTimer();
+        
+        Logger.Info("LongPressPopup initialized");
     }
 
     /// <summary>
@@ -51,7 +54,13 @@ public class LongPressPopup
             IsLightDismissEnabled = true
         };
 
-        _popup.Closed += (s, e) => HidePopup();
+        _popup.Closed += (s, e) =>
+        {
+            Logger.Debug("Popup closed event fired");
+            HidePopup();
+        };
+        
+        Logger.Debug("Popup UI initialized");
     }
 
     /// <summary>
@@ -64,6 +73,8 @@ public class LongPressPopup
             Interval = TimeSpan.FromMilliseconds(LONG_PRESS_DELAY_MS)
         };
         _longPressTimer.Tick += LongPressTimer_Tick;
+        
+        Logger.Debug($"Long press timer initialized with {LONG_PRESS_DELAY_MS}ms delay");
     }
 
     /// <summary>
@@ -74,14 +85,24 @@ public class LongPressPopup
         _currentButton = button;
         string keyTag = button.Tag as string;
         
+        Logger.Debug($"StartPress called for key: {keyTag}, layout: {layoutName}");
+        
         if (string.IsNullOrEmpty(keyTag))
+        {
+            Logger.Warning("StartPress: keyTag is null or empty");
             return;
+        }
 
         // Check if this key has long-press options
         var options = GetLongPressOptions(keyTag, layoutName);
         if (options != null && options.Count > 0)
         {
+            Logger.Info($"Starting long-press timer for '{keyTag}' - {options.Count} options available");
             _longPressTimer.Start();
+        }
+        else
+        {
+            Logger.Debug($"No long-press options for '{keyTag}' in layout '{layoutName}'");
         }
     }
 
@@ -90,7 +111,11 @@ public class LongPressPopup
     /// </summary>
     public void CancelPress()
     {
-        _longPressTimer.Stop();
+        if (_longPressTimer.IsEnabled)
+        {
+            Logger.Debug("CancelPress: stopping timer");
+            _longPressTimer.Stop();
+        }
         _currentButton = null;
     }
 
@@ -101,6 +126,7 @@ public class LongPressPopup
     {
         if (_popup.IsOpen)
         {
+            Logger.Debug("Hiding popup");
             _popup.IsOpen = false;
             _popupPanel.Children.Clear();
         }
@@ -113,11 +139,18 @@ public class LongPressPopup
     {
         _longPressTimer.Stop();
         
+        Logger.Info("Long press timer TICK - showing popup");
+        
         if (_currentButton == null)
+        {
+            Logger.Warning("Timer tick but _currentButton is null");
             return;
+        }
 
         string keyTag = _currentButton.Tag as string;
         string layoutName = GetCurrentLayoutName();
+        
+        Logger.Debug($"Timer tick: keyTag={keyTag}, layout={layoutName}");
         
         ShowPopup(_currentButton, keyTag, layoutName);
     }
@@ -129,7 +162,12 @@ public class LongPressPopup
     {
         var options = GetLongPressOptions(keyTag, layoutName);
         if (options == null || options.Count == 0)
+        {
+            Logger.Warning($"ShowPopup: no options for '{keyTag}'");
             return;
+        }
+
+        Logger.Info($"Showing popup for '{keyTag}' with {options.Count} options");
 
         // Clear previous buttons
         _popupPanel.Children.Clear();
@@ -148,18 +186,27 @@ public class LongPressPopup
 
             btn.Click += PopupButton_Click;
             _popupPanel.Children.Add(btn);
+            
+            Logger.Debug($"Added popup button: {option.Display}");
         }
 
         // Position popup above the source button
-        var transform = sourceButton.TransformToVisual(_rootElement);
-        var point = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+        try
+        {
+            var transform = sourceButton.TransformToVisual(_rootElement);
+            var point = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
 
-        _popup.HorizontalOffset = point.X;
-        _popup.VerticalOffset = point.Y - 60; // Position above button
+            _popup.HorizontalOffset = point.X;
+            _popup.VerticalOffset = point.Y - 60; // Position above button
 
-        _popup.IsOpen = true;
-        
-        Logger.Info($"Long-press popup shown for '{keyTag}' with {options.Count} options");
+            _popup.IsOpen = true;
+            
+            Logger.Info($"Popup opened at position X={point.X}, Y={point.Y - 60}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to position popup: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -169,6 +216,7 @@ public class LongPressPopup
     {
         if (sender is Button btn && btn.Tag is string value)
         {
+            Logger.Info($"Popup button clicked: {value}");
             CharacterSelected?.Invoke(this, value);
             HidePopup();
         }
@@ -199,8 +247,6 @@ public class LongPressPopup
     private List<LongPressOption> GetLongPressOptions(string keyTag, string layoutName)
     {
         // Define long-press options for each layout
-        // Easy to extend by adding more entries here
-        
         var optionsMap = new Dictionary<string, Dictionary<string, List<LongPressOption>>>
         {
             // English layout
@@ -304,9 +350,12 @@ public class LongPressPopup
         if (optionsMap.ContainsKey(layoutName) && 
             optionsMap[layoutName].ContainsKey(keyTag))
         {
-            return optionsMap[layoutName][keyTag];
+            var result = optionsMap[layoutName][keyTag];
+            Logger.Debug($"Found {result.Count} long-press options for '{keyTag}' in '{layoutName}'");
+            return result;
         }
 
+        Logger.Debug($"No long-press options for '{keyTag}' in '{layoutName}'");
         return null;
     }
 

@@ -30,11 +30,12 @@ public sealed partial class MainWindow : Window
     private readonly LayoutManager _layoutManager;
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
-    private LongPressPopup _longPressPopup; // Changed from readonly to allow assignment after constructor
+    private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
+    private bool _isLongPressHandled = false; // Track if long press was triggered
 
     public MainWindow()
     {
@@ -54,7 +55,7 @@ public sealed partial class MainWindow : Window
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         
-        // Subscribe to Content.Loaded event instead of Window.Loaded
+        // Subscribe to Content.Loaded event
         if (this.Content is FrameworkElement rootElement)
         {
             rootElement.Loaded += MainWindow_Loaded;
@@ -102,12 +103,15 @@ public sealed partial class MainWindow : Window
             if (tag != "Shift" && tag != "Lang" && tag != "&.." && 
                 tag != "Esc" && tag != "Tab" && tag != "Caps" && 
                 tag != "Ctrl" && tag != "Alt" && tag != "Enter" && 
-                tag != "Backspace")
+                tag != "Backspace" && tag != " ")
             {
-                btn.PointerPressed += KeyButton_PointerPressed;
-                btn.PointerReleased += KeyButton_PointerReleased;
-                btn.PointerCanceled += KeyButton_PointerCanceled;
-                btn.PointerCaptureLost += KeyButton_PointerCaptureLost;
+                // Add pointer handlers BEFORE click handlers
+                btn.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(KeyButton_PointerPressed), true);
+                btn.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(KeyButton_PointerReleased), true);
+                btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(KeyButton_PointerCanceled), true);
+                btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(KeyButton_PointerCaptureLost), true);
+                
+                Logger.Debug($"Long-press handlers added for key: {tag}");
             }
         }
 
@@ -130,8 +134,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void KeyButton_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
+        _isLongPressHandled = false;
+        
         if (sender is Button btn)
         {
+            Logger.Debug($"PointerPressed on button: {btn.Tag}");
             _longPressPopup?.StartPress(btn, _layoutManager.CurrentLayout.Name);
         }
     }
@@ -141,6 +148,16 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void KeyButton_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        Logger.Debug($"PointerReleased on button: {(sender as Button)?.Tag}");
+        
+        // Check if popup is open - if so, long press was triggered
+        if (_longPressPopup != null)
+        {
+            // We need to check if popup was shown
+            // The popup hides itself when a character is selected
+            _isLongPressHandled = false; // Reset for next press
+        }
+        
         _longPressPopup?.CancelPress();
     }
 
@@ -149,6 +166,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void KeyButton_PointerCanceled(object sender, PointerRoutedEventArgs e)
     {
+        Logger.Debug($"PointerCanceled on button: {(sender as Button)?.Tag}");
         _longPressPopup?.CancelPress();
     }
 
@@ -157,6 +175,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void KeyButton_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
     {
+        Logger.Debug($"PointerCaptureLost on button: {(sender as Button)?.Tag}");
         _longPressPopup?.CancelPress();
     }
 
@@ -166,6 +185,7 @@ public sealed partial class MainWindow : Window
     private void LongPressPopup_CharacterSelected(object sender, string character)
     {
         Logger.Info($"Long-press character selected: '{character}'");
+        _isLongPressHandled = true;
         
         // Send the selected character
         foreach (char c in character)
@@ -240,6 +260,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void KeyButton_Click(object sender, RoutedEventArgs e)
     {
+        // Skip if long press was handled
+        if (_isLongPressHandled)
+        {
+            _isLongPressHandled = false;
+            Logger.Debug("Skipping click - long press was handled");
+            return;
+        }
+
         if (sender is not Button button || button.Tag is not string keyCode)
             return;
 
