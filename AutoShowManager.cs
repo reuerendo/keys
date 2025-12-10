@@ -6,13 +6,13 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Manages automatic keyboard visibility based on text input focus
+/// Uses polling approach to detect edit control focus
 /// </summary>
 public class AutoShowManager : IDisposable
 {
     // Win32 Constants
-    private const int WH_CALLWNDPROC = 4;
-    private const int WM_SETFOCUS = 0x0007;
-    private const int WM_KILLFOCUS = 0x0008;
+    private const int GWL_STYLE = -16;
+    private const int ES_READONLY = 0x0800;
     
     // Edit control class names
     private static readonly string[] EditControlClasses = 
@@ -22,49 +22,48 @@ public class AutoShowManager : IDisposable
         "RichEdit20A",
         "RichEdit20W",
         "RichEdit50W",
-        "RICHEDIT60W"
+        "RICHEDIT60W",
+        "TextBox",
+        "ConsoleWindowClass"
     };
 
-    // Delegates
-    private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-    // Structures
-    [StructLayout(LayoutKind.Sequential)]
-    private struct CWPSTRUCT
-    {
-        public IntPtr lParam;
-        public IntPtr wParam;
-        public uint message;
-        public IntPtr hwnd;
-    }
-
     // P/Invoke
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetWindowsHookEx(int idHook, HookProc lpfn, IntPtr hMod, uint dwThreadId);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
-    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+    private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
-    private static extern IntPtr GetModuleHandle(string lpModuleName);
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-    private IntPtr _hookHandle;
-    private HookProc _hookProc;
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentProcessId();
+
+    private const uint EM_GETSEL = 0x00B0;
+
     private IntPtr _keyboardWindowHandle;
     private bool _isEnabled;
-    private DispatcherQueue _dispatcherQueue;
+    private DispatcherQueueTimer _pollingTimer;
+    private IntPtr _lastFocusedWindow;
+    private bool _wasKeyboardShown;
 
     public event EventHandler ShowKeyboardRequested;
-    public event EventHandler HideKeyboardRequested;
 
     public bool IsEnabled
     {
@@ -77,11 +76,11 @@ public class AutoShowManager : IDisposable
                 
                 if (_isEnabled)
                 {
-                    InstallHook();
+                    StartPolling();
                 }
                 else
                 {
-                    UninstallHook();
+                    StopPolling();
                 }
                 
                 Logger.Info($"AutoShow {(_isEnabled ? "enabled" : "disabled")}");
@@ -92,130 +91,212 @@ public class AutoShowManager : IDisposable
     public AutoShowManager(IntPtr keyboardWindowHandle)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         
-        // Keep reference to prevent garbage collection
-        _hookProc = HookCallback;
-        
-        Logger.Info("AutoShowManager initialized");
+        Logger.Info("AutoShowManager initialized (polling mode)");
     }
 
-    private void InstallHook()
+    private void StartPolling()
     {
-        if (_hookHandle != IntPtr.Zero)
+        if (_pollingTimer != null)
         {
-            Logger.Warning("Hook already installed");
+            Logger.Warning("Polling timer already running");
             return;
         }
 
         try
         {
-            IntPtr hModule = GetModuleHandle(null);
-            _hookHandle = SetWindowsHookEx(WH_CALLWNDPROC, _hookProc, hModule, 0);
-            
-            if (_hookHandle == IntPtr.Zero)
+            var dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+            if (dispatcherQueue == null)
             {
-                int error = Marshal.GetLastWin32Error();
-                Logger.Error($"Failed to install hook. Error: {error}");
+                Logger.Error("Cannot get DispatcherQueue for current thread");
+                return;
             }
-            else
+
+            _pollingTimer = dispatcherQueue.CreateTimer();
+            _pollingTimer.Interval = TimeSpan.FromMilliseconds(250); // Check every 250ms
+            _pollingTimer.Tick += PollingTimer_Tick;
+            _pollingTimer.Start();
+            
+            Logger.Info("Polling timer started (250ms interval)");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to start polling timer", ex);
+        }
+    }
+
+    private void StopPolling()
+    {
+        if (_pollingTimer != null)
+        {
+            try
             {
-                Logger.Info("Windows hook installed successfully");
+                _pollingTimer.Stop();
+                _pollingTimer = null;
+                _lastFocusedWindow = IntPtr.Zero;
+                _wasKeyboardShown = false;
+                
+                Logger.Info("Polling timer stopped");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Error stopping polling timer", ex);
+            }
+        }
+    }
+
+    private void PollingTimer_Tick(object sender, object e)
+    {
+        if (!_isEnabled)
+            return;
+
+        try
+        {
+            IntPtr foregroundWindow = GetForegroundWindow();
+            
+            // Skip if keyboard window is foreground
+            if (foregroundWindow == _keyboardWindowHandle)
+                return;
+
+            // Skip if no foreground window
+            if (foregroundWindow == IntPtr.Zero)
+                return;
+
+            // Get the focused control within the foreground window
+            IntPtr focusedControl = GetFocusedControl(foregroundWindow);
+            
+            if (focusedControl != IntPtr.Zero && focusedControl != _lastFocusedWindow)
+            {
+                _lastFocusedWindow = focusedControl;
+                
+                if (IsEditControl(focusedControl))
+                {
+                    Logger.Info($"Edit control focused: 0x{focusedControl:X}");
+                    
+                    // Only show keyboard once per focus
+                    if (!_wasKeyboardShown)
+                    {
+                        _wasKeyboardShown = true;
+                        OnShowKeyboardRequested();
+                    }
+                }
+                else
+                {
+                    _wasKeyboardShown = false;
+                }
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Exception installing hook", ex);
+            Logger.Error("Error in polling timer tick", ex);
         }
     }
 
-    private void UninstallHook()
+    private IntPtr GetFocusedControl(IntPtr foregroundWindow)
     {
-        if (_hookHandle != IntPtr.Zero)
+        try
         {
+            // Get thread IDs
+            uint currentThreadId = GetCurrentThreadId();
+            uint foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, out _);
+            
+            if (foregroundThreadId == 0)
+                return IntPtr.Zero;
+
+            // Attach to the foreground thread's input
+            bool attached = false;
+            if (currentThreadId != foregroundThreadId)
+            {
+                attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
+            }
+
             try
             {
-                bool success = UnhookWindowsHookEx(_hookHandle);
-                if (success)
+                // Get the focused window
+                IntPtr focusedWindow = GetFocus();
+                
+                // If no focused window in foreground thread, use foreground window itself
+                if (focusedWindow == IntPtr.Zero)
                 {
-                    Logger.Info("Windows hook uninstalled successfully");
+                    focusedWindow = foregroundWindow;
                 }
-                else
-                {
-                    Logger.Warning("Failed to uninstall hook");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Exception uninstalling hook", ex);
+                
+                return focusedWindow;
             }
             finally
             {
-                _hookHandle = IntPtr.Zero;
+                // Detach from the thread
+                if (attached)
+                {
+                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
+                }
             }
         }
-    }
-
-    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0 && _isEnabled)
+        catch (Exception ex)
         {
-            try
-            {
-                CWPSTRUCT msg = Marshal.PtrToStructure<CWPSTRUCT>(lParam);
-                
-                // Check if message is focus-related
-                if (msg.message == WM_SETFOCUS)
-                {
-                    // Don't show keyboard if keyboard window itself receives focus
-                    if (msg.hwnd != _keyboardWindowHandle)
-                    {
-                        if (IsEditControl(msg.hwnd))
-                        {
-                            Logger.Info($"Focus gained on edit control: 0x{msg.hwnd:X}");
-                            OnShowKeyboardRequested();
-                        }
-                    }
-                }
-                else if (msg.message == WM_KILLFOCUS)
-                {
-                    // Optional: hide keyboard when focus is lost
-                    // For now, we keep keyboard visible for better UX
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Exception in hook callback", ex);
-            }
+            Logger.Debug($"Error getting focused control: {ex.Message}");
+            return IntPtr.Zero;
         }
-
-        return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
     }
 
     private bool IsEditControl(IntPtr hwnd)
     {
         try
         {
+            // Check class name
             var className = new System.Text.StringBuilder(256);
             int result = GetClassName(hwnd, className, className.Capacity);
             
-            if (result > 0)
+            if (result == 0)
+                return false;
+
+            string controlClass = className.ToString();
+            
+            // Check if it's a known edit control class
+            foreach (string editClass in EditControlClasses)
             {
-                string controlClass = className.ToString();
-                
-                foreach (string editClass in EditControlClasses)
+                if (controlClass.Equals(editClass, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (controlClass.Equals(editClass, StringComparison.OrdinalIgnoreCase))
+                    // Additional check: make sure it's not read-only
+                    int style = GetWindowLong(hwnd, GWL_STYLE);
+                    bool isReadOnly = (style & ES_READONLY) != 0;
+                    
+                    if (!isReadOnly)
                     {
-                        Logger.Debug($"Edit control detected: {controlClass}");
+                        Logger.Debug($"Editable control detected: {controlClass}");
                         return true;
                     }
+                    else
+                    {
+                        Logger.Debug($"Read-only control skipped: {controlClass}");
+                        return false;
+                    }
+                }
+            }
+            
+            // Additional heuristic: check if control responds to EM_GETSEL
+            // This helps detect custom edit controls
+            if (controlClass.Contains("Edit", StringComparison.OrdinalIgnoreCase) ||
+                controlClass.Contains("Text", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    IntPtr result2 = SendMessage(hwnd, EM_GETSEL, IntPtr.Zero, IntPtr.Zero);
+                    if (result2 != IntPtr.Zero)
+                    {
+                        Logger.Debug($"Custom edit control detected: {controlClass}");
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // Ignore errors from SendMessage
                 }
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Error checking control class", ex);
+            Logger.Debug($"Error checking control class: {ex.Message}");
         }
 
         return false;
@@ -223,31 +304,19 @@ public class AutoShowManager : IDisposable
 
     private void OnShowKeyboardRequested()
     {
-        // Dispatch to UI thread
-        if (_dispatcherQueue != null)
+        try
         {
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
-            });
+            ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
         }
-    }
-
-    private void OnHideKeyboardRequested()
-    {
-        // Dispatch to UI thread
-        if (_dispatcherQueue != null)
+        catch (Exception ex)
         {
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                HideKeyboardRequested?.Invoke(this, EventArgs.Empty);
-            });
+            Logger.Error("Error invoking ShowKeyboardRequested", ex);
         }
     }
 
     public void Dispose()
     {
-        UninstallHook();
+        StopPolling();
         Logger.Info("AutoShowManager disposed");
     }
 }
