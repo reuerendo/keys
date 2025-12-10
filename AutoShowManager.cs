@@ -67,6 +67,8 @@ public class AutoShowManager : IDisposable
             Guid threadMgrGuid = typeof(ITfThreadMgr).GUID;
             var clsid = new Guid("529a9e6b-6587-4f23-ab9e-9c7d683e3c50"); // CLSID_TF_ThreadMgr
             
+            Logger.Debug($"Creating ITfThreadMgr with CLSID={clsid}, IID={threadMgrGuid}");
+            
             var hr = CoCreateInstance(
                 ref clsid,
                 IntPtr.Zero,
@@ -95,13 +97,29 @@ public class AutoShowManager : IDisposable
 
             // Create and register event sink
             _eventSink = new TsfEventSink(this);
+            Logger.Debug("TsfEventSink instance created");
             
-            // Create local copy of GUID for ref parameter
-            Guid sourceGuid = typeof(ITfThreadMgrEventSink).GUID;
-            var sinkPtr = Marshal.GetComInterfaceForObject(_eventSink, typeof(ITfThreadMgrEventSink));
+            // Use explicit GUID for ITfThreadMgrEventSink interface
+            Guid sourceGuid = new Guid("aa80e80e-2021-11d2-93e0-0060b067b86e");
+            Logger.Debug($"Using ITfThreadMgrEventSink GUID={sourceGuid}");
+            
+            // Get IUnknown pointer from the event sink object
+            IntPtr sinkPtr = IntPtr.Zero;
+            try
+            {
+                sinkPtr = Marshal.GetIUnknownForObject(_eventSink);
+                Logger.Debug($"Got IUnknown pointer: 0x{sinkPtr:X}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed to get IUnknown for event sink: {ex.Message}");
+                return;
+            }
             
             hr = _threadMgr.AdviseSink(ref sourceGuid, sinkPtr, out _eventSinkCookie);
-            Marshal.Release(sinkPtr);
+            
+            if (sinkPtr != IntPtr.Zero)
+                Marshal.Release(sinkPtr);
             
             if (hr != 0)
             {
@@ -248,6 +266,7 @@ public class AutoShowManager : IDisposable
 /// Event sink for TSF thread manager events
 /// </summary>
 [ComVisible(true)]
+[Guid("F9E1A2B3-4C5D-6E7F-8A9B-0C1D2E3F4A5B")] // Unique GUID for this class
 [ClassInterface(ClassInterfaceType.None)]
 internal class TsfEventSink : ITfThreadMgrEventSink
 {
@@ -256,6 +275,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
     public TsfEventSink(AutoShowManager manager)
     {
         _manager = manager;
+        Logger.Debug("TsfEventSink constructor called");
     }
 
     // Called when document manager is initialized
