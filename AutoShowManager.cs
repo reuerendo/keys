@@ -25,7 +25,7 @@ public class AutoShowManager : IDisposable
     private WinEventDelegate _hookDelegate;
     private System.Threading.Timer _focusCheckTimer;
     
-    private IntPtr _lastCheckedWindow = IntPtr.Zero;
+    private IntPtr _lastFocusedControl = IntPtr.Zero;
     private bool _lastInputState = false;
     
     private bool _isEnabled;
@@ -122,7 +122,7 @@ public class AutoShowManager : IDisposable
             Logger.Info("Focus event hook removed");
         }
         
-        _lastCheckedWindow = IntPtr.Zero;
+        _lastFocusedControl = IntPtr.Zero;
         _lastInputState = false;
     }
 
@@ -137,6 +137,7 @@ public class AutoShowManager : IDisposable
 
         try
         {
+            // hwnd from WinEvent is the actual focused control
             ProcessFocusChange(hwnd);
         }
         catch (Exception ex)
@@ -155,15 +156,26 @@ public class AutoShowManager : IDisposable
 
         try
         {
+            // Get the actual focused control from the foreground window's thread
             IntPtr foregroundWindow = GetForegroundWindow();
             if (foregroundWindow == IntPtr.Zero || foregroundWindow == _keyboardWindowHandle)
-                return;
-
-            // Only recheck if foreground window changed
-            if (foregroundWindow != _lastCheckedWindow)
             {
-                IntPtr focusedControl = GetFocus();
-                ProcessFocusChange(focusedControl != IntPtr.Zero ? focusedControl : foregroundWindow);
+                // No foreground window or keyboard has focus
+                ProcessFocusChange(IntPtr.Zero);
+                return;
+            }
+
+            // Get the thread's focused control
+            IntPtr focusedControl = GetThreadFocusedControl(foregroundWindow);
+            
+            if (focusedControl != IntPtr.Zero)
+            {
+                ProcessFocusChange(focusedControl);
+            }
+            else
+            {
+                // No specific control focused, check the window itself
+                ProcessFocusChange(foregroundWindow);
             }
         }
         catch (Exception ex)
@@ -173,24 +185,61 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Core logic: determine if focused window is a text input control
+    /// Gets the focused control in the foreground window's thread
+    /// </summary>
+    private IntPtr GetThreadFocusedControl(IntPtr foregroundWindow)
+    {
+        try
+        {
+            uint threadId = GetWindowThreadProcessId(foregroundWindow, out _);
+            
+            GUITHREADINFO guiInfo = new GUITHREADINFO();
+            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
+            
+            if (GetGUIThreadInfo(threadId, ref guiInfo))
+            {
+                // Return the focused control if it exists
+                if (guiInfo.hwndFocus != IntPtr.Zero)
+                {
+                    return guiInfo.hwndFocus;
+                }
+            }
+            
+            return IntPtr.Zero;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+    }
+
+    /// <summary>
+    /// Core logic: determine if focused control is a text input
     /// </summary>
     private void ProcessFocusChange(IntPtr hwnd)
     {
-        if (hwnd == _lastCheckedWindow)
+        // Skip if same control is still focused
+        if (hwnd == _lastFocusedControl)
             return;
 
-        _lastCheckedWindow = hwnd;
+        _lastFocusedControl = hwnd;
         
-        bool isTextInput = IsTextInputControl(hwnd);
+        bool isTextInput = hwnd != IntPtr.Zero && IsTextInputControl(hwnd);
         
         // Only trigger events on state change
         if (isTextInput != _lastInputState)
         {
             _lastInputState = isTextInput;
             
-            string className = GetWindowClassName(hwnd);
-            Logger.Info($"Input state changed: {isTextInput} (HWND=0x{hwnd:X}, Class={className})");
+            if (hwnd != IntPtr.Zero)
+            {
+                string className = GetWindowClassName(hwnd);
+                Logger.Info($"Input state changed: {isTextInput} (HWND=0x{hwnd:X}, Class={className})");
+            }
+            else
+            {
+                Logger.Info($"Input state changed: {isTextInput} (no focus)");
+            }
             
             _dispatcherQueue.TryEnqueue(() =>
             {
@@ -227,7 +276,6 @@ public class AutoShowManager : IDisposable
                 // Browser content areas (Chromium, Firefox, IE)
                 "Chrome_RenderWidgetHostHWND",
                 "MozillaContentWindowClass",
-                "MozillaWindowClass",
                 "Internet Explorer_Server",
                 
                 // Office applications
@@ -257,6 +305,15 @@ public class AutoShowManager : IDisposable
             {
                 if (className.Equals(inputClass, StringComparison.OrdinalIgnoreCase))
                 {
+                    // For browser content areas, verify text input is actually active
+                    if (className.Contains("Chrome_RenderWidgetHostHWND") ||
+                        className.Contains("MozillaContentWindowClass"))
+                    {
+                        bool hasTextInput = HasTextCaret(hwnd);
+                        Logger.Debug($"Browser content area: {className}, HasCaret={hasTextInput}");
+                        return hasTextInput;
+                    }
+                    
                     Logger.Debug($"✓ Text input detected: {className}");
                     return true;
                 }
@@ -274,10 +331,10 @@ public class AutoShowManager : IDisposable
                 }
             }
 
-            // For unknown controls, check if they're editable and have text input capability
-            if (IsEditableControl(hwnd) && CanAcceptText(hwnd))
+            // For unknown controls, check if they have text caret (actual text input active)
+            if (HasTextCaret(hwnd) && IsEditableControl(hwnd))
             {
-                Logger.Debug($"✓ Text input detected (editable control): {className}");
+                Logger.Debug($"✓ Text input detected (has caret): {className}");
                 return true;
             }
 
@@ -286,6 +343,49 @@ public class AutoShowManager : IDisposable
         catch (Exception ex)
         {
             Logger.Debug($"Error in IsTextInputControl: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if control has text caret (text cursor)
+    /// </summary>
+    private bool HasTextCaret(IntPtr hwnd)
+    {
+        try
+        {
+            uint threadId = GetWindowThreadProcessId(hwnd, out _);
+            
+            GUITHREADINFO guiInfo = new GUITHREADINFO();
+            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
+            
+            if (GetGUIThreadInfo(threadId, ref guiInfo))
+            {
+                // Check if there's a text caret and it belongs to this control or its children
+                if (guiInfo.hwndCaret != IntPtr.Zero && guiInfo.hwndCaret != _keyboardWindowHandle)
+                {
+                    // Caret can be in the control itself or its child
+                    IntPtr caretParent = guiInfo.hwndCaret;
+                    for (int i = 0; i < 10; i++)
+                    {
+                        if (caretParent == hwnd)
+                            return true;
+                        
+                        caretParent = GetParent(caretParent);
+                        if (caretParent == IntPtr.Zero)
+                            break;
+                    }
+                    
+                    // Also check if hwnd is the caret itself
+                    if (guiInfo.hwndCaret == hwnd)
+                        return true;
+                }
+            }
+            
+            return false;
+        }
+        catch
+        {
             return false;
         }
     }
@@ -322,33 +422,6 @@ public class AutoShowManager : IDisposable
         {
             int style = GetWindowLong(hwnd, GWL_STYLE);
             return (style & WS_DISABLED) == 0 && (style & ES_READONLY) == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Checks if control can accept text input (has text caret)
-    /// </summary>
-    private bool CanAcceptText(IntPtr hwnd)
-    {
-        try
-        {
-            uint threadId = GetWindowThreadProcessId(hwnd, out _);
-            
-            GUITHREADINFO guiInfo = new GUITHREADINFO();
-            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
-            
-            if (GetGUIThreadInfo(threadId, ref guiInfo))
-            {
-                // Check if this window or its focus has a text caret
-                return guiInfo.hwndCaret != IntPtr.Zero && 
-                       guiInfo.hwndCaret != _keyboardWindowHandle;
-            }
-            
-            return false;
         }
         catch
         {
@@ -418,7 +491,7 @@ public class AutoShowManager : IDisposable
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
-    private static extern IntPtr GetFocus();
+    private static extern IntPtr GetParent(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
