@@ -1,365 +1,431 @@
-// AutoShowManager.cs
 using System;
-using System.Threading;
-using System.Windows.Automation;
-using Microsoft.UI.Dispatching;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.UI.Dispatching;
 
-namespace VirtualKeyboard
+namespace VirtualKeyboard;
+
+/// <summary>
+/// Manages automatic keyboard visibility based on text input focus detection.
+/// Uses the same approach as system IME and On-Screen Keyboard (OSK).
+/// </summary>
+public class AutoShowManager : IDisposable
 {
-    /// <summary>
-    /// AutoShowManager (UIA-based)
-    /// Uses UI Automation Focus Changed event to detect editable text controls.
-    /// Provides a small WinEvent fallback if UIA isn't available for some edge cases.
-    /// </summary>
-    public sealed class AutoShowManager : IDisposable
+    // WinEvent constants
+    private const uint EVENT_OBJECT_FOCUS = 0x8005;
+    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    
+    // Window class name buffer size
+    private const int MAX_CLASS_NAME = 256;
+    
+    private readonly IntPtr _keyboardWindowHandle;
+    private readonly DispatcherQueue _dispatcherQueue;
+    
+    private IntPtr _focusHook;
+    private WinEventDelegate _hookDelegate;
+    private System.Threading.Timer _focusCheckTimer;
+    
+    private IntPtr _lastCheckedWindow = IntPtr.Zero;
+    private bool _lastInputState = false;
+    
+    private bool _isEnabled;
+    private bool _isDisposed;
+
+    public event EventHandler ShowKeyboardRequested;
+    public event EventHandler HideKeyboardRequested;
+
+    public bool IsEnabled
     {
-        private const int DebounceMilliseconds = 300;
-
-        private readonly IntPtr _keyboardWindowHandle;
-        private readonly DispatcherQueue _dispatcherQueue;
-
-        private bool _isEnabled;
-        private bool _isDisposed;
-
-        private AutomationFocusChangedEventHandler _uiaFocusHandler;
-        private long _lastShowTimestampTicks;
-
-        // Optional fallback hooks (kept minimal). If you prefer to remove fallback entirely - you can.
-        private IntPtr _winEventHook = IntPtr.Zero;
-        private WinEventDelegate _winEventDelegate;
-
-        public event EventHandler ShowKeyboardRequested;
-
-        public bool IsEnabled
+        get => _isEnabled;
+        set
         {
-            get => _isEnabled;
-            set
+            if (_isEnabled != value)
             {
-                if (_isEnabled == value) return;
                 _isEnabled = value;
                 if (_isEnabled)
-                {
-                    Subscribe();
-                }
+                    Start();
                 else
-                {
-                    Unsubscribe();
-                }
-
-                Logger.Info($"AutoShow (UIA) {(_isEnabled ? "enabled" : "disabled")}");
+                    Stop();
+                
+                Logger.Info($"AutoShow {(_isEnabled ? "enabled" : "disabled")}");
             }
         }
+    }
 
-        public AutoShowManager(IntPtr keyboardWindowHandle)
+    public AutoShowManager(IntPtr keyboardWindowHandle)
+    {
+        _keyboardWindowHandle = keyboardWindowHandle;
+        _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        
+        Logger.Info("AutoShowManager initialized");
+    }
+
+    private void Start()
+    {
+        if (_focusHook != IntPtr.Zero)
         {
-            _keyboardWindowHandle = keyboardWindowHandle;
-            _dispatcherQueue = DispatcherQueue.GetForCurrentThread() ?? throw new InvalidOperationException("DispatcherQueue unavailable on this thread.");
-
-            Initialize();
+            Logger.Warning("AutoShow already started");
+            return;
         }
 
-        private void Initialize()
+        try
         {
-            try
+            // Create delegate and keep reference to prevent GC
+            _hookDelegate = new WinEventDelegate(OnFocusChanged);
+            
+            // Hook focus change events
+            _focusHook = SetWinEventHook(
+                EVENT_OBJECT_FOCUS,
+                EVENT_OBJECT_FOCUS,
+                IntPtr.Zero,
+                _hookDelegate,
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT);
+
+            if (_focusHook != IntPtr.Zero)
             {
-                Logger.Info("Initializing AutoShowManager (UIA)...");
-                _uiaFocusHandler = new AutomationFocusChangedEventHandler(OnAutomationFocusChanged);
-
-                // Prepare optional WinEvent fallback delegate (kept but not hooked until needed)
-                _winEventDelegate = new WinEventDelegate(WinEventProc);
-
-                Logger.Info("✓ AutoShowManager (UIA) initialized");
+                Logger.Info("✓ Focus event hook installed");
+                
+                // Start polling timer as backup (500ms interval)
+                _focusCheckTimer = new System.Threading.Timer(
+                    CheckFocusState, 
+                    null, 
+                    500, 
+                    500);
+                
+                Logger.Info("✓ Focus polling timer started");
+                
+                // Check initial state
+                CheckFocusState(null);
             }
-            catch (Exception ex)
+            else
             {
-                Logger.Error("Failed to initialize AutoShowManager", ex);
+                Logger.Error("Failed to install focus event hook");
             }
         }
-
-        private void Subscribe()
+        catch (Exception ex)
         {
-            try
-            {
-                // Subscribe UIA focus changed
-                Automation.AddAutomationFocusChangedEventHandler(_uiaFocusHandler);
-                Logger.Info("✓ Subscribed to UIA Focus Changed events");
-
-                // Optionally, you may add a minimal WinEvent hook fallback for very old apps:
-                // _winEventHook = SetWinEventHook(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS, IntPtr.Zero, _winEventDelegate, 0, 0, WINEVENT_OUTOFCONTEXT);
-                // if (_winEventHook != IntPtr.Zero) Logger.Info("✓ WinEvent fallback hooked");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("UIA subscription failed, attempting WinEvent fallback", ex);
-                // Try to hook fallback if UIA fails (rare)
-                TryHookWinEventFallback();
-            }
+            Logger.Error("Failed to start AutoShow", ex);
         }
+    }
 
-        private void Unsubscribe()
+    private void Stop()
+    {
+        _focusCheckTimer?.Dispose();
+        _focusCheckTimer = null;
+
+        if (_focusHook != IntPtr.Zero)
         {
-            try
-            {
-                Automation.RemoveAutomationFocusChangedEventHandler(_uiaFocusHandler);
-                Logger.Info("Unsubscribed from UIA Focus Changed events");
-            }
-            catch (Exception ex)
-            {
-                // ignore if not subscribed
-                Logger.Debug($"Error removing UIA handler: {ex.Message}");
-            }
-
-            if (_winEventHook != IntPtr.Zero)
-            {
-                UnhookWinEvent(_winEventHook);
-                _winEventHook = IntPtr.Zero;
-                Logger.Info("Unsubscribed WinEvent fallback");
-            }
+            UnhookWinEvent(_focusHook);
+            _focusHook = IntPtr.Zero;
+            Logger.Info("Focus event hook removed");
         }
+        
+        _lastCheckedWindow = IntPtr.Zero;
+        _lastInputState = false;
+    }
 
-        private void OnAutomationFocusChanged(object src, AutomationFocusChangedEventArgs e)
+    /// <summary>
+    /// Called when focus changes (via WinEvent hook)
+    /// </summary>
+    private void OnFocusChanged(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, 
+        int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+    {
+        if (_isDisposed || hwnd == IntPtr.Zero || hwnd == _keyboardWindowHandle)
+            return;
+
+        try
         {
-            if (_isDisposed || !_isEnabled) return;
-
-            try
-            {
-                // Get currently focused element (thread-safe property)
-                AutomationElement focused = AutomationElement.FocusedElement;
-                if (focused == null) return;
-
-                // Avoid reacting to our own keyboard window
-                if (IsElementKeyboardWindow(focused))
-                    return;
-
-                if (IsEditableText(focused))
-                {
-                    DebouncedRequestShow("UIA");
-                }
-            }
-            catch (ElementNotAvailableException)
-            {
-                // element disappeared between event and handling - ignore
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug($"Error in OnAutomationFocusChanged: {ex.Message}");
-            }
+            ProcessFocusChange(hwnd);
         }
-
-        private void DebouncedRequestShow(string sourceTag = "")
+        catch (Exception ex)
         {
-            long now = DateTime.UtcNow.Ticks;
-            long deltaMs = TimeSpan.FromTicks(now - _lastShowTimestampTicks).TotalMillisecondsAsLong();
+            Logger.Debug($"Error in focus change handler: {ex.Message}");
+        }
+    }
 
-            if (deltaMs >= 0 && deltaMs < DebounceMilliseconds)
-            {
-                Logger.Debug($"Debounced ShowKeyboard (source={sourceTag}, delta={deltaMs}ms)");
+    /// <summary>
+    /// Polling timer callback - checks focus state periodically
+    /// </summary>
+    private void CheckFocusState(object state)
+    {
+        if (_isDisposed)
+            return;
+
+        try
+        {
+            IntPtr foregroundWindow = GetForegroundWindow();
+            if (foregroundWindow == IntPtr.Zero || foregroundWindow == _keyboardWindowHandle)
                 return;
+
+            // Only recheck if foreground window changed
+            if (foregroundWindow != _lastCheckedWindow)
+            {
+                IntPtr focusedControl = GetFocus();
+                ProcessFocusChange(focusedControl != IntPtr.Zero ? focusedControl : foregroundWindow);
             }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error in focus check timer: {ex.Message}");
+        }
+    }
 
-            _lastShowTimestampTicks = now;
+    /// <summary>
+    /// Core logic: determine if focused window is a text input control
+    /// </summary>
+    private void ProcessFocusChange(IntPtr hwnd)
+    {
+        if (hwnd == _lastCheckedWindow)
+            return;
 
-            // Dispatch to UI thread
+        _lastCheckedWindow = hwnd;
+        
+        bool isTextInput = IsTextInputControl(hwnd);
+        
+        // Only trigger events on state change
+        if (isTextInput != _lastInputState)
+        {
+            _lastInputState = isTextInput;
+            
+            string className = GetWindowClassName(hwnd);
+            Logger.Info($"Input state changed: {isTextInput} (HWND=0x{hwnd:X}, Class={className})");
+            
             _dispatcherQueue.TryEnqueue(() =>
             {
-                try
-                {
-                    Logger.Info($"ShowKeyboardRequested (source={sourceTag})");
+                if (isTextInput)
                     ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Debug($"Error invoking ShowKeyboardRequested: {ex.Message}");
-                }
+                else
+                    HideKeyboardRequested?.Invoke(this, EventArgs.Empty);
             });
         }
-
-        /// <summary>
-        /// Returns true if automation element represents an editable text control (not read-only).
-        /// Uses patterns (ValuePattern/TextPattern) and ControlType as heuristics.
-        /// </summary>
-        private bool IsEditableText(AutomationElement el)
-        {
-            if (el == null) return false;
-
-            try
-            {
-                // If element is not enabled, not editable
-                object isEnabledObj = el.GetCurrentPropertyValue(AutomationElement.IsEnabledProperty, true);
-                if (isEnabledObj is bool isEnabled && !isEnabled) return false;
-
-                // If it's a password box, do not auto-show (optional; change if you want to show on password fields)
-                object isPasswordObj = el.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty, true);
-                if (isPasswordObj is bool isPassword && isPassword) return false;
-
-                // Try ValuePattern (common for simple edit controls)
-                if (el.TryGetCurrentPattern(ValuePattern.Pattern, out object vp))
-                {
-                    try
-                    {
-                        var valuePattern = (ValuePattern)vp;
-                        bool readOnly = valuePattern.Current.IsReadOnly;
-                        return !readOnly;
-                    }
-                    catch
-                    {
-                        // ignore pattern access issues and continue
-                    }
-                }
-
-                // TextPattern (rich text / document)
-                if (el.TryGetCurrentPattern(TextPattern.Pattern, out _))
-                {
-                    return true;
-                }
-
-                // Some controls advertise ControlType.Edit or Document
-                var controlType = el.GetCurrentPropertyValue(AutomationElement.ControlTypeProperty) as ControlType;
-                if (controlType == ControlType.Edit || controlType == ControlType.Document)
-                {
-                    // final check: does it expose ValuePattern or TextPattern? If not, assume editable
-                    return true;
-                }
-
-                // Fallback: if the element exposes the ValuePattern and IsReadOnly property is false via raw property retrieval
-                object readOnlyProp = el.GetCurrentPropertyValue(ValuePattern.IsReadOnlyProperty, true);
-                if (readOnlyProp is bool ro)
-                {
-                    return !ro;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug($"IsEditableText error: {ex.Message}");
-            }
-
-            return false;
-        }
-
-        private bool IsElementKeyboardWindow(AutomationElement el)
-        {
-            try
-            {
-                object hwndObj = el.GetCurrentPropertyValue(AutomationElement.NativeWindowHandleProperty, true);
-                if (hwndObj is int hwndInt && hwndInt != 0)
-                {
-                    IntPtr hwnd = new IntPtr(hwndInt);
-                    return hwnd == _keyboardWindowHandle;
-                }
-            }
-            catch
-            {
-                // ignore
-            }
-
-            return false;
-        }
-
-        private void TryHookWinEventFallback()
-        {
-            try
-            {
-                // Minimal fallback: hook focus events via WinEvent API only if UIA failed
-                _winEventHook = SetWinEventHook(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS, IntPtr.Zero, _winEventDelegate, 0, 0, WINEVENT_OUTOFCONTEXT);
-                if (_winEventHook != IntPtr.Zero)
-                {
-                    Logger.Info("✓ WinEvent fallback hooked");
-                }
-                else
-                {
-                    Logger.Warning("WinEvent fallback failed to hook");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug($"WinEvent fallback error: {ex.Message}");
-            }
-        }
-
-        #region Dispose
-
-        public void Dispose()
-        {
-            if (_isDisposed) return;
-            _isDisposed = true;
-
-            try
-            {
-                Unsubscribe();
-            }
-            catch { }
-
-            Logger.Info("AutoShowManager (UIA) disposed");
-        }
-
-        #endregion
-
-        #region Helpers & Extensions
-
-        // Small helper to convert ticks diff to long ms safely
-        // placed as private extension-like method
-        private static class TimeSpanExtensions
-        {
-            public static long TotalMillisecondsAsLong(this TimeSpan ts)
-            {
-                return (long)ts.TotalMilliseconds;
-            }
-        }
-
-        // Overload caller convenience
-        private static long TotalMillisecondsAsLong(this long ticksDelta)
-        {
-            return TimeSpan.FromTicks(ticksDelta).TotalMillisecondsAsLong();
-        }
-
-        #endregion
-
-        #region WinEvent fallback interop (minimal)
-
-        // Only used as a fallback if UIA can't be installed for some reason.
-        // You can remove this whole region if not needed.
-
-        private const uint EVENT_OBJECT_FOCUS = 0x8005;
-        private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
-
-        private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
-            WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
-
-        [DllImport("user32.dll")]
-        private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-
-        private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
-        {
-            if (_isDisposed || hwnd == IntPtr.Zero || hwnd == _keyboardWindowHandle) return;
-
-            try
-            {
-                // Convert hwnd to AutomationElement and reuse IsEditableText
-                var el = AutomationElement.FromHandle(hwnd);
-                if (el != null && IsEditableText(el))
-                {
-                    DebouncedRequestShow("WinEventFallback");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug($"WinEventProc error: {ex.Message}");
-            }
-        }
-
-        #endregion
     }
 
-    // Simple Logger stub - replace with your app logger
-    internal static class Logger
+    /// <summary>
+    /// Determines if the given window handle is a text input control.
+    /// Uses the same detection logic as system IME and OSK.
+    /// </summary>
+    private bool IsTextInputControl(IntPtr hwnd)
     {
-        public static void Info(string s) => System.Diagnostics.Debug.WriteLine("[INFO] " + s);
-        public static void Warning(string s, Exception ex = null) => System.Diagnostics.Debug.WriteLine("[WARN] " + s + (ex != null ? " " + ex.Message : ""));
-        public static void Debug(string s) => System.Diagnostics.Debug.WriteLine("[DBG] " + s);
-        public static void Error(string s, Exception ex = null) => System.Diagnostics.Debug.WriteLine("[ERR] " + s + (ex != null ? " " + ex.Message : ""));
+        try
+        {
+            string className = GetWindowClassName(hwnd);
+            if (string.IsNullOrEmpty(className))
+                return false;
+
+            // Known text input control classes
+            string[] textInputClasses = new[]
+            {
+                // Standard Win32 edit controls
+                "Edit",
+                "RichEdit",
+                "RICHEDIT20A",
+                "RICHEDIT20W",
+                "RICHEDIT50W",
+                
+                // Browser content areas (Chromium, Firefox, IE)
+                "Chrome_RenderWidgetHostHWND",
+                "MozillaContentWindowClass",
+                "MozillaWindowClass",
+                "Internet Explorer_Server",
+                
+                // Office applications
+                "_WwG",                    // Word
+                "EXCEL7",                  // Excel
+                "mdiClass",                // Office MDI child
+                
+                // WinUI 3 / UWP controls
+                "TextBox",
+                "RichEditBox",
+                "Windows.UI.Core.CoreWindow",
+                
+                // Code editors
+                "Scintilla",
+                "SciTEWindow",
+                
+                // Console
+                "ConsoleWindowClass",
+                
+                // Other common controls
+                "ThunderRT6TextBox",       // VB6
+                "WindowsForms10.EDIT",     // WinForms
+            };
+
+            // Direct class name match
+            foreach (string inputClass in textInputClasses)
+            {
+                if (className.Equals(inputClass, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Debug($"✓ Text input detected: {className}");
+                    return true;
+                }
+            }
+
+            // Partial match for versioned controls (e.g., "WindowsForms10.EDIT.app.0.378734a")
+            if (className.Contains("EDIT", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("RichEdit", StringComparison.OrdinalIgnoreCase))
+            {
+                // Verify it's not read-only
+                if (!IsReadOnly(hwnd))
+                {
+                    Logger.Debug($"✓ Text input detected (partial match): {className}");
+                    return true;
+                }
+            }
+
+            // For unknown controls, check if they're editable and have text input capability
+            if (IsEditableControl(hwnd) && CanAcceptText(hwnd))
+            {
+                Logger.Debug($"✓ Text input detected (editable control): {className}");
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error in IsTextInputControl: {ex.Message}");
+            return false;
+        }
     }
+
+    /// <summary>
+    /// Checks if control is read-only
+    /// </summary>
+    private bool IsReadOnly(IntPtr hwnd)
+    {
+        const int GWL_STYLE = -16;
+        const int ES_READONLY = 0x0800;
+        
+        try
+        {
+            int style = GetWindowLong(hwnd, GWL_STYLE);
+            return (style & ES_READONLY) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if control can be edited (not disabled, not read-only)
+    /// </summary>
+    private bool IsEditableControl(IntPtr hwnd)
+    {
+        const int GWL_STYLE = -16;
+        const int WS_DISABLED = 0x08000000;
+        const int ES_READONLY = 0x0800;
+        
+        try
+        {
+            int style = GetWindowLong(hwnd, GWL_STYLE);
+            return (style & WS_DISABLED) == 0 && (style & ES_READONLY) == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if control can accept text input (has text caret)
+    /// </summary>
+    private bool CanAcceptText(IntPtr hwnd)
+    {
+        try
+        {
+            uint threadId = GetWindowThreadProcessId(hwnd, out _);
+            
+            GUITHREADINFO guiInfo = new GUITHREADINFO();
+            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
+            
+            if (GetGUIThreadInfo(threadId, ref guiInfo))
+            {
+                // Check if this window or its focus has a text caret
+                return guiInfo.hwndCaret != IntPtr.Zero && 
+                       guiInfo.hwndCaret != _keyboardWindowHandle;
+            }
+            
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Gets window class name
+    /// </summary>
+    private string GetWindowClassName(IntPtr hwnd)
+    {
+        StringBuilder className = new StringBuilder(MAX_CLASS_NAME);
+        
+        if (GetClassName(hwnd, className, MAX_CLASS_NAME) > 0)
+        {
+            return className.ToString();
+        }
+        
+        return string.Empty;
+    }
+
+    public void Dispose()
+    {
+        if (_isDisposed)
+            return;
+        
+        _isDisposed = true;
+        Stop();
+        
+        Logger.Info("AutoShowManager disposed");
+    }
+
+    // =========================================================================
+    // Native Methods & Structures
+    // =========================================================================
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GUITHREADINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hwndActive;
+        public IntPtr hwndFocus;
+        public IntPtr hwndCapture;
+        public IntPtr hwndMenuOwner;
+        public IntPtr hwndMoveSize;
+        public IntPtr hwndCaret;
+        public System.Drawing.Rectangle rcCaret;
+    }
+
+    private delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, 
+        IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, 
+        IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, 
+        uint idProcess, uint idThread, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 }
