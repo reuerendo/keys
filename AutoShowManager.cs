@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 
@@ -13,6 +14,9 @@ public class AutoShowManager : IDisposable
     // UIA Control Type IDs
     private const int UIA_EditControlTypeId = 50004;
     private const int UIA_DocumentControlTypeId = 50030;
+	
+	private const int COINIT_APARTMENTTHREADED = 0x2;
+	private const int RPC_E_CHANGED_MODE = unchecked((int)0x80010106);
     
     private readonly IntPtr _keyboardWindowHandle;
     private readonly DispatcherQueue _dispatcherQueue;
@@ -54,6 +58,23 @@ public class AutoShowManager : IDisposable
 	{
 		try
 		{
+			// Проверяем наличие UIAutomationCore.dll
+			string uiaPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "UIAutomationCore.dll");
+			if (!File.Exists(uiaPath))
+			{
+				Logger.Error($"UIAutomationCore.dll not found at: {uiaPath}");
+				Logger.Error("UI Automation is not available on this system.");
+				return;
+			}
+			Logger.Info($"UIAutomationCore.dll found at: {uiaPath}");
+			
+			// Явная инициализация COM для текущего потока (STA)
+			int comInitResult = CoInitializeEx(IntPtr.Zero, COINIT_APARTMENTTHREADED);
+			if (comInitResult < 0 && comInitResult != RPC_E_CHANGED_MODE)
+			{
+				Logger.Warning($"COM initialization warning (HR: 0x{comInitResult:X}). This may be okay if COM is already initialized.");
+			}
+			
 			// Определяем GUID-ы
 			Guid iidIUIAutomation = new Guid("30cbe57d-d9d0-452a-ab13-7ac4f9d6b233");
 			Guid clsidCUIAutomation = new Guid("ff48dba4-60ef-4201-aa87-54103eef594e");
@@ -64,14 +85,45 @@ public class AutoShowManager : IDisposable
 			const int CLSCTX_REMOTE_SERVER = 0x10;
 			const int CLSCTX_ALL = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER | CLSCTX_REMOTE_SERVER;
 			
-			// КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: используем CLSCTX_ALL вместо 1
-			int hr = CoCreateInstance(clsidCUIAutomation, IntPtr.Zero, CLSCTX_ALL, iidIUIAutomation, out object obj);
+			object obj = null;
+			int hr = -1;
 			
-			// Если получили ошибку (например, E_NOINTERFACE 0x80004002), пробуем CUIAutomation8
+			// Метод 1: CoCreateInstance с стандартным CUIAutomation
+			Logger.Info("Attempting Method 1: CoCreateInstance with CUIAutomation...");
+			hr = CoCreateInstance(clsidCUIAutomation, IntPtr.Zero, CLSCTX_ALL, iidIUIAutomation, out obj);
+			
 			if (hr < 0)
 			{
-				Logger.Warning($"Standard CUIAutomation failed (HR: 0x{hr:X}). Trying CUIAutomation8...");
+				Logger.Warning($"Method 1 failed (HR: 0x{hr:X})");
+				
+				// Метод 2: CoCreateInstance с CUIAutomation8
+				Logger.Info("Attempting Method 2: CoCreateInstance with CUIAutomation8...");
 				hr = CoCreateInstance(clsidCUIAutomation8, IntPtr.Zero, CLSCTX_ALL, iidIUIAutomation, out obj);
+				
+				if (hr < 0)
+				{
+					Logger.Warning($"Method 2 failed (HR: 0x{hr:X})");
+					
+					// Метод 3: Type.GetTypeFromCLSID
+					Logger.Info("Attempting Method 3: Type.GetTypeFromCLSID...");
+					try
+					{
+						Type automationType = Type.GetTypeFromCLSID(clsidCUIAutomation8);
+						if (automationType != null)
+						{
+							obj = Activator.CreateInstance(automationType);
+							if (obj != null)
+							{
+								hr = 0; // Success
+								Logger.Info("Method 3 succeeded using Type.GetTypeFromCLSID");
+							}
+						}
+					}
+					catch (Exception ex)
+					{
+						Logger.Warning($"Method 3 failed: {ex.Message}");
+					}
+				}
 			}
 
 			if (hr >= 0 && obj != null)
@@ -80,34 +132,60 @@ public class AutoShowManager : IDisposable
 				
 				if (_automation != null)
 				{
-					Logger.Info($"UI Automation initialized successfully (HRESULT: 0x{hr:X}).");
+					Logger.Info($"✓ UI Automation initialized successfully (HRESULT: 0x{hr:X}).");
+					
+					// Проверяем, что интерфейс действительно работает
+					try
+					{
+						_automation.GetRootElement(out var rootElement);
+						if (rootElement != null)
+						{
+							Logger.Info("✓ UI Automation root element accessible - interface is functional.");
+							Marshal.ReleaseComObject(rootElement);
+						}
+					}
+					catch (Exception ex)
+					{
+						Logger.Warning($"UI Automation interface may not be fully functional: {ex.Message}");
+					}
 				}
 				else
 				{
 					Logger.Error($"Object created but cast to IUIAutomation failed. HR: 0x{hr:X}");
+					Logger.Error($"Object type: {obj?.GetType()?.FullName ?? "null"}");
 				}
 			}
 			else
 			{
-				Logger.Error($"CRITICAL: Failed to create IUIAutomation via both CLSIDs. Last HR: 0x{hr:X}");
+				Logger.Error($"✗ CRITICAL: Failed to create IUIAutomation via all methods. Last HR: 0x{hr:X}");
 				
-				// Дополнительная диагностика
+				// Детальная диагностика
 				if (hr == unchecked((int)0x80004002))
 				{
-					Logger.Error("E_NOINTERFACE error. This usually means:");
-					Logger.Error("  1. UI Automation is not registered properly");
-					Logger.Error("  2. Missing Windows components");
-					Logger.Error("  3. Application needs to run as administrator");
+					Logger.Error("E_NOINTERFACE (0x80004002) - Interface not supported. Possible causes:");
+					Logger.Error("  1. UI Automation components not properly registered");
+					Logger.Error("  2. Missing Windows updates or components");
+					Logger.Error("  3. Application architecture mismatch (ensure app is x64 on x64 system)");
+					Logger.Error("  4. Try running as Administrator");
+					Logger.Error("  5. Check Windows Features: UI Automation should be enabled");
 				}
 				else if (hr == unchecked((int)0x80040154))
 				{
-					Logger.Error("REGDB_E_CLASSNOTREG: Class not registered. UI Automation may not be available.");
+					Logger.Error("REGDB_E_CLASSNOTREG (0x80040154) - Class not registered.");
+					Logger.Error("  Try running: regsvr32 UIAutomationCore.dll from elevated command prompt");
 				}
+				else if (hr == unchecked((int)0x80070005))
+				{
+					Logger.Error("E_ACCESSDENIED (0x80070005) - Access denied. Run as Administrator.");
+				}
+				
+				// Предлагаем workaround
+				Logger.Info("AutoShow feature will be disabled. Keyboard can still be shown manually from tray icon.");
 			}
 		}
 		catch (Exception ex)
 		{
-			Logger.Error("Failed to initialize UI Automation.", ex);
+			Logger.Error("Exception during UI Automation initialization:", ex);
 		}
 	}
 
@@ -210,6 +288,9 @@ public class AutoShowManager : IDisposable
 // =========================================================================
     // Native Methods
     // =========================================================================
+	
+	[DllImport("ole32.dll")]
+	private static extern int CoInitializeEx(IntPtr pvReserved, int dwCoInit);
 
     [DllImport("ole32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     private static extern int CoCreateInstance(
