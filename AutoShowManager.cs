@@ -5,63 +5,22 @@ using Microsoft.UI.Dispatching;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages automatic keyboard visibility based on text input focus
-/// Uses polling approach to detect edit control focus
+/// Управляет автоматическим показом клавиатуры, используя Microsoft UI Automation.
+/// Работает с браузерами, WPF, UWP и Win32 приложениями.
 /// </summary>
 public class AutoShowManager : IDisposable
 {
-    // Win32 Constants
-    private const int GWL_STYLE = -16;
-    private const int ES_READONLY = 0x0800;
-    
-    // Edit control class names
-    private static readonly string[] EditControlClasses = 
-    {
-        "Edit",
-        "RichEdit",
-        "RichEdit20A",
-        "RichEdit20W",
-        "RichEdit50W",
-        "RICHEDIT60W",
-        "TextBox",
-        "ConsoleWindowClass"
-    };
-
-    // P/Invoke
+    // Импорт функций для проверки собственного окна
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetFocus();
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-	[DllImport("kernel32.dll")]
-	private static extern uint GetCurrentThreadId();
-
-    [DllImport("user32.dll")]
-    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetCurrentProcessId();
-
-    private const uint EM_GETSEL = 0x00B0;
-
-    private IntPtr _keyboardWindowHandle;
+    private readonly IntPtr _keyboardWindowHandle;
     private bool _isEnabled;
     private DispatcherQueueTimer _pollingTimer;
-    private IntPtr _lastFocusedWindow;
     private bool _wasKeyboardShown;
+    
+    // UI Automation интерфейс
+    private IUIAutomation _uiAutomation;
 
     public event EventHandler ShowKeyboardRequested;
 
@@ -73,15 +32,8 @@ public class AutoShowManager : IDisposable
             if (_isEnabled != value)
             {
                 _isEnabled = value;
-                
-                if (_isEnabled)
-                {
-                    StartPolling();
-                }
-                else
-                {
-                    StopPolling();
-                }
+                if (_isEnabled) StartPolling();
+                else StopPolling();
                 
                 Logger.Info($"AutoShow {(_isEnabled ? "enabled" : "disabled")}");
             }
@@ -91,29 +43,34 @@ public class AutoShowManager : IDisposable
     public AutoShowManager(IntPtr keyboardWindowHandle)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        
-        Logger.Info("AutoShowManager initialized (polling mode)");
+        InitializeUIAutomation();
+        Logger.Info("AutoShowManager initialized (UI Automation mode)");
+    }
+
+    private void InitializeUIAutomation()
+    {
+        try
+        {
+            // Создаем COM-объект CUIAutomation
+            _uiAutomation = new CUIAutomation() as IUIAutomation;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to initialize UI Automation. Auto-show may not work.", ex);
+        }
     }
 
     private void StartPolling()
     {
-        if (_pollingTimer != null)
-        {
-            Logger.Warning("Polling timer already running");
-            return;
-        }
+        if (_pollingTimer != null) return;
 
         try
         {
             var dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-            if (dispatcherQueue == null)
-            {
-                Logger.Error("Cannot get DispatcherQueue for current thread");
-                return;
-            }
+            if (dispatcherQueue == null) return;
 
             _pollingTimer = dispatcherQueue.CreateTimer();
-            _pollingTimer.Interval = TimeSpan.FromMilliseconds(250); // Check every 250ms
+            _pollingTimer.Interval = TimeSpan.FromMilliseconds(250);
             _pollingTimer.Tick += PollingTimer_Tick;
             _pollingTimer.Start();
             
@@ -129,55 +86,64 @@ public class AutoShowManager : IDisposable
     {
         if (_pollingTimer != null)
         {
-            try
-            {
-                _pollingTimer.Stop();
-                _pollingTimer = null;
-                _lastFocusedWindow = IntPtr.Zero;
-                _wasKeyboardShown = false;
-                
-                Logger.Info("Polling timer stopped");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Error stopping polling timer", ex);
-            }
+            _pollingTimer.Stop();
+            _pollingTimer = null;
+            _wasKeyboardShown = false;
         }
     }
 
     private void PollingTimer_Tick(object sender, object e)
     {
-        if (!_isEnabled)
-            return;
+        if (!_isEnabled || _uiAutomation == null) return;
 
         try
         {
             IntPtr foregroundWindow = GetForegroundWindow();
-            
-            // Skip if keyboard window is foreground
-            if (foregroundWindow == _keyboardWindowHandle)
-                return;
 
-            // Skip if no foreground window
+            // 1. Если активна наша клавиатура — ничего не делаем
+            if (foregroundWindow == _keyboardWindowHandle) return;
+
+            // 2. Если нет активного окна — сбрасываем состояние
             if (foregroundWindow == IntPtr.Zero)
-                return;
-
-            // Get the focused control within the foreground window
-            IntPtr focusedControl = GetFocusedControl(foregroundWindow);
-            
-            if (focusedControl != IntPtr.Zero && focusedControl != _lastFocusedWindow)
             {
-                _lastFocusedWindow = focusedControl;
+                _wasKeyboardShown = false;
+                return;
+            }
+
+            // 3. Получаем элемент под фокусом через UI Automation
+            // Это работает для Chrome, Edge, Word, Telegram и т.д.
+            IUIAutomationElement focusedElement = null;
+            try 
+            {
+                _uiAutomation.GetFocusedElement(out focusedElement);
+            }
+            catch 
+            {
+                // Иногда UIA выбрасывает исключение, если фокус меняется в момент опроса
+                return;
+            }
+
+            if (focusedElement != null)
+            {
+                // Получаем тип контрола
+                int controlType = focusedElement.CurrentControlType;
                 
-                if (IsEditControl(focusedControl))
+                // Проверяем, является ли это полем ввода
+                bool isTextInput = IsTextControl(controlType);
+                
+                // Дополнительная проверка: не "только для чтения"
+                // (Некоторые лейблы могут иметь фокус, но не принимать ввод)
+                // Примечание: проверка IsReadOnly может быть медленной, 
+                // поэтому используем её только если тип контрола подходящий.
+                
+                if (isTextInput)
                 {
-                    Logger.Info($"Edit control focused: 0x{focusedControl:X}");
-                    
-                    // Only show keyboard once per focus
+                    // Логируем только если состояние изменилось, чтобы не спамить в лог
                     if (!_wasKeyboardShown)
                     {
-                        _wasKeyboardShown = true;
+                        Logger.Info($"Text input detected (Type ID: {controlType}). Requesting keyboard.");
                         OnShowKeyboardRequested();
+                        _wasKeyboardShown = true;
                     }
                 }
                 else
@@ -188,135 +154,99 @@ public class AutoShowManager : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Error("Error in polling timer tick", ex);
+            // Не крашим приложение из-за ошибок опроса
+            Logger.Debug($"Error in polling tick: {ex.Message}");
         }
     }
 
-    private IntPtr GetFocusedControl(IntPtr foregroundWindow)
+    private bool IsTextControl(int controlType)
     {
-        try
-        {
-            // Get thread IDs
-            uint currentThreadId = GetCurrentThreadId();
-            uint foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, out _);
-            
-            if (foregroundThreadId == 0)
-                return IntPtr.Zero;
-
-            // Attach to the foreground thread's input
-            bool attached = false;
-            if (currentThreadId != foregroundThreadId)
-            {
-                attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
-            }
-
-            try
-            {
-                // Get the focused window
-                IntPtr focusedWindow = GetFocus();
-                
-                // If no focused window in foreground thread, use foreground window itself
-                if (focusedWindow == IntPtr.Zero)
-                {
-                    focusedWindow = foregroundWindow;
-                }
-                
-                return focusedWindow;
-            }
-            finally
-            {
-                // Detach from the thread
-                if (attached)
-                {
-                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error getting focused control: {ex.Message}");
-            return IntPtr.Zero;
-        }
-    }
-
-    private bool IsEditControl(IntPtr hwnd)
-    {
-        try
-        {
-            // Check class name
-            var className = new System.Text.StringBuilder(256);
-            int result = GetClassName(hwnd, className, className.Capacity);
-            
-            if (result == 0)
-                return false;
-
-            string controlClass = className.ToString();
-            
-            // Check if it's a known edit control class
-            foreach (string editClass in EditControlClasses)
-            {
-                if (controlClass.Equals(editClass, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Additional check: make sure it's not read-only
-                    int style = GetWindowLong(hwnd, GWL_STYLE);
-                    bool isReadOnly = (style & ES_READONLY) != 0;
-                    
-                    if (!isReadOnly)
-                    {
-                        Logger.Debug($"Editable control detected: {controlClass}");
-                        return true;
-                    }
-                    else
-                    {
-                        Logger.Debug($"Read-only control skipped: {controlClass}");
-                        return false;
-                    }
-                }
-            }
-            
-            // Additional heuristic: check if control responds to EM_GETSEL
-            // This helps detect custom edit controls
-            if (controlClass.Contains("Edit", StringComparison.OrdinalIgnoreCase) ||
-                controlClass.Contains("Text", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    IntPtr result2 = SendMessage(hwnd, EM_GETSEL, IntPtr.Zero, IntPtr.Zero);
-                    if (result2 != IntPtr.Zero)
-                    {
-                        Logger.Debug($"Custom edit control detected: {controlClass}");
-                        return true;
-                    }
-                }
-                catch
-                {
-                    // Ignore errors from SendMessage
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error checking control class: {ex.Message}");
-        }
-
-        return false;
+        // ID типов контролов согласно документации Microsoft UIA:
+        // UIA_EditControlTypeId = 50004 (Стандартные поля ввода, TextBox)
+        // UIA_DocumentControlTypeId = 50030 (Word, содержимое веб-страницы в браузере)
+        // UIA_ComboBoxControlTypeId = 50003 (Выпадающие списки с вводом)
+        
+        return controlType == 50004 || // Edit
+               controlType == 50030 || // Document (Chrome/Edge content)
+               controlType == 50003;   // ComboBox
     }
 
     private void OnShowKeyboardRequested()
     {
-        try
-        {
-            ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error invoking ShowKeyboardRequested", ex);
-        }
+        ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()
     {
         StopPolling();
+        // Освобождаем COM объект
+        if (_uiAutomation != null)
+        {
+            Marshal.ReleaseComObject(_uiAutomation);
+            _uiAutomation = null;
+        }
         Logger.Info("AutoShowManager disposed");
+    }
+}
+
+// --- COM Interfaces Definitions ---
+// Определяем интерфейсы здесь, чтобы не требовать добавления внешних ссылок (DLL)
+
+[ComImport]
+[Guid("ff48dba4-60ef-4201-aa87-54103eef594e")]
+public class CUIAutomation
+{
+}
+
+[ComImport]
+[Guid("30cbe57d-d9d0-452a-ab13-7ac5ac4825ee")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IUIAutomation
+{
+    void CompareElements(IUIAutomationElement el1, IUIAutomationElement el2, out int areSame);
+    void CompareRuntimeIds(IntPtr runId1, IntPtr runId2, out int areSame);
+    void GetRootElement(out IUIAutomationElement root);
+    void GetFocusedElement(out IUIAutomationElement element);
+    // Остальные методы интерфейса опущены для краткости, так как они нам не нужны
+}
+
+[ComImport]
+[Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IUIAutomationElement
+{
+    void SetFocus();
+    void GetRuntimeId(out IntPtr runtimeId);
+    void FindFirst(int scope, IntPtr condition, out IUIAutomationElement found);
+    void FindAll(int scope, IntPtr condition, out IntPtr found);
+    void FindFirstBuildCache(int scope, IntPtr condition, IntPtr cacheRequest, out IUIAutomationElement found);
+    void FindAllBuildCache(int scope, IntPtr condition, IntPtr cacheRequest, out IntPtr found);
+    void BuildUpdatedCache(IntPtr cacheRequest, out IUIAutomationElement updatedElement);
+    void GetCurrentPropertyValue(int propertyId, out object retVal);
+    void GetCachedPropertyValue(int propertyId, out object retVal);
+    void GetCurrentPattern(int patternId, out object retVal);
+    void GetCachedPattern(int patternId, out object retVal);
+    
+    // Свойства элемента
+    void get_CurrentProcessId(out int retVal);
+    void get_CurrentControlType(out int retVal);
+    void get_CurrentLocalizedControlType(out string retVal);
+    void get_CurrentName(out string retVal);
+    void get_CurrentAcceleratorKey(out string retVal);
+    void get_CurrentAccessKey(out string retVal);
+    void get_CurrentHasKeyboardFocus(out int retVal);
+    void get_CurrentIsKeyboardFocusable(out int retVal);
+    void get_CurrentIsEnabled(out int retVal);
+    
+    // Вспомогательное свойство для C# (чтобы не вызывать get_CurrentControlType вручную)
+    int CurrentControlType 
+    { 
+        get 
+        { 
+            try { 
+                get_CurrentControlType(out int val); 
+                return val; 
+            } catch { return 0; }
+        } 
     }
 }
