@@ -104,7 +104,7 @@ public class AutoShowManager : IDisposable
             {
                 Logger.Info("✓ Subscribed to focus events (WinEvents Enhanced)");
                 
-                // Start timer for periodic focus checking (for complex applications)
+                // Start timer for periodic focus checking
                 _focusCheckTimer = new System.Threading.Timer(CheckFocusTimer, null, 500, 500);
                 Logger.Info("✓ Started focus monitoring timer");
             }
@@ -155,10 +155,11 @@ public class AutoShowManager : IDisposable
             {
                 _lastFocusedWindow = focusedWindow;
                 
-                // Check for text caret presence
-                if (HasTextCaret(focusedWindow) && IsActualInputElement(focusedWindow))
+                // Check for text input capability
+                if (IsTextInputActive(focusedWindow))
                 {
-                    Logger.Info($"Text input detected via timer: HWND=0x{focusedWindow:X}");
+                    string className = GetWindowClassName(focusedWindow);
+                    Logger.Info($"Text input detected via timer: HWND=0x{focusedWindow:X}, Class={className}");
                     
                     _dispatcherQueue.TryEnqueue(() =>
                     {
@@ -208,13 +209,11 @@ public class AutoShowManager : IDisposable
             string[] excludedClasses = new[]
             {
                 "MozillaWindowClass",           // Firefox main window
-                "Chrome_WidgetWin_1",            // Chrome main window
+                "Chrome_WidgetWin_1",            // Chrome/Edge main window
                 "ApplicationFrameWindow",        // UWP app frame
                 "Notepad",                       // Notepad main window
-                "OpusApp",                       // Word main window
                 "XLMAIN",                        // Excel main window
-                "PPTFrameClass",                 // PowerPoint main window
-                "SciTEWindow"                    // SciTE main window
+                "PPTFrameClass"                  // PowerPoint main window
             };
 
             // Check if this is an excluded main window
@@ -227,60 +226,112 @@ public class AutoShowManager : IDisposable
                 }
             }
 
-            // Specific input element classes
+            // Browser content areas - these need special handling
+            string[] browserContentClasses = new[]
+            {
+                "Chrome_RenderWidgetHostHWND",   // Chromium browsers (Chrome, Edge, Opera, Brave)
+                "Chrome_WidgetWin_0",            // Chromium alternative
+                "MozillaContentWindowClass",     // Firefox content
+                "Internet Explorer_Server"       // Internet Explorer
+            };
+
+            // For browser content areas, check if text input is active
+            foreach (string browserClass in browserContentClasses)
+            {
+                if (className.Equals(browserClass, StringComparison.OrdinalIgnoreCase))
+                {
+                    bool hasInput = IsTextInputActive(hwnd);
+                    Logger.Debug($"Browser content area: {className}, HasTextInput={hasInput}");
+                    return hasInput;
+                }
+            }
+
+            // Standard input element classes
             string[] inputClasses = new[]
             {
                 // Standard Windows input controls
                 "Edit", "RichEdit", "RICHEDIT", "RICHEDIT20", "RICHEDIT50W",
                 
-                // Chromium browsers (Chrome, Edge, Opera, Brave) - content areas only
-                "Chrome_RenderWidgetHostHWND",
-                "Chrome_WidgetWin_0",
-                
-                // Firefox content areas
-                "MozillaContentWindowClass",
-                
-                // Internet Explorer
-                "Internet Explorer_Server",
-                
                 // Office input areas
-                "_WwG",
-                "EXCEL7",
+                "_WwG",                          // Word
+                "EXCEL7",                        // Excel
                 
                 // UWP / WinUI 3 input controls
                 "TextBox", "RichEditBox",
                 "Windows.UI.Core.CoreWindow",
                 
-                // WPF (needs additional checking)
-                "HwndWrapper",
-                
                 // Other input controls
-                "ThunderRT6TextBox",     // Visual Basic
-                "Scintilla",             // Code editors
-                "ConsoleWindowClass"     // Console
+                "ThunderRT6TextBox",             // Visual Basic
+                "Scintilla",                     // Code editors (Notepad++, etc.)
+                "ConsoleWindowClass"             // Console
             };
 
-            // Check direct match or partial match
+            // For standard input controls, require text caret
             foreach (string inputClass in inputClasses)
             {
                 if (className.Equals(inputClass, StringComparison.OrdinalIgnoreCase) ||
                     className.Contains(inputClass, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Additional check for text caret to ensure it's really an input field
-                    if (HasTextCaret(hwnd))
-                    {
-                        Logger.Debug($"Valid input element with caret: {className}");
-                        return true;
-                    }
+                    bool hasCaret = HasTextCaret(hwnd);
+                    Logger.Debug($"Standard input control: {className}, HasCaret={hasCaret}");
+                    return hasCaret;
                 }
             }
 
-            // For complex applications, check if there's a text caret
-            // and the element has input-related styles
+            // For unknown controls, check both caret and editability
             if (HasTextCaret(hwnd) && IsEditableControl(hwnd))
             {
                 Logger.Debug($"Text caret detected in editable control: {className}");
                 return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error in IsActualInputElement: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool IsTextInputActive(IntPtr hwnd)
+    {
+        try
+        {
+            // Method 1: Check for text caret in current window
+            if (HasTextCaret(hwnd))
+            {
+                return true;
+            }
+
+            // Method 2: Check for text caret in child windows (for complex applications like browsers)
+            uint threadId = GetWindowThreadProcessId(hwnd, out _);
+            GUITHREADINFO guiInfo = new GUITHREADINFO();
+            guiInfo.cbSize = Marshal.SizeOf(guiInfo);
+            
+            if (GetGUIThreadInfo(threadId, ref guiInfo))
+            {
+                // Check if focus is on an element within this window's hierarchy
+                if (guiInfo.hwndFocus != IntPtr.Zero && guiInfo.hwndFocus != _keyboardWindowHandle)
+                {
+                    // Check if the focused element or its caret belongs to our window hierarchy
+                    IntPtr parent = guiInfo.hwndFocus;
+                    for (int i = 0; i < 10; i++) // Check up to 10 levels up
+                    {
+                        if (parent == hwnd)
+                        {
+                            // The focused element is within our window hierarchy
+                            if (guiInfo.hwndCaret != IntPtr.Zero)
+                            {
+                                return true;
+                            }
+                        }
+                        
+                        parent = GetParent(parent);
+                        if (parent == IntPtr.Zero)
+                            break;
+                    }
+                }
             }
 
             return false;
@@ -295,7 +346,7 @@ public class AutoShowManager : IDisposable
     {
         try
         {
-            // Check if control has ES_READONLY style (if not, it's editable)
+            // Check if control has ES_READONLY style
             const int GWL_STYLE = -16;
             const int ES_READONLY = 0x0800;
             
@@ -334,7 +385,7 @@ public class AutoShowManager : IDisposable
             
             if (GetGUIThreadInfo(threadId, ref guiInfo))
             {
-                // If there's a caret and the caret window is not our keyboard
+                // If there's a caret and it's not our keyboard
                 if (guiInfo.hwndCaret != IntPtr.Zero && guiInfo.hwndCaret != _keyboardWindowHandle)
                 {
                     return true;
