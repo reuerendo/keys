@@ -1,8 +1,18 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace VirtualKeyboard;
+
+/// <summary>
+/// JSON serialization context for settings (trim-safe)
+/// </summary>
+[JsonSourceGenerationOptions(WriteIndented = true)]
+[JsonSerializable(typeof(SettingsManager.AppSettings))]
+internal partial class SettingsJsonContext : JsonSerializerContext
+{
+}
 
 /// <summary>
 /// Manages application settings persistence
@@ -40,7 +50,7 @@ public class SettingsManager
             if (File.Exists(SettingsPath))
             {
                 string json = File.ReadAllText(SettingsPath);
-                _settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                _settings = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings) ?? new AppSettings();
                 Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}");
             }
             else
@@ -69,12 +79,7 @@ public class SettingsManager
                 Directory.CreateDirectory(directory);
             }
 
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true
-            };
-
-            string json = JsonSerializer.Serialize(_settings, options);
+            string json = JsonSerializer.Serialize(_settings, SettingsJsonContext.Default.AppSettings);
             File.WriteAllText(SettingsPath, json);
             
             Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}");
