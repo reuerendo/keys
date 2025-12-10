@@ -1,11 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Windows.Automation;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages automatic keyboard display using TSF (Text Services Framework)
-/// Implements the same mechanism as Windows TabTip.exe
+/// Manages automatic keyboard display using Windows Event Hooks
+/// Monitors focus changes system-wide and shows keyboard for text input controls
 /// </summary>
 public class AutoShowManager : IDisposable
 {
@@ -13,10 +14,9 @@ public class AutoShowManager : IDisposable
     private bool _isEnabled;
     private bool _disposed;
     
-    private ITfThreadMgr _threadMgr;
-    private ITfSource _source;
-    private TsfEventSink _eventSink;
-    private uint _eventSinkCookie;
+    private IntPtr _hookHandle;
+    private WinEventDelegate _hookDelegate;
+    private GCHandle _delegateHandle;
     
     // Delay to prevent immediate re-showing
     private DateTime _lastHideTime = DateTime.MinValue;
@@ -47,152 +47,88 @@ public class AutoShowManager : IDisposable
     public AutoShowManager(IntPtr keyboardWindowHandle)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        Logger.Info("AutoShowManager created (TSF-based)");
+        Logger.Info("AutoShowManager created (WinEventHook-based)");
     }
 
     /// <summary>
-    /// Start TSF monitoring
+    /// Start Windows Event Hook monitoring
     /// </summary>
     private void StartMonitoring()
     {
-        if (_threadMgr != null)
+        if (_hookHandle != IntPtr.Zero)
         {
-            Logger.Warning("TSF monitoring already active");
+            Logger.Warning("Event hook already active");
             return;
         }
 
         try
         {
-            // Create ITfThreadMgr instance
-            Guid threadMgrGuid = typeof(ITfThreadMgr).GUID;
-            var clsid = new Guid("529a9e6b-6587-4f23-ab9e-9c7d683e3c50"); // CLSID_TF_ThreadMgr
-            
-            Logger.Debug($"Creating ITfThreadMgr with CLSID={clsid}, IID={threadMgrGuid}");
-            
-            var hr = CoCreateInstance(
-                ref clsid,
-                IntPtr.Zero,
-                CLSCTX.CLSCTX_INPROC_SERVER,
-                ref threadMgrGuid,
-                out object obj);
+            // Create delegate and pin it to prevent GC collection
+            _hookDelegate = new WinEventDelegate(WinEventProc);
+            _delegateHandle = GCHandle.Alloc(_hookDelegate);
 
-            if (hr != 0 || obj == null)
+            // Set up hook for focus events
+            _hookHandle = SetWinEventHook(
+                EVENT_OBJECT_FOCUS,              // eventMin
+                EVENT_OBJECT_FOCUS,              // eventMax
+                IntPtr.Zero,                     // hmodWinEventProc
+                _hookDelegate,                   // pfnWinEventProc
+                0,                               // idProcess (0 = all processes)
+                0,                               // idThread (0 = all threads)
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
+            if (_hookHandle == IntPtr.Zero)
             {
-                Logger.Error($"Failed to create ITfThreadMgr: HRESULT=0x{hr:X}");
+                Logger.Error("Failed to set Windows event hook");
+                if (_delegateHandle.IsAllocated)
+                    _delegateHandle.Free();
                 return;
             }
 
-            _threadMgr = (ITfThreadMgr)obj;
-            Logger.Info("ITfThreadMgr created successfully");
-
-            // Activate TSF for this thread
-            hr = _threadMgr.Activate(out uint clientId);
-            if (hr != 0)
-            {
-                Logger.Error($"Failed to activate TSF: HRESULT=0x{hr:X}");
-                return;
-            }
-            Logger.Info($"TSF activated with ClientId={clientId}");
-
-            // Query for ITfSource interface
-            Guid sourceGuid = typeof(ITfSource).GUID;
-            Logger.Debug($"Querying for ITfSource interface: {sourceGuid}");
-            
-            IntPtr sourcePtr = IntPtr.Zero;
-            hr = Marshal.QueryInterface(Marshal.GetIUnknownForObject(_threadMgr), ref sourceGuid, out sourcePtr);
-            
-            if (hr != 0 || sourcePtr == IntPtr.Zero)
-            {
-                Logger.Error($"Failed to query ITfSource: HRESULT=0x{hr:X}");
-                return;
-            }
-
-            _source = (ITfSource)Marshal.GetObjectForIUnknown(sourcePtr);
-            Marshal.Release(sourcePtr);
-            Logger.Info("ITfSource interface obtained successfully");
-
-            // Create and register event sink
-            _eventSink = new TsfEventSink(this);
-            Logger.Debug("TsfEventSink instance created");
-            
-            // Use GUID for ITfThreadMgrEventSink interface
-            Guid sinkGuid = new Guid("aa80e80e-2021-11d2-93e0-0060b067b86e");
-            Logger.Debug($"Using ITfThreadMgrEventSink GUID={sinkGuid}");
-            
-            // Get interface pointer for the event sink
-            IntPtr sinkPtr = IntPtr.Zero;
-            try
-            {
-                // Use GetComInterfaceForObject for proper COM marshaling
-                sinkPtr = Marshal.GetComInterfaceForObject(_eventSink, typeof(ITfThreadMgrEventSink));
-                Logger.Debug($"Got COM interface pointer: 0x{sinkPtr:X}");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Failed to get COM interface for event sink: {ex.Message}");
-                return;
-            }
-            
-            // Register the event sink through ITfSource
-            hr = _source.AdviseSink(ref sinkGuid, sinkPtr, out _eventSinkCookie);
-            
-            if (sinkPtr != IntPtr.Zero)
-                Marshal.Release(sinkPtr);
-            
-            if (hr != 0)
-            {
-                Logger.Error($"Failed to register event sink: HRESULT=0x{hr:X}");
-                return;
-            }
-
-            Logger.Info($"TSF event sink registered successfully (Cookie={_eventSinkCookie})");
+            Logger.Info($"Windows event hook registered successfully (Handle=0x{_hookHandle:X})");
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to start TSF monitoring", ex);
+            Logger.Error("Failed to start event hook monitoring", ex);
         }
     }
 
     /// <summary>
-    /// Stop TSF monitoring
+    /// Stop Windows Event Hook monitoring
     /// </summary>
     private void StopMonitoring()
     {
         try
         {
-            if (_source != null && _eventSinkCookie != 0)
+            if (_hookHandle != IntPtr.Zero)
             {
-                _source.UnadviseSink(_eventSinkCookie);
-                _eventSinkCookie = 0;
-                Logger.Info("TSF event sink unregistered");
+                UnhookWinEvent(_hookHandle);
+                _hookHandle = IntPtr.Zero;
+                Logger.Info("Windows event hook unregistered");
             }
 
-            if (_source != null)
+            if (_delegateHandle.IsAllocated)
             {
-                Marshal.ReleaseComObject(_source);
-                _source = null;
+                _delegateHandle.Free();
             }
-
-            if (_threadMgr != null)
-            {
-                _threadMgr.Deactivate();
-                Marshal.ReleaseComObject(_threadMgr);
-                _threadMgr = null;
-                Logger.Info("TSF deactivated");
-            }
-
-            _eventSink = null;
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to stop TSF monitoring", ex);
+            Logger.Error("Failed to stop event hook monitoring", ex);
         }
     }
 
     /// <summary>
-    /// Called by TsfEventSink when context focus changes
+    /// Callback for Windows events
     /// </summary>
-    internal void OnContextFocusChanged(ITfDocumentMgr docMgr, ITfContext context)
+    private void WinEventProc(
+        IntPtr hWinEventHook,
+        uint eventType,
+        IntPtr hwnd,
+        int idObject,
+        int idChild,
+        uint dwEventThread,
+        uint dwmsEventTime)
     {
         if (!_isEnabled || _disposed)
             return;
@@ -202,47 +138,86 @@ public class AutoShowManager : IDisposable
             // Check cooldown period
             if ((DateTime.Now - _lastHideTime).TotalMilliseconds < HIDE_COOLDOWN_MS)
             {
-                Logger.Debug("Within cooldown period, ignoring focus change");
                 return;
             }
 
-            // If no context or document manager, ignore
-            if (context == null || docMgr == null)
+            // Ignore our own window
+            if (hwnd == _keyboardWindowHandle)
             {
-                Logger.Debug("No context or document manager");
                 return;
             }
 
-            // Get context information
-            // Create local copies of GUIDs because ref parameters cannot use static readonly fields
-            Guid inputScopeGuid = TF_ATTRIBUTE_GUID.TF_ATTR_INPUT_SCOPE;
-            int hr = context.GetAttribute(
-                ref inputScopeGuid,
-                out ITfProperty property);
-
-            if (hr == 0 && property != null)
+            // Only process window objects
+            if (idObject != OBJID_WINDOW && idObject != OBJID_CLIENT)
             {
-                Logger.Info("Text input context detected - showing keyboard");
+                return;
+            }
+
+            // Check if focused element is a text input
+            if (IsTextInputElement(hwnd))
+            {
+                Logger.Info($"Text input focused (hwnd=0x{hwnd:X}) - showing keyboard");
                 ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
-                Marshal.ReleaseComObject(property);
-            }
-            else
-            {
-                // Even without input scope, check if it's a text context
-                // by checking if context supports text operations
-                Guid textOwnerGuid = TF_PROPERTY_GUID.TFPROP_TEXTOWNER;
-                hr = context.GetProperty(ref textOwnerGuid, out property);
-                if (hr == 0 && property != null)
-                {
-                    Logger.Info("Text owner context detected - showing keyboard");
-                    ShowKeyboardRequested?.Invoke(this, EventArgs.Empty);
-                    Marshal.ReleaseComObject(property);
-                }
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Error in OnContextFocusChanged", ex);
+            Logger.Debug($"Error in WinEventProc: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Check if element is a text input control
+    /// </summary>
+    private bool IsTextInputElement(IntPtr hwnd)
+    {
+        try
+        {
+            // Get automation element from window handle
+            AutomationElement element = AutomationElement.FromHandle(hwnd);
+            if (element == null)
+                return false;
+
+            // Get focused element
+            AutomationElement focusedElement = AutomationElement.FocusedElement;
+            if (focusedElement == null)
+                return false;
+
+            // Check control type
+            var controlType = focusedElement.GetCurrentPropertyValue(AutomationElement.ControlTypeProperty) as ControlType;
+            
+            if (controlType == ControlType.Edit || 
+                controlType == ControlType.Document ||
+                controlType == ControlType.Text)
+            {
+                Logger.Debug($"Text control detected: {controlType.ProgrammaticName}");
+                return true;
+            }
+
+            // Check if control is editable (has ValuePattern)
+            if (focusedElement.TryGetCurrentPattern(ValuePattern.Pattern, out object valuePattern))
+            {
+                var pattern = valuePattern as ValuePattern;
+                if (pattern != null && !pattern.Current.IsReadOnly)
+                {
+                    Logger.Debug("Editable control with ValuePattern detected");
+                    return true;
+                }
+            }
+
+            // Check if control supports text input (has TextPattern)
+            if (focusedElement.TryGetCurrentPattern(TextPattern.Pattern, out object textPattern))
+            {
+                Logger.Debug("Control with TextPattern detected");
+                return true;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error checking text input: {ex.Message}");
+            return false;
         }
     }
 
@@ -266,353 +241,41 @@ public class AutoShowManager : IDisposable
         Logger.Info("AutoShowManager disposed");
     }
 
-    // P/Invoke
-    [DllImport("ole32.dll")]
-    private static extern int CoCreateInstance(
-        ref Guid rclsid,
-        IntPtr pUnkOuter,
-        CLSCTX dwClsContext,
-        ref Guid riid,
-        [MarshalAs(UnmanagedType.Interface)] out object ppv);
+    #region P/Invoke and Constants
 
-    [Flags]
-    private enum CLSCTX : uint
-    {
-        CLSCTX_INPROC_SERVER = 0x1,
-        CLSCTX_INPROC_HANDLER = 0x2,
-        CLSCTX_LOCAL_SERVER = 0x4,
-        CLSCTX_REMOTE_SERVER = 0x10,
-        CLSCTX_ALL = CLSCTX_INPROC_SERVER | CLSCTX_INPROC_HANDLER | CLSCTX_LOCAL_SERVER | CLSCTX_REMOTE_SERVER
-    }
+    // Delegate for event hook callback
+    private delegate void WinEventDelegate(
+        IntPtr hWinEventHook,
+        uint eventType,
+        IntPtr hwnd,
+        int idObject,
+        int idChild,
+        uint dwEventThread,
+        uint dwmsEventTime);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        IntPtr hmodWinEventProc,
+        WinEventDelegate lpfnWinEventProc,
+        uint idProcess,
+        uint idThread,
+        uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    // Event constants
+    private const uint EVENT_OBJECT_FOCUS = 0x8005;
+
+    // Object identifiers
+    private const int OBJID_WINDOW = 0x00000000;
+    private const int OBJID_CLIENT = unchecked((int)0xFFFFFFFC);
+
+    // Flags
+    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
+    #endregion
 }
-
-/// <summary>
-/// Event sink for TSF thread manager events
-/// </summary>
-[ComVisible(true)]
-[Guid("F9E1A2B3-4C5D-6E7F-8A9B-0C1D2E3F4A5B")] // Unique GUID for this class
-[ClassInterface(ClassInterfaceType.None)]
-[ComDefaultInterface(typeof(ITfThreadMgrEventSink))]
-internal class TsfEventSink : ITfThreadMgrEventSink
-{
-    private readonly AutoShowManager _manager;
-
-    public TsfEventSink(AutoShowManager manager)
-    {
-        _manager = manager;
-        Logger.Debug("TsfEventSink constructor called");
-    }
-
-    // Called when document manager is initialized
-    [PreserveSig]
-    public int OnInitDocumentMgr(ITfDocumentMgr pdim)
-    {
-        Logger.Debug("TSF: OnInitDocumentMgr");
-        return 0; // S_OK
-    }
-
-    // Called when document manager is uninitialized
-    [PreserveSig]
-    public int OnUninitDocumentMgr(ITfDocumentMgr pdim)
-    {
-        Logger.Debug("TSF: OnUninitDocumentMgr");
-        return 0; // S_OK
-    }
-
-    // Called when focus changes between contexts - THIS IS THE KEY METHOD
-    [PreserveSig]
-    public int OnSetFocus(ITfDocumentMgr pdimFocus, ITfDocumentMgr pdimPrevFocus)
-    {
-        Logger.Debug("TSF: OnSetFocus called");
-
-        if (pdimFocus == null)
-        {
-            Logger.Debug("TSF: Focus cleared (no document manager)");
-            return 0;
-        }
-
-        try
-        {
-            // Get the top context from the document manager
-            int hr = pdimFocus.GetTop(out ITfContext context);
-            
-            if (hr != 0 || context == null)
-            {
-                Logger.Debug("TSF: No top context available");
-                return 0;
-            }
-
-            Logger.Info("TSF: Text input context received focus");
-            _manager.OnContextFocusChanged(pdimFocus, context);
-
-            Marshal.ReleaseComObject(context);
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("TSF: Error in OnSetFocus", ex);
-        }
-
-        return 0; // S_OK
-    }
-
-    // Called when keyboard focus is pushed
-    [PreserveSig]
-    public int OnPushContext(ITfContext pic)
-    {
-        Logger.Debug("TSF: OnPushContext");
-        return 0; // S_OK
-    }
-
-    // Called when keyboard focus is popped
-    [PreserveSig]
-    public int OnPopContext(ITfContext pic)
-    {
-        Logger.Debug("TSF: OnPopContext");
-        return 0; // S_OK
-    }
-}
-
-#region TSF COM Interfaces
-
-// ITfThreadMgr - Main TSF thread manager interface
-[ComImport]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-[Guid("aa80e801-2021-11d2-93e0-0060b067b86e")]
-internal interface ITfThreadMgr
-{
-    [PreserveSig]
-    int Activate(out uint ptid);
-    
-    [PreserveSig]
-    int Deactivate();
-    
-    [PreserveSig]
-    int CreateDocumentMgr(out ITfDocumentMgr ppdim);
-    
-    [PreserveSig]
-    int EnumDocumentMgrs(out IntPtr ppEnum);
-    
-    [PreserveSig]
-    int GetFocus(out ITfDocumentMgr ppdimFocus);
-    
-    [PreserveSig]
-    int SetFocus(ITfDocumentMgr pdimFocus);
-    
-    [PreserveSig]
-    int AssociateFocus(IntPtr hwnd, ITfDocumentMgr pdimNew, out ITfDocumentMgr ppdimPrev);
-    
-    [PreserveSig]
-    int IsThreadFocus([MarshalAs(UnmanagedType.Bool)] out bool pfThreadFocus);
-    
-    [PreserveSig]
-    int GetFunctionProvider(ref Guid clsid, out IntPtr ppFuncProv);
-    
-    [PreserveSig]
-    int EnumFunctionProviders(out IntPtr ppEnum);
-    
-    [PreserveSig]
-    int GetGlobalCompartment(out IntPtr ppCompMgr);
-}
-
-// ITfSource - Used to install and uninstall advise sinks
-[ComImport]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-[Guid("4ea48a35-60ae-446f-8fd6-e6a8d82459f7")]
-internal interface ITfSource
-{
-    [PreserveSig]
-    int AdviseSink(ref Guid riid, IntPtr punk, out uint pdwCookie);
-    
-    [PreserveSig]
-    int UnadviseSink(uint dwCookie);
-}
-
-// ITfThreadMgrEventSink - Receives notifications about thread manager events
-[ComImport]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-[Guid("aa80e80e-2021-11d2-93e0-0060b067b86e")]
-internal interface ITfThreadMgrEventSink
-{
-    [PreserveSig]
-    int OnInitDocumentMgr(ITfDocumentMgr pdim);
-    
-    [PreserveSig]
-    int OnUninitDocumentMgr(ITfDocumentMgr pdim);
-    
-    [PreserveSig]
-    int OnSetFocus(ITfDocumentMgr pdimFocus, ITfDocumentMgr pdimPrevFocus);
-    
-    [PreserveSig]
-    int OnPushContext(ITfContext pic);
-    
-    [PreserveSig]
-    int OnPopContext(ITfContext pic);
-}
-
-// ITfDocumentMgr - Manages document contexts
-[ComImport]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-[Guid("aa80e7f4-2021-11d2-93e0-0060b067b86e")]
-internal interface ITfDocumentMgr
-{
-    [PreserveSig]
-    int CreateContext(
-        uint tidOwner,
-        uint dwFlags,
-        IntPtr punk,
-        out ITfContext ppic,
-        out uint pecTextStore);
-    
-    [PreserveSig]
-    int Push(ITfContext pic);
-    
-    [PreserveSig]
-    int Pop(uint dwFlags);
-    
-    [PreserveSig]
-    int GetTop(out ITfContext ppic);
-    
-    [PreserveSig]
-    int GetBase(out ITfContext ppic);
-    
-    [PreserveSig]
-    int EnumContexts(out IntPtr ppEnum);
-}
-
-// ITfContext - Represents input context
-[ComImport]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-[Guid("aa80e7fd-2021-11d2-93e0-0060b067b86e")]
-internal interface ITfContext
-{
-    [PreserveSig]
-    int RequestEditSession(
-        uint tid,
-        IntPtr pes,
-        uint dwFlags,
-        out int phrSession);
-    
-    [PreserveSig]
-    int InWriteSession(out bool pfWriteSession);
-    
-    [PreserveSig]
-    int GetSelection(
-        uint ulIndex,
-        uint ulCount,
-        IntPtr pSelection,
-        out uint pcFetched);
-    
-    [PreserveSig]
-    int SetSelection(
-        uint ulCount,
-        IntPtr pSelection);
-    
-    [PreserveSig]
-    int GetStart(out IntPtr ppStart);
-    
-    [PreserveSig]
-    int GetEnd(out IntPtr ppEnd);
-    
-    [PreserveSig]
-    int GetActiveView(out IntPtr ppView);
-    
-    [PreserveSig]
-    int EnumViews(out IntPtr ppEnum);
-    
-    [PreserveSig]
-    int GetStatus(out IntPtr pdcs);
-    
-    [PreserveSig]
-    int GetProperty(ref Guid guidProp, out ITfProperty ppProp);
-    
-    [PreserveSig]
-    int GetAppProperty(ref Guid guidProp, out IntPtr ppProp);
-    
-    [PreserveSig]
-    int TrackProperties(
-        IntPtr prgProp,
-        uint cProp,
-        IntPtr prgAppProp,
-        uint cAppProp,
-        out IntPtr ppProperty);
-    
-    [PreserveSig]
-    int EnumProperties(out IntPtr ppEnum);
-    
-    [PreserveSig]
-    int GetDocumentMgr(out ITfDocumentMgr ppDm);
-    
-    [PreserveSig]
-    int CreateRangeBackup(
-        uint ec,
-        IntPtr pRange,
-        out IntPtr ppBackup);
-    
-    [PreserveSig]
-    int GetAttribute(ref Guid guidAttribute, out ITfProperty ppProp);
-}
-
-// ITfProperty - Represents a property in TSF
-[ComImport]
-[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-[Guid("e2449660-9542-11d2-bf46-00105a2799b5")]
-internal interface ITfProperty
-{
-    [PreserveSig]
-    int GetType(out Guid pguid);
-    
-    [PreserveSig]
-    int EnumRanges(
-        uint ec,
-        out IntPtr ppEnum,
-        IntPtr pTargetRange);
-    
-    [PreserveSig]
-    int GetValue(
-        uint ec,
-        IntPtr pRange,
-        out object pvarValue);
-    
-    [PreserveSig]
-    int GetContext(out ITfContext ppContext);
-    
-    [PreserveSig]
-    int FindRange(
-        uint ec,
-        IntPtr pRange,
-        out IntPtr ppRange,
-        uint aPos);
-    
-    [PreserveSig]
-    int SetValueStore(
-        uint ec,
-        IntPtr pRange,
-        IntPtr pPropStore);
-    
-    [PreserveSig]
-    int SetValue(
-        uint ec,
-        IntPtr pRange,
-        ref object pvarValue);
-    
-    [PreserveSig]
-    int Clear(
-        uint ec,
-        IntPtr pRange);
-}
-
-// TSF attribute GUIDs
-internal static class TF_ATTRIBUTE_GUID
-{
-    public static readonly Guid TF_ATTR_INPUT_SCOPE = new Guid("632fb373-1891-4e6e-9e98-015dc935c3a8");
-    public static readonly Guid TF_ATTR_TARGET_CONVERTED = new Guid("b23b2595-b1dc-4a4e-9c4c-e094aa5b9d5a");
-}
-
-// TSF property GUIDs
-internal static class TF_PROPERTY_GUID
-{
-    public static readonly Guid TFPROP_TEXTOWNER = new Guid("f11ee2b1-e907-4eca-bf3f-a5cb93c43840");
-    public static readonly Guid TFPROP_COMPOSING = new Guid("e7e1a2cc-3c2e-4876-9ce4-4d6f5b0e7c65");
-}
-
-#endregion
