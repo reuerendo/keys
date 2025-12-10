@@ -50,40 +50,66 @@ public class AutoShowManager : IDisposable
         InitializeAutomation();
     }
 
-    private void InitializeAutomation()
-    {
-        try
-        {
-            // Определяем GUID-ы
-            Guid iidIUIAutomation = new Guid("30cbe57d-d9d0-452a-ab13-7ac4f9d6b233");
-            Guid clsidCUIAutomation = new Guid("ff48dba4-60ef-4201-aa87-54103eef594e");
-            Guid clsidCUIAutomation8 = new Guid("e22ad333-b25f-460c-83d0-0581107395c9"); // Windows 8+
-            
-            // Пытаемся создать стандартный CUIAutomation
-            int hr = CoCreateInstance(clsidCUIAutomation, IntPtr.Zero, 1, iidIUIAutomation, out object obj);
-            
-            // Если получили ошибку (например, E_NOINTERFACE 0x80004002), пробуем CUIAutomation8
-            if (hr < 0)
-            {
-                Logger.Warning($"Standard CUIAutomation failed (HR: 0x{hr:X}). Trying CUIAutomation8...");
-                hr = CoCreateInstance(clsidCUIAutomation8, IntPtr.Zero, 1, iidIUIAutomation, out obj);
-            }
+	private void InitializeAutomation()
+	{
+		try
+		{
+			// Определяем GUID-ы
+			Guid iidIUIAutomation = new Guid("30cbe57d-d9d0-452a-ab13-7ac4f9d6b233");
+			Guid clsidCUIAutomation = new Guid("ff48dba4-60ef-4201-aa87-54103eef594e");
+			Guid clsidCUIAutomation8 = new Guid("e22ad333-b25f-460c-83d0-0581107395c9"); // Windows 8+
+			
+			const int CLSCTX_INPROC_SERVER = 0x1;
+			const int CLSCTX_LOCAL_SERVER = 0x4;
+			const int CLSCTX_REMOTE_SERVER = 0x10;
+			const int CLSCTX_ALL = CLSCTX_INPROC_SERVER | CLSCTX_LOCAL_SERVER | CLSCTX_REMOTE_SERVER;
+			
+			// КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: используем CLSCTX_ALL вместо 1
+			int hr = CoCreateInstance(clsidCUIAutomation, IntPtr.Zero, CLSCTX_ALL, iidIUIAutomation, out object obj);
+			
+			// Если получили ошибку (например, E_NOINTERFACE 0x80004002), пробуем CUIAutomation8
+			if (hr < 0)
+			{
+				Logger.Warning($"Standard CUIAutomation failed (HR: 0x{hr:X}). Trying CUIAutomation8...");
+				hr = CoCreateInstance(clsidCUIAutomation8, IntPtr.Zero, CLSCTX_ALL, iidIUIAutomation, out obj);
+			}
 
-            if (hr >= 0 && obj != null)
-            {
-                _automation = obj as IUIAutomation;
-                Logger.Info($"UI Automation initialized successfully (HRESULT: 0x{hr:X}).");
-            }
-            else
-            {
-                Logger.Error($"CRITICAL: Failed to create IUIAutomation via both CLSIDs. Last HR: 0x{hr:X}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to initialize UI Automation.", ex);
-        }
-    }
+			if (hr >= 0 && obj != null)
+			{
+				_automation = obj as IUIAutomation;
+				
+				if (_automation != null)
+				{
+					Logger.Info($"UI Automation initialized successfully (HRESULT: 0x{hr:X}).");
+				}
+				else
+				{
+					Logger.Error($"Object created but cast to IUIAutomation failed. HR: 0x{hr:X}");
+				}
+			}
+			else
+			{
+				Logger.Error($"CRITICAL: Failed to create IUIAutomation via both CLSIDs. Last HR: 0x{hr:X}");
+				
+				// Дополнительная диагностика
+				if (hr == unchecked((int)0x80004002))
+				{
+					Logger.Error("E_NOINTERFACE error. This usually means:");
+					Logger.Error("  1. UI Automation is not registered properly");
+					Logger.Error("  2. Missing Windows components");
+					Logger.Error("  3. Application needs to run as administrator");
+				}
+				else if (hr == unchecked((int)0x80040154))
+				{
+					Logger.Error("REGDB_E_CLASSNOTREG: Class not registered. UI Automation may not be available.");
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Logger.Error("Failed to initialize UI Automation.", ex);
+		}
+	}
 
     private void SubscribeToFocusEvents()
     {
