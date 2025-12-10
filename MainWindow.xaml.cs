@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
     private TrayIcon _trayIcon;
 
     private bool _isClosing = false;
+    private bool _isInitialPositionSet = false;
 
     public MainWindow()
     {
@@ -51,8 +52,8 @@ public sealed partial class MainWindow : Window
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         
-        // Configure window
-        ConfigureWindow();
+        // Configure window size (but not position yet)
+        ConfigureWindowSize();
         
         // Apply window styles
         _styleManager.ApplyNoActivateStyle();
@@ -70,7 +71,7 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// Configure window size and properties
     /// </summary>
-    private void ConfigureWindow()
+    private void ConfigureWindowSize()
     {
         uint dpi = GetDpiForWindow(_thisWindowHandle);
         float scalingFactor = dpi / 96f;
@@ -97,20 +98,12 @@ public sealed partial class MainWindow : Window
     {
         _styleManager.ApplyNoActivateStyle();
         
-        // Position window on activation
-        if (e.WindowActivationState != WindowActivationState.Deactivated)
+        // Set initial position only once, before first activation
+        if (!_isInitialPositionSet && e.WindowActivationState != WindowActivationState.Deactivated)
         {
-            // Use Dispatcher for delayed positioning to ensure window is fully rendered
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                System.Threading.Tasks.Task.Delay(50).ContinueWith(_ =>
-                {
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        _positionManager?.PositionWindow();
-                    });
-                });
-            });
+            _isInitialPositionSet = true;
+            _positionManager?.PositionWindow();
+            Logger.Info("Initial window position set");
         }
     }
 
@@ -303,17 +296,11 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            // Position window BEFORE showing it
+            _positionManager?.PositionWindow();
+            
             ShowWindow(_thisWindowHandle, SW_SHOW);
             this.Activate();
-            
-            // Position window after showing
-            System.Threading.Tasks.Task.Delay(100).ContinueWith(_ =>
-            {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    _positionManager?.PositionWindow();
-                });
-            });
             
             Logger.Info("Window shown from tray");
         }
