@@ -31,8 +31,14 @@
   </ItemGroup>
   
   <ItemGroup>
-  <Content Include="tray_icon.ico">
-    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-  </Content>
+    <Content Include="tray_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Reference to System.Windows.Automation for UI focus detection -->
+  <ItemGroup>
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
   </ItemGroup>
 </Project>

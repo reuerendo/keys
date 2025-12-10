@@ -406,6 +406,10 @@ public sealed partial class MainWindow : Window
             ResetAllModifiers();
             
             ShowWindow(_thisWindowHandle, SW_HIDE);
+            
+            // Notify AutoShowManager about hide (for cooldown)
+            _autoShowManager?.NotifyKeyboardHidden();
+            
             Logger.Info("Window hidden to tray");
         }
         catch (Exception ex)
