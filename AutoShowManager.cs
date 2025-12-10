@@ -56,8 +56,6 @@ public class AutoShowManager : IDisposable
         }
         catch (Exception ex)
         {
-            // Если инициализация не удалась, это может быть из-за отсутствия UIA, 
-            // но в Windows это маловероятно. Логируем ошибку.
             Logger.Error("Failed to initialize UI Automation. Auto-show may not work.", ex);
         }
     }
@@ -116,8 +114,6 @@ public class AutoShowManager : IDisposable
             IUIAutomationElement focusedElement = null;
             try 
             {
-                // Примечание: GetFocusedElement может быть медленным, 
-                // поэтому вызываем его только в случае необходимости.
                 _uiAutomation.GetFocusedElement(out focusedElement);
             }
             catch 
@@ -130,9 +126,7 @@ public class AutoShowManager : IDisposable
             {
                 int controlType = 0;
                 
-                // ИСХОДНАЯ ОШИБКА: 
-                // Заменено focusedElement.CurrentControlType на прямой вызов get_CurrentControlType, 
-                // чтобы избежать ошибки CS0423 в интерфейсе [ComImport].
+                // Используем прямой вызов метода COM
                 focusedElement.get_CurrentControlType(out controlType);
 
                 // Проверяем, является ли это полем ввода
@@ -183,7 +177,6 @@ public class AutoShowManager : IDisposable
         // Освобождаем COM объект
         if (_uiAutomation != null)
         {
-            // Убедимся, что ReleaseComObject вызывается для правильной очистки
             try
             {
                 Marshal.ReleaseComObject(_uiAutomation);
@@ -196,7 +189,6 @@ public class AutoShowManager : IDisposable
 }
 
 // --- COM Interfaces Definitions ---
-// Определяем интерфейсы здесь. Не менять их, если не требуется прямого доступа к COM!
 
 [ComImport]
 [Guid("ff48dba4-60ef-4201-aa87-54103eef594e")]
@@ -238,7 +230,6 @@ public interface IUIAutomationElement
     
     // Свойства элемента (должны быть методами, согласно COM)
     void get_CurrentProcessId(out int retVal);
-    // МЕТОД, который нам нужен:
     void get_CurrentControlType(out int retVal);
     void get_CurrentLocalizedControlType(out string retVal);
     void get_CurrentName(out string retVal);
@@ -247,3 +238,4 @@ public interface IUIAutomationElement
     void get_CurrentHasKeyboardFocus(out int retVal);
     void get_CurrentIsKeyboardFocusable(out int retVal);
     void get_CurrentIsEnabled(out int retVal);
+} // Здесь была ошибка. Теперь чистое закрытие.
