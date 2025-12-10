@@ -16,7 +16,7 @@
     <WindowsPackageType>None</WindowsPackageType>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
-    <PublishTrimmed>true</PublishTrimmed>
+    <PublishTrimmed>false</PublishTrimmed>
 	<TrimMode>partial</TrimMode>
 	<PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>

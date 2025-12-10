@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Marshalling;
 
 namespace VirtualKeyboard;
 
@@ -15,6 +14,7 @@ public class AutoShowManager : IDisposable
     private bool _disposed;
     
     private ITfThreadMgr _threadMgr;
+    private ITfSource _source;
     private TsfEventSink _eventSink;
     private uint _eventSinkCookie;
     
@@ -86,8 +86,7 @@ public class AutoShowManager : IDisposable
             Logger.Info("ITfThreadMgr created successfully");
 
             // Activate TSF for this thread
-            uint clientId;
-            hr = _threadMgr.Activate(out clientId);
+            hr = _threadMgr.Activate(out uint clientId);
             if (hr != 0)
             {
                 Logger.Error($"Failed to activate TSF: HRESULT=0x{hr:X}");
@@ -95,28 +94,47 @@ public class AutoShowManager : IDisposable
             }
             Logger.Info($"TSF activated with ClientId={clientId}");
 
+            // Query for ITfSource interface
+            Guid sourceGuid = typeof(ITfSource).GUID;
+            Logger.Debug($"Querying for ITfSource interface: {sourceGuid}");
+            
+            IntPtr sourcePtr = IntPtr.Zero;
+            hr = Marshal.QueryInterface(Marshal.GetIUnknownForObject(_threadMgr), ref sourceGuid, out sourcePtr);
+            
+            if (hr != 0 || sourcePtr == IntPtr.Zero)
+            {
+                Logger.Error($"Failed to query ITfSource: HRESULT=0x{hr:X}");
+                return;
+            }
+
+            _source = (ITfSource)Marshal.GetObjectForIUnknown(sourcePtr);
+            Marshal.Release(sourcePtr);
+            Logger.Info("ITfSource interface obtained successfully");
+
             // Create and register event sink
             _eventSink = new TsfEventSink(this);
             Logger.Debug("TsfEventSink instance created");
             
-            // Use explicit GUID for ITfThreadMgrEventSink interface
-            Guid sourceGuid = new Guid("aa80e80e-2021-11d2-93e0-0060b067b86e");
-            Logger.Debug($"Using ITfThreadMgrEventSink GUID={sourceGuid}");
+            // Use GUID for ITfThreadMgrEventSink interface
+            Guid sinkGuid = new Guid("aa80e80e-2021-11d2-93e0-0060b067b86e");
+            Logger.Debug($"Using ITfThreadMgrEventSink GUID={sinkGuid}");
             
-            // Get IUnknown pointer from the event sink object
+            // Get interface pointer for the event sink
             IntPtr sinkPtr = IntPtr.Zero;
             try
             {
-                sinkPtr = Marshal.GetIUnknownForObject(_eventSink);
-                Logger.Debug($"Got IUnknown pointer: 0x{sinkPtr:X}");
+                // Use GetComInterfaceForObject for proper COM marshaling
+                sinkPtr = Marshal.GetComInterfaceForObject(_eventSink, typeof(ITfThreadMgrEventSink));
+                Logger.Debug($"Got COM interface pointer: 0x{sinkPtr:X}");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed to get IUnknown for event sink: {ex.Message}");
+                Logger.Error($"Failed to get COM interface for event sink: {ex.Message}");
                 return;
             }
             
-            hr = _threadMgr.AdviseSink(ref sourceGuid, sinkPtr, out _eventSinkCookie);
+            // Register the event sink through ITfSource
+            hr = _source.AdviseSink(ref sinkGuid, sinkPtr, out _eventSinkCookie);
             
             if (sinkPtr != IntPtr.Zero)
                 Marshal.Release(sinkPtr);
@@ -142,11 +160,17 @@ public class AutoShowManager : IDisposable
     {
         try
         {
-            if (_threadMgr != null && _eventSinkCookie != 0)
+            if (_source != null && _eventSinkCookie != 0)
             {
-                _threadMgr.UnadviseSink(_eventSinkCookie);
+                _source.UnadviseSink(_eventSinkCookie);
                 _eventSinkCookie = 0;
                 Logger.Info("TSF event sink unregistered");
+            }
+
+            if (_source != null)
+            {
+                Marshal.ReleaseComObject(_source);
+                _source = null;
             }
 
             if (_threadMgr != null)
@@ -268,6 +292,7 @@ public class AutoShowManager : IDisposable
 [ComVisible(true)]
 [Guid("F9E1A2B3-4C5D-6E7F-8A9B-0C1D2E3F4A5B")] // Unique GUID for this class
 [ClassInterface(ClassInterfaceType.None)]
+[ComDefaultInterface(typeof(ITfThreadMgrEventSink))]
 internal class TsfEventSink : ITfThreadMgrEventSink
 {
     private readonly AutoShowManager _manager;
@@ -279,6 +304,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
     }
 
     // Called when document manager is initialized
+    [PreserveSig]
     public int OnInitDocumentMgr(ITfDocumentMgr pdim)
     {
         Logger.Debug("TSF: OnInitDocumentMgr");
@@ -286,6 +312,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
     }
 
     // Called when document manager is uninitialized
+    [PreserveSig]
     public int OnUninitDocumentMgr(ITfDocumentMgr pdim)
     {
         Logger.Debug("TSF: OnUninitDocumentMgr");
@@ -293,6 +320,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
     }
 
     // Called when focus changes between contexts - THIS IS THE KEY METHOD
+    [PreserveSig]
     public int OnSetFocus(ITfDocumentMgr pdimFocus, ITfDocumentMgr pdimPrevFocus)
     {
         Logger.Debug("TSF: OnSetFocus called");
@@ -306,8 +334,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
         try
         {
             // Get the top context from the document manager
-            ITfContext context;
-            int hr = pdimFocus.GetTop(out context);
+            int hr = pdimFocus.GetTop(out ITfContext context);
             
             if (hr != 0 || context == null)
             {
@@ -329,6 +356,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
     }
 
     // Called when keyboard focus is pushed
+    [PreserveSig]
     public int OnPushContext(ITfContext pic)
     {
         Logger.Debug("TSF: OnPushContext");
@@ -336,6 +364,7 @@ internal class TsfEventSink : ITfThreadMgrEventSink
     }
 
     // Called when keyboard focus is popped
+    [PreserveSig]
     public int OnPopContext(ITfContext pic)
     {
         Logger.Debug("TSF: OnPopContext");
@@ -383,7 +412,14 @@ internal interface ITfThreadMgr
     
     [PreserveSig]
     int GetGlobalCompartment(out IntPtr ppCompMgr);
-    
+}
+
+// ITfSource - Used to install and uninstall advise sinks
+[ComImport]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+[Guid("4ea48a35-60ae-446f-8fd6-e6a8d82459f7")]
+internal interface ITfSource
+{
     [PreserveSig]
     int AdviseSink(ref Guid riid, IntPtr punk, out uint pdwCookie);
     
