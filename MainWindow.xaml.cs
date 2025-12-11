@@ -29,6 +29,12 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+	
+	[DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     // Services and managers
     private readonly IntPtr _thisWindowHandle;
@@ -528,13 +534,27 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            _positionManager?.PositionWindow();
-            
+            IntPtr previousForegroundWindow = IntPtr.Zero;
+            if (preserveFocus)
+            {
+                previousForegroundWindow = GetForegroundWindow();
+            }
+
+            _positionManager?.PositionWindow(showWindow: true);
+
             if (preserveFocus)
             {
                 ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
-                
-                Logger.Info("Window shown with focus preserved (using SW_SHOWNOACTIVATE)");
+
+                if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _thisWindowHandle)
+                {
+                    SetForegroundWindow(previousForegroundWindow);
+                    Logger.Info($"Restored focus to window: 0x{previousForegroundWindow:X}");
+                }
+                else
+                {
+                    Logger.Info("Window shown without activation (SW_SHOWNOACTIVATE)");
+                }
             }
             else
             {
