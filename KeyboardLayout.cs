@@ -227,14 +227,14 @@ public class KeyboardLayout
         layout.Keys[";"] = new KeyDefinition("|", "|", "|", "|");
 
         // Row 4
-        layout.Keys["z"] = new KeyDefinition("́", "́", "́", "́"); // Combining acute accent
+        layout.Keys["z"] = new KeyDefinition("'", "'", "'", "'");
         layout.Keys["x"] = new KeyDefinition("«", "«", "«", "«");
         layout.Keys["c"] = new KeyDefinition("»", "»", "»", "»");
-        layout.Keys["v"] = new KeyDefinition(""", """, """, """);
-        layout.Keys["b"] = new KeyDefinition(""", """, """, """);
-        layout.Keys["n"] = new KeyDefinition("'", "'", "'", "'");
-        layout.Keys["m"] = new KeyDefinition("'", "'", "'", "'");
-        layout.Keys["<"] = new KeyDefinition("^", "^", "^", "^");
+        layout.Keys["v"] = new KeyDefinition("„", "„", "„", "„");
+        layout.Keys["b"] = new KeyDefinition("”", "”", "”", "”");
+        layout.Keys["n"] = new KeyDefinition("‚", "‚", "‚", "‚");
+        layout.Keys["m"] = new KeyDefinition("’", "’", "’", "’");
+        layout.Keys["<"] = new KeyDefinition(":", ":", ":", ":");
         layout.Keys[">"] = new KeyDefinition(";", ";", ";", ";");
         layout.Keys["!"] = new KeyDefinition("!", "!", "!", "!");
         layout.Keys["?"] = new KeyDefinition("?", "?", "?", "?");

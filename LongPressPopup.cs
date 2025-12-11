@@ -367,9 +367,9 @@ public class LongPressPopup
                 },
                 ["="] = new List<LongPressOption>
                 {
-                    new LongPressOption("≡", "≡"),
                     new LongPressOption("≠", "≠"),
                     new LongPressOption("≈", "≈"),
+					new LongPressOption("≡", "≡"),
                     new LongPressOption("≉", "≉"),
                     new LongPressOption("¬", "¬")
                 },
@@ -386,12 +386,14 @@ public class LongPressPopup
                 ["/"] = new List<LongPressOption>
                 {
                     new LongPressOption("÷", "÷"),
-                    new LongPressOption("⁄", "⁄")
+                    new LongPressOption("⁄", "⁄"),
+					new LongPressOption("\\", "\\")
                 },
                 ["*"] = new List<LongPressOption>
                 {
                     new LongPressOption("×", "×"),
-                    new LongPressOption("°", "°")
+                    new LongPressOption("°", "°"),
+                    new LongPressOption("́", "́")
                 },
                 ["e"] = new List<LongPressOption>
                 {
@@ -428,6 +430,23 @@ public class LongPressPopup
                 {
                     new LongPressOption("ń", "ń", true)
                 },
+                ["<"] = new List<LongPressOption>
+                {
+                    new LongPressOption("≤", "≤")
+                },
+                [">"] = new List<LongPressOption>
+                {
+                    new LongPressOption("≥", "≥")
+                },
+                ["\""] = new List<LongPressOption>
+                {
+                    new LongPressOption("«", "«"),
+                    new LongPressOption("»", "»"),
+                    new LongPressOption("„", "„"),
+                    new LongPressOption("”", "”"),
+                    new LongPressOption("‚", "‚"),
+                    new LongPressOption("’", "’")
+                }
                 ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
@@ -514,12 +533,14 @@ public class LongPressPopup
                 ["/"] = new List<LongPressOption>
                 {
                     new LongPressOption("÷", "÷"),
-                    new LongPressOption("⁄", "⁄")
+                    new LongPressOption("⁄", "⁄"),
+					new LongPressOption("\\", "\\")
                 },
                 ["*"] = new List<LongPressOption>
                 {
                     new LongPressOption("×", "×"),
-                    new LongPressOption("°", "°")
+                    new LongPressOption("°", "°"),
+                    new LongPressOption("́", "́")
                 },
                 [","] = new List<LongPressOption>
                 {
