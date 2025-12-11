@@ -527,9 +527,9 @@ public class LongPressPopup
                     new LongPressOption("«", "«"),
                     new LongPressOption("»", "»"),
                     new LongPressOption("„", "„"),
-                    new LongPressOption(""", """),
+                    new LongPressOption("”", "”"),
                     new LongPressOption("‚", "‚"),
-                    new LongPressOption("'", "'")
+                    new LongPressOption("’", "’")
                 }
             },
             
