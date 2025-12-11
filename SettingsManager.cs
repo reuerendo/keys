@@ -96,12 +96,13 @@ public class SettingsManager
     /// </summary>
     public void SetKeyboardScale(double scale)
     {
-        _settings.KeyboardScale = Math.Clamp(scale, 0.5, 1.5);
+        // ИСПРАВЛЕНО: Пределы изменены с 0.5-1.5 на 0.8-1.2
+        _settings.KeyboardScale = Math.Clamp(scale, 0.8, 1.2);
         SaveSettings();
     }
 
     /// <summary>
-    /// Get keyboard scale as percentage (50-150)
+    /// Get keyboard scale as percentage (80-120)
     /// </summary>
     public int GetKeyboardScalePercent()
     {
@@ -109,7 +110,7 @@ public class SettingsManager
     }
 
     /// <summary>
-    /// Set keyboard scale from percentage (50-150)
+    /// Set keyboard scale from percentage (80-120)
     /// </summary>
     public void SetKeyboardScalePercent(int percent)
     {

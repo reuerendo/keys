@@ -24,7 +24,7 @@
                     FontWeight="SemiBold"/>
                 
                 <TextBlock 
-                    Text="Измените размер виртуальной клавиатуры от 50% до 150%" 
+                    Text="Измените размер виртуальной клавиатуры от 80% до 120%" 
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                     TextWrapping="Wrap"
                     Margin="0,0,0,8"/>
@@ -38,8 +38,8 @@
                     <Slider 
                         x:Name="ScaleSlider"
                         Grid.Column="0"
-                        Minimum="50" 
-                        Maximum="150" 
+                        Minimum="80" 
+                        Maximum="120" 
                         Value="100"
                         StepFrequency="5"
                         TickFrequency="10"
@@ -110,34 +110,6 @@
                         </TextBlock>
                     </StackPanel>
                 </Border>
-            </StackPanel>
-
-            <!-- Future Settings Placeholder -->
-            <StackPanel Spacing="12" Opacity="0.5">
-                <TextBlock 
-                    Text="Дополнительные настройки" 
-                    FontSize="16" 
-                    FontWeight="SemiBold"/>
-                
-                <TextBlock 
-                    Text="Скоро здесь появятся дополнительные опции:"
-                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                    TextWrapping="Wrap"/>
-                
-                <StackPanel Spacing="4" Margin="16,4,0,0">
-                    <TextBlock 
-                        Text="• Язык интерфейса"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock 
-                        Text="• Горячие клавиши"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock 
-                        Text="• Автозапуск"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock 
-                        Text="• Прозрачность окна"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
             </StackPanel>
             
         </StackPanel>

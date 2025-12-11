@@ -41,6 +41,10 @@ public sealed partial class SettingsDialog : ContentDialog
         {
             _hasScaleChanges = true;
         }
+        else
+        {
+            _hasScaleChanges = false;
+        }
     }
 
     private void UpdateScaleText(int value)
@@ -60,6 +64,7 @@ public sealed partial class SettingsDialog : ContentDialog
         if (newScale != _originalScale)
         {
             _settingsManager.SetKeyboardScalePercent(newScale);
+            _hasScaleChanges = true;
             Logger.Info($"Scale changed from {_originalScale}% to {newScale}%");
         }
         
