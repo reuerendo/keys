@@ -136,18 +136,6 @@ public class LongPressPopup
         ShowPopup(_currentButton, keyTag, layoutName);
     }
 
-    /// <summary>
-    /// Check if key is a digit or slash (should ignore Shift)
-    /// </summary>
-    private bool IsDigitOrSlash(string value)
-    {
-        if (string.IsNullOrEmpty(value) || value.Length != 1)
-            return false;
-            
-        char c = value[0];
-        return char.IsDigit(c) || c == '/';
-    }
-
     private void ShowPopup(Button sourceButton, string keyTag, string layoutName)
     {
         var options = GetLongPressOptions(keyTag, layoutName);
@@ -161,7 +149,7 @@ public class LongPressPopup
 
         _popupPanel.Children.Clear();
 
-        // Check current modifier state
+        // Check current modifier state - Shift should ONLY affect letters
         bool isShiftActive = _stateManager.IsShiftActive || _stateManager.IsCapsLockActive;
         bool shouldCapitalize = isShiftActive && !(_stateManager.IsShiftActive && _stateManager.IsCapsLockActive);
 
@@ -171,15 +159,9 @@ public class LongPressPopup
             string displayChar = option.Display;
             string valueChar = option.Value;
             
-            // Only apply shift to letters, not to digits or slash
+            // Apply shift ONLY to letters
             if (option.IsLetter && shouldCapitalize)
             {
-                displayChar = option.DisplayShift;
-                valueChar = option.ValueShift;
-            }
-            else if (!option.IsLetter && shouldCapitalize && !IsDigitOrSlash(option.Value))
-            {
-                // For non-letters that are NOT digits or slash, apply shift
                 displayChar = option.DisplayShift;
                 valueChar = option.ValueShift;
             }

@@ -108,17 +108,24 @@ public class LayoutManager
             else if (_currentLayout.Keys.ContainsKey(tag))
             {
                 var keyDef = _currentLayout.Keys[tag];
-                // Apply shift OR caps lock for letters
-                bool shouldCapitalize = (stateManager.IsShiftActive || stateManager.IsCapsLockActive) && keyDef.IsLetter;
-                // For Shift with Caps Lock, they cancel each other out
-                if (stateManager.IsShiftActive && stateManager.IsCapsLockActive && keyDef.IsLetter)
-                {
-                    shouldCapitalize = false;
-                }
-                // For non-letters, only shift affects display
-                bool useShift = stateManager.IsShiftActive && !keyDef.IsLetter;
                 
-                btn.Content = (shouldCapitalize || useShift) ? keyDef.DisplayShift : keyDef.Display;
+                // Shift should ONLY affect letters
+                bool shouldCapitalize = false;
+                
+                if (keyDef.IsLetter)
+                {
+                    // For letters: apply Shift OR Caps Lock
+                    shouldCapitalize = (stateManager.IsShiftActive || stateManager.IsCapsLockActive);
+                    
+                    // If both Shift and Caps Lock are active, they cancel each other out
+                    if (stateManager.IsShiftActive && stateManager.IsCapsLockActive)
+                    {
+                        shouldCapitalize = false;
+                    }
+                }
+                
+                // For all other keys (numbers, symbols, etc.): ignore Shift completely
+                btn.Content = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
             }
         }
 

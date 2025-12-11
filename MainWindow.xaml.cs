@@ -106,8 +106,6 @@ public sealed partial class MainWindow : Window
                 btn.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(KeyButton_PointerReleased), true);
                 btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(KeyButton_PointerCanceled), true);
                 btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(KeyButton_PointerCaptureLost), true);
-                
-                // Logger.Debug($"Long-press handlers added for key: {tag}");
             }
         }
 
@@ -287,30 +285,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Check if key should ignore Shift modifier (numbers and slash)
-    /// </summary>
-    private bool ShouldIgnoreShift(string keyTag)
-    {
-        // Check if it's a digit or slash by looking at the actual Value in key definition
-        var keyDef = _layoutManager.GetKeyDefinition(keyTag);
-        if (keyDef != null)
-        {
-            string value = keyDef.Value;
-            // Numbers 0-9 and slash should not be affected by Shift
-            if (value.Length == 1)
-            {
-                char c = value[0];
-                if (char.IsDigit(c) || c == '/')
-                {
-                    return true;
-                }
-            }
-        }
-        
-        return false;
-    }
-
     private void SendKey(string key)
     {
         IntPtr currentForeground = _inputService.GetForegroundWindowHandle();
@@ -347,22 +321,25 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                // Check if this key should ignore Shift
-                bool ignoreShift = ShouldIgnoreShift(key);
+                // Shift should ONLY affect letters
+                bool shouldCapitalize = false;
                 
-                // Determine if we should capitalize (for letters only)
-                bool shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive) && keyDef.IsLetter;
-                if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive && keyDef.IsLetter)
+                if (keyDef.IsLetter)
                 {
-                    shouldCapitalize = false;
+                    // For letters: apply Shift OR Caps Lock
+                    shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive);
+                    
+                    // If both Shift and Caps Lock are active, they cancel each other out
+                    if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive)
+                    {
+                        shouldCapitalize = false;
+                    }
                 }
                 
-                // Use shift variant only for non-letters when shift is active AND key doesn't ignore shift
-                bool useShift = _stateManager.IsShiftActive && !keyDef.IsLetter && !ignoreShift;
+                // For all other keys (numbers, symbols, etc.): ignore Shift completely
+                string charToSend = shouldCapitalize ? keyDef.ValueShift : keyDef.Value;
                 
-                string charToSend = (shouldCapitalize || useShift) ? keyDef.ValueShift : keyDef.Value;
-                
-                Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, ignoreShift={ignoreShift}, shouldCapitalize={shouldCapitalize}, useShift={useShift}, sending='{charToSend}'");
+                Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, shouldCapitalize={shouldCapitalize}, sending='{charToSend}'");
                 
                 foreach (char c in charToSend)
                 {
