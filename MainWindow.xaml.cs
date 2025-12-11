@@ -79,7 +79,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        _longPressPopup = new LongPressPopup(this.Content as FrameworkElement);
+        _longPressPopup = new LongPressPopup(this.Content as FrameworkElement, _stateManager);
         _longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
         
         SetupLongPressHandlers(this.Content as FrameworkElement);
