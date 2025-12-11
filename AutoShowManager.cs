@@ -51,7 +51,7 @@ public class AutoShowManager : IDisposable
     #region UI Automation COM Interfaces
 
     [ComImport]
-    [Guid("30CBE57D-D9D0-452A-AB13-7AC5AC4825EE")]
+    [Guid("D22108AA-8AC5-49A5-837B-37BBB3D7591E")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IUIAutomationElement
     {
