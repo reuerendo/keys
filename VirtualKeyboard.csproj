@@ -30,15 +30,6 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
   
-<ItemGroup>
-  <COMReference Include="Accessibility">
-    <Guid>1ea4dbf0-3c3b-11cf-810c-00aa00389b71</Guid>
-    <VersionMajor>1</VersionMajor>
-    <VersionMinor>1</VersionMinor>
-    <WrapperTool>tlbimp</WrapperTool>
-  </COMReference>
-</ItemGroup>
-  
   <ItemGroup>
     <Content Include="tray_icon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
