@@ -290,12 +290,25 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// Check if key should ignore Shift modifier (numbers and slash)
     /// </summary>
-    private bool ShouldIgnoreShift(string key)
+    private bool ShouldIgnoreShift(string keyTag)
     {
-        // Numbers 0-9 and slash should not be affected by Shift
-        return key == "0" || key == "1" || key == "2" || key == "3" || key == "4" ||
-               key == "5" || key == "6" || key == "7" || key == "8" || key == "9" ||
-               key == "/";
+        // Check if it's a digit or slash by looking at the actual Value in key definition
+        var keyDef = _layoutManager.GetKeyDefinition(keyTag);
+        if (keyDef != null)
+        {
+            string value = keyDef.Value;
+            // Numbers 0-9 and slash should not be affected by Shift
+            if (value.Length == 1)
+            {
+                char c = value[0];
+                if (char.IsDigit(c) || c == '/')
+                {
+                    return true;
+                }
+            }
+        }
+        
+        return false;
     }
 
     private void SendKey(string key)
@@ -349,7 +362,7 @@ public sealed partial class MainWindow : Window
                 
                 string charToSend = (shouldCapitalize || useShift) ? keyDef.ValueShift : keyDef.Value;
                 
-                Logger.Debug($"Key '{key}': isLetter={keyDef.IsLetter}, ignoreShift={ignoreShift}, shouldCapitalize={shouldCapitalize}, useShift={useShift}, sending='{charToSend}'");
+                Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, ignoreShift={ignoreShift}, shouldCapitalize={shouldCapitalize}, useShift={useShift}, sending='{charToSend}'");
                 
                 foreach (char c in charToSend)
                 {

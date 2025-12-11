@@ -136,6 +136,18 @@ public class LongPressPopup
         ShowPopup(_currentButton, keyTag, layoutName);
     }
 
+    /// <summary>
+    /// Check if key is a digit or slash (should ignore Shift)
+    /// </summary>
+    private bool IsDigitOrSlash(string value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length != 1)
+            return false;
+            
+        char c = value[0];
+        return char.IsDigit(c) || c == '/';
+    }
+
     private void ShowPopup(Button sourceButton, string keyTag, string layoutName)
     {
         var options = GetLongPressOptions(keyTag, layoutName);
@@ -159,8 +171,15 @@ public class LongPressPopup
             string displayChar = option.Display;
             string valueChar = option.Value;
             
+            // Only apply shift to letters, not to digits or slash
             if (option.IsLetter && shouldCapitalize)
             {
+                displayChar = option.DisplayShift;
+                valueChar = option.ValueShift;
+            }
+            else if (!option.IsLetter && shouldCapitalize && !IsDigitOrSlash(option.Value))
+            {
+                // For non-letters that are NOT digits or slash, apply shift
                 displayChar = option.DisplayShift;
                 valueChar = option.ValueShift;
             }
@@ -293,29 +312,39 @@ public class LongPressPopup
                     new LongPressOption("½", "½"),
                     new LongPressOption("⅓", "⅓"),
                     new LongPressOption("¼", "¼"),
-                    new LongPressOption("⅛", "⅛")
+					new LongPressOption("⅙", "⅙"),
+                    new LongPressOption("⅐", "⅐"),
+                    new LongPressOption("⅛", "⅛"),
+					new LongPressOption("⅑", "⅑"),
+					new LongPressOption("⅒", "⅒")
                 },
                 ["2"] = new List<LongPressOption>
                 {
                     new LongPressOption("²", "²"),
                     new LongPressOption("₂", "₂"),
-                    new LongPressOption("⅔", "⅔")
+                    new LongPressOption("⅔", "⅔"),
+                    new LongPressOption("⅖", "⅖")
                 },
                 ["3"] = new List<LongPressOption>
                 {
                     new LongPressOption("³", "³"),
                     new LongPressOption("₃", "₃"),
-                    new LongPressOption("¾", "¾")
+                    new LongPressOption("¾", "¾"),
+                    new LongPressOption("⅗", "⅗"),
+                    new LongPressOption("⅜", "⅜")
                 },
                 ["4"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁴", "⁴"),
-                    new LongPressOption("₄", "₄")
+                    new LongPressOption("₄", "₄"),
+                    new LongPressOption("⅘", "⅘")
                 },
                 ["5"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁵", "⁵"),
-                    new LongPressOption("₅", "₅")
+                    new LongPressOption("₅", "₅"),
+                    new LongPressOption("⅚", "⅚"),
+                    new LongPressOption("⅝", "⅝")
                 },
                 ["6"] = new List<LongPressOption>
                 {
@@ -325,7 +354,8 @@ public class LongPressPopup
                 ["7"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁷", "⁷"),
-                    new LongPressOption("₇", "₇")
+                    new LongPressOption("₇", "₇"),
+                    new LongPressOption("⅞", "⅞")
                 },
                 ["8"] = new List<LongPressOption>
                 {
@@ -340,7 +370,8 @@ public class LongPressPopup
                 ["0"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁰", "⁰"),
-                    new LongPressOption("₀", "₀")
+                    new LongPressOption("₀", "₀"),
+                    new LongPressOption("↉", "↉")
                 },
                 ["-"] = new List<LongPressOption>
                 {
@@ -544,8 +575,7 @@ public class LongPressPopup
                 ["-"] = new List<LongPressOption>
                 {
                     new LongPressOption("–", "–"),
-                    new LongPressOption("—", "—"),
-                    new LongPressOption("∓", "∓")
+                    new LongPressOption("—", "—")
                 }
             }
         };
