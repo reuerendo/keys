@@ -123,18 +123,6 @@ public sealed partial class MainWindow : Window
 		_stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
 		_layoutManager.InitializeLangButton(this.Content as FrameworkElement);
 		
-		if (RootScaleTransform != null)
-		{
-			double userScale = _settingsManager.Settings.KeyboardScale;
-			RootScaleTransform.ScaleX = userScale;
-			RootScaleTransform.ScaleY = userScale;
-			Logger.Info($"Scale transform applied in Loaded event: {userScale:P0}");
-		}
-		else
-		{
-			Logger.Warning("RootScaleTransform is null in Loaded event");
-		}
-		
 		Logger.Info("Long-press handlers and backspace handlers initialized");
 	}
 
@@ -292,16 +280,11 @@ public sealed partial class MainWindow : Window
 		
 		double userScale = _settingsManager.Settings.KeyboardScale;
 		
-		if (RootScaleTransform != null)
-		{
-			RootScaleTransform.ScaleX = userScale;
-			RootScaleTransform.ScaleY = userScale;
-			Logger.Info($"Applied scale transform: {userScale:P0}");
-		}
-		
+		// Base keyboard size (100% scale)
 		int baseWidth = 997;
 		int baseHeight = 330;
 		
+		// Calculate physical window size with BOTH DPI and user scale
 		int physicalWidth = (int)(baseWidth * dpiScale * userScale);
 		int physicalHeight = (int)(baseHeight * dpiScale * userScale);
 		
