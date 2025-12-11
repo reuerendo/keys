@@ -16,6 +16,11 @@ public class AutoShowManager : IDisposable
     private const int UIA_EditControlTypeId = 50004;
     private const int UIA_DocumentControlTypeId = 50030;
 
+    // UI Automation property IDs
+    private const int UIA_ControlTypePropertyId = 30003;
+    private const int UIA_IsEnabledPropertyId = 30010;
+    private const int UIA_ClassNamePropertyId = 30012;
+
     // UI Automation pattern IDs
     private const int UIA_ValuePatternId = 10002;
     private const int UIA_TextPatternId = 10014;
@@ -34,9 +39,6 @@ public class AutoShowManager : IDisposable
     [DllImport("user32.dll")]
     private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
@@ -54,33 +56,63 @@ public class AutoShowManager : IDisposable
     private interface IUIAutomationElement
     {
         void SetFocus();
-        [PreserveSig] int GetRuntimeId(out IntPtr runtimeId);
-        [PreserveSig] int FindFirst(int scope, IntPtr condition, out IUIAutomationElement found);
-        [PreserveSig] int FindAll(int scope, IntPtr condition, out IntPtr found);
-        [PreserveSig] int FindFirstBuildCache(int scope, IntPtr condition, IntPtr cacheRequest, out IUIAutomationElement found);
-        [PreserveSig] int FindAllBuildCache(int scope, IntPtr condition, IntPtr cacheRequest, out IntPtr found);
-        [PreserveSig] int BuildUpdatedCache(IntPtr cacheRequest, out IUIAutomationElement updatedElement);
-        [PreserveSig] int GetCurrentPropertyValue(int propertyId, out object retVal);
-        [PreserveSig] int GetCurrentPropertyValueEx(int propertyId, bool ignoreDefaultValue, out object retVal);
-        [PreserveSig] int GetCachedPropertyValue(int propertyId, out object retVal);
-        [PreserveSig] int GetCachedPropertyValueEx(int propertyId, bool ignoreDefaultValue, out object retVal);
-        [PreserveSig] int GetCurrentPatternAs(int patternId, ref Guid riid, out IntPtr patternObject);
-        [PreserveSig] int GetCachedPatternAs(int patternId, ref Guid riid, out IntPtr patternObject);
-        [PreserveSig] int GetCurrentPattern(int patternId, out IntPtr patternObject);
-        [PreserveSig] int GetCachedPattern(int patternId, out IntPtr patternObject);
-        [PreserveSig] int GetCachedParent(out IUIAutomationElement parent);
-        [PreserveSig] int GetCachedChildren(out IntPtr children);
-        [PreserveSig] int get_CurrentProcessId(out int retVal);
-        [PreserveSig] int get_CurrentControlType(out int retVal);
-        [PreserveSig] int get_CurrentLocalizedControlType(out string retVal);
-        [PreserveSig] int get_CurrentName(out string retVal);
-        [PreserveSig] int get_CurrentAcceleratorKey(out string retVal);
-        [PreserveSig] int get_CurrentAccessKey(out string retVal);
-        [PreserveSig] int get_CurrentHasKeyboardFocus(out int retVal);
-        [PreserveSig] int get_CurrentIsKeyboardFocusable(out int retVal);
-        [PreserveSig] int get_CurrentIsEnabled(out int retVal);
-        [PreserveSig] int get_CurrentAutomationId(out string retVal);
-        [PreserveSig] int get_CurrentClassName(out string retVal);
+        [return: MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)]
+        int[] GetRuntimeId();
+        IUIAutomationElement FindFirst(TreeScope scope, IUIAutomationCondition condition);
+        IUIAutomationElementArray FindAll(TreeScope scope, IUIAutomationCondition condition);
+        IUIAutomationElement FindFirstBuildCache(TreeScope scope, IUIAutomationCondition condition, IUIAutomationCacheRequest cacheRequest);
+        IUIAutomationElementArray FindAllBuildCache(TreeScope scope, IUIAutomationCondition condition, IUIAutomationCacheRequest cacheRequest);
+        IUIAutomationElement BuildUpdatedCache(IUIAutomationCacheRequest cacheRequest);
+        object GetCurrentPropertyValue(int propertyId);
+        object GetCurrentPropertyValueEx(int propertyId, bool ignoreDefaultValue);
+        object GetCachedPropertyValue(int propertyId);
+        object GetCachedPropertyValueEx(int propertyId, bool ignoreDefaultValue);
+        IntPtr GetCurrentPatternAs(int patternId, [In] ref Guid riid);
+        IntPtr GetCachedPatternAs(int patternId, [In] ref Guid riid);
+        object GetCurrentPattern(int patternId);
+        object GetCachedPattern(int patternId);
+        IUIAutomationElement GetCachedParent();
+        IUIAutomationElementArray GetCachedChildren();
+        int CurrentProcessId { get; }
+        int CurrentControlType { get; }
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentLocalizedControlType { get; }
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentName { get; }
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentAcceleratorKey { get; }
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentAccessKey { get; }
+        bool CurrentHasKeyboardFocus { get; }
+        bool CurrentIsKeyboardFocusable { get; }
+        bool CurrentIsEnabled { get; }
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentAutomationId { get; }
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentClassName { get; }
+    }
+
+    [ComImport]
+    [Guid("14314595-B4BC-4055-95F2-58F2E42C9855")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IUIAutomationElementArray
+    {
+        int Length { get; }
+        IUIAutomationElement GetElement(int index);
+    }
+
+    [ComImport]
+    [Guid("352FFBA8-0973-437C-A61F-F64CAFD81DF9")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IUIAutomationCondition
+    {
+    }
+
+    [ComImport]
+    [Guid("B32A92B5-BC25-4078-9C08-D7EE95C48E03")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IUIAutomationCacheRequest
+    {
     }
 
     [ComImport]
@@ -88,9 +120,10 @@ public class AutoShowManager : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IUIAutomationValuePattern
     {
-        [PreserveSig] int SetValue(string val);
-        [PreserveSig] int get_CurrentValue(out string retVal);
-        [PreserveSig] int get_CurrentIsReadOnly(out int retVal);
+        void SetValue([MarshalAs(UnmanagedType.BStr)] string val);
+        [return: MarshalAs(UnmanagedType.BStr)]
+        string CurrentValue { get; }
+        bool CurrentIsReadOnly { get; }
     }
 
     [ComImport]
@@ -98,12 +131,29 @@ public class AutoShowManager : IDisposable
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IUIAutomation
     {
-        [PreserveSig] int CompareElements(IUIAutomationElement el1, IUIAutomationElement el2, out int areSame);
-        [PreserveSig] int CompareRuntimeIds(IntPtr runtimeId1, IntPtr runtimeId2, out int areSame);
-        [PreserveSig] int GetRootElement(out IUIAutomationElement root);
-        [PreserveSig] int ElementFromHandle(IntPtr hwnd, out IUIAutomationElement element);
-        [PreserveSig] int ElementFromPoint(System.Drawing.Point pt, out IUIAutomationElement element);
-        [PreserveSig] int GetFocusedElement(out IUIAutomationElement element);
+        int CompareElements(IUIAutomationElement el1, IUIAutomationElement el2);
+        int CompareRuntimeIds([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] runtimeId1, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] runtimeId2);
+        IUIAutomationElement GetRootElement();
+        IUIAutomationElement ElementFromHandle(IntPtr hwnd);
+        IUIAutomationElement ElementFromPoint(tagPOINT pt);
+        IUIAutomationElement GetFocusedElement();
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct tagPOINT
+    {
+        public int x;
+        public int y;
+    }
+
+    private enum TreeScope
+    {
+        TreeScope_Element = 0x1,
+        TreeScope_Children = 0x2,
+        TreeScope_Descendants = 0x4,
+        TreeScope_Parent = 0x8,
+        TreeScope_Ancestors = 0x10,
+        TreeScope_Subtree = 0x7
     }
 
     [ComImport]
@@ -250,87 +300,75 @@ public class AutoShowManager : IDisposable
         if (_automation == null || hwnd == IntPtr.Zero)
             return false;
 
+        IUIAutomationElement focusedElement = null;
+
         try
         {
             // Get focused element from UI Automation
-            IUIAutomationElement focusedElement = null;
-            int hr = _automation.GetFocusedElement(out focusedElement);
+            focusedElement = _automation.GetFocusedElement();
             
-            if (hr != 0 || focusedElement == null)
+            if (focusedElement == null)
                 return false;
 
+            // Check control type
+            int controlType = focusedElement.CurrentControlType;
+            
+            if (controlType == UIA_EditControlTypeId || 
+                controlType == UIA_DocumentControlTypeId)
+            {
+                Logger.Debug($"Text input detected - Control Type: {controlType}");
+                return true;
+            }
+
+            // Check for Value pattern (editable text fields)
             try
             {
-                // Check control type
-                int controlType = 0;
-                hr = focusedElement.get_CurrentControlType(out controlType);
-                
-                if (hr == 0 && (controlType == UIA_EditControlTypeId || 
-                                controlType == UIA_DocumentControlTypeId))
+                var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
+                if (valuePattern != null)
                 {
-                    Logger.Debug($"Text input detected - Control Type: {controlType}");
-                    return true;
-                }
-
-                // Check for Value pattern (editable text fields)
-                IntPtr valuePatternPtr = IntPtr.Zero;
-                hr = focusedElement.GetCurrentPattern(UIA_ValuePatternId, out valuePatternPtr);
-                
-                if (hr == 0 && valuePatternPtr != IntPtr.Zero)
-                {
-                    try
+                    bool isReadOnly = valuePattern.CurrentIsReadOnly;
+                    
+                    if (!isReadOnly)
                     {
-                        var valuePattern = Marshal.GetObjectForIUnknown(valuePatternPtr) as IUIAutomationValuePattern;
-                        if (valuePattern != null)
-                        {
-                            int isReadOnly = 0;
-                            hr = valuePattern.get_CurrentIsReadOnly(out isReadOnly);
-                            
-                            if (hr == 0 && isReadOnly == 0)
-                            {
-                                Logger.Debug("Text input detected - Value Pattern (editable)");
-                                return true;
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        Marshal.Release(valuePatternPtr);
+                        Logger.Debug("Text input detected - Value Pattern (editable)");
+                        return true;
                     }
                 }
+            }
+            catch { }
 
-                // Check for Text pattern (rich text controls)
-                IntPtr textPatternPtr = IntPtr.Zero;
-                hr = focusedElement.GetCurrentPattern(UIA_TextPatternId, out textPatternPtr);
-                
-                if (hr == 0 && textPatternPtr != IntPtr.Zero)
+            // Check for Text pattern (rich text controls)
+            try
+            {
+                var textPattern = focusedElement.GetCurrentPattern(UIA_TextPatternId);
+                if (textPattern != null)
                 {
-                    Marshal.Release(textPatternPtr);
                     Logger.Debug("Text input detected - Text Pattern");
                     return true;
                 }
-
-                // Additional check: common text input class names
-                if (IsCommonTextInputClassName(hwnd))
-                {
-                    Logger.Debug("Text input detected - Common class name");
-                    return true;
-                }
-
-                return false;
             }
-            finally
+            catch { }
+
+            // Additional check: common text input class names
+            if (IsCommonTextInputClassName(hwnd))
             {
-                if (focusedElement != null && Marshal.IsComObject(focusedElement))
-                {
-                    Marshal.ReleaseComObject(focusedElement);
-                }
+                Logger.Debug("Text input detected - Common class name");
+                return true;
             }
+
+            return false;
         }
         catch (Exception ex)
         {
             Logger.Error("Error checking if element is text input", ex);
             return false;
+        }
+        finally
+        {
+            if (focusedElement != null && Marshal.IsComObject(focusedElement))
+            {
+                Marshal.ReleaseComObject(focusedElement);
+            }
         }
     }
 
