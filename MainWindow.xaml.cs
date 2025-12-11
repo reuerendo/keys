@@ -16,6 +16,7 @@ public sealed partial class MainWindow : Window
     private const int SWP_NOACTIVATE = 0x0010;
     private const int SWP_NOZORDER = 0x0004;
     private const int SWP_SHOWWINDOW = 0x0040;
+	private FocusTracker _focusTracker;
 
     // P/Invoke for window operations
     [DllImport("user32.dll", SetLastError = true)]
@@ -68,6 +69,7 @@ public sealed partial class MainWindow : Window
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
+		_focusTracker = new FocusTracker(_thisHwnd);
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
@@ -544,25 +546,21 @@ public sealed partial class MainWindow : Window
 
 			if (preserveFocus)
 			{
-				// Show without activating
-				ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
+				IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
 
-				// Try robust restore of previous foreground window (AttachThreadInput + SetForegroundWindow)
-				if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _thisWindowHandle)
+				if (tracked != IntPtr.Zero && tracked != _thisHwnd)
 				{
-					bool restored = FocusHelper.RestoreForegroundWindow(previousForegroundWindow);
-					if (restored)
-					{
-						Logger.Info($"Restored focus to window: 0x{previousForegroundWindow:X}");
-					}
-					else
-					{
-						Logger.Warning($"Failed to restore focus to: 0x{previousForegroundWindow:X}");
-					}
+					Logger.Info($"Restoring focus to last tracked window: 0x{tracked:X}");
+					FocusHelper.RestoreForegroundWindow(tracked);
 				}
 				else
 				{
-					Logger.Info("Window shown without activation (SW_SHOWNOACTIVATE)");
+					IntPtr prev = GetForegroundWindow();
+					if (prev != IntPtr.Zero && prev != _thisHwnd)
+					{
+						Logger.Info($"Fallback restore to previous foreground window: 0x{prev:X}");
+						FocusHelper.RestoreForegroundWindow(prev);
+					}
 				}
 			}
             else
