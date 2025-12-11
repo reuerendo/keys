@@ -45,7 +45,7 @@ public sealed partial class MainWindow : Window
     private DispatcherTimer _backspaceRepeatTimer;
     private bool _isBackspacePressed = false;
     private const int BACKSPACE_INITIAL_DELAY_MS = 500;
-    private const int BACKSPACE_REPEAT_INTERVAL_MS = 10;
+    private const int BACKSPACE_REPEAT_INTERVAL_MS = 1;
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
@@ -122,6 +122,18 @@ public sealed partial class MainWindow : Window
 		// Initialize button references for state manager and layout manager
 		_stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
 		_layoutManager.InitializeLangButton(this.Content as FrameworkElement);
+		
+		if (RootScaleTransform != null)
+		{
+			double userScale = _settingsManager.Settings.KeyboardScale;
+			RootScaleTransform.ScaleX = userScale;
+			RootScaleTransform.ScaleY = userScale;
+			Logger.Info($"Scale transform applied in Loaded event: {userScale:P0}");
+		}
+		else
+		{
+			Logger.Warning("RootScaleTransform is null in Loaded event");
+		}
 		
 		Logger.Info("Long-press handlers and backspace handlers initialized");
 	}
@@ -282,8 +294,9 @@ public sealed partial class MainWindow : Window
 		
 		if (RootScaleTransform != null)
 		{
-			RootScaleTransform.ScaleX = 1.0;
-			RootScaleTransform.ScaleY = 1.0;
+			RootScaleTransform.ScaleX = userScale;
+			RootScaleTransform.ScaleY = userScale;
+			Logger.Info($"Applied scale transform: {userScale:P0}");
 		}
 		
 		int baseWidth = 997;
