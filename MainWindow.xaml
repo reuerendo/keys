@@ -101,7 +101,7 @@
 
                 <!-- Row 5: Bottom row -->
                 <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="6">
-					<Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
+                    <Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
