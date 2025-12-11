@@ -210,7 +210,6 @@ public class AutoShowManager : IDisposable
     private DateTime _lastHideTime;
     private DateTime _lastMouseClickTime;
     private POINT _lastClickPosition;
-    private IntPtr _lastClickedWindow;
     private bool _isDisposed;
 
     public event EventHandler ShowKeyboardRequested;
@@ -242,7 +241,6 @@ public class AutoShowManager : IDisposable
         _lastHideTime = DateTime.MinValue;
         _lastMouseClickTime = DateTime.MinValue;
         _lastClickPosition = new POINT { x = -1, y = -1 };
-        _lastClickedWindow = IntPtr.Zero;
         
         try
         {
@@ -342,7 +340,6 @@ public class AutoShowManager : IDisposable
                 {
                     _lastMouseClickTime = DateTime.Now;
                     _lastClickPosition = hookStruct.pt;
-                    _lastClickedWindow = clickedWindow;
                     Logger.Debug($"Mouse click detected at ({hookStruct.pt.x}, {hookStruct.pt.y}), window: 0x{clickedWindow:X}");
                 }
             }
@@ -393,20 +390,20 @@ public class AutoShowManager : IDisposable
                 return;
             }
 
-            Logger.Debug($"Processing focus event: hwnd=0x{hwnd:X}, lastClickedWindow=0x{_lastClickedWindow:X}");
+            Logger.Debug($"Processing focus event: hwnd=0x{hwnd:X}, click position: ({_lastClickPosition.x}, {_lastClickPosition.y})");
 
             // Check if focused element is a text input
             if (IsTextInputElement(hwnd))
             {
-                // Check if the focus is click-initiated (not programmatic)
-                if (IsFocusClickInitiated(hwnd))
+                // CRITICAL: Check if the focused element is at the click position
+                if (IsFocusedElementAtClickPosition())
                 {
-                    Logger.Info($"Text input focused in window 0x{hwnd:X} after mouse click");
+                    Logger.Info($"Text input focused in window 0x{hwnd:X} after direct click");
                     OnShowKeyboardRequested();
                 }
                 else
                 {
-                    Logger.Debug("Focus event ignored - not click-initiated (programmatic focus or tab switch)");
+                    Logger.Debug("Focus event ignored - focused element is not at click position (programmatic focus)");
                 }
             }
             else
@@ -421,24 +418,7 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Check if the focus was initiated by a click rather than programmatically
-    /// </summary>
-    private bool IsFocusClickInitiated(IntPtr hwnd)
-    {
-        // Simple heuristic: if the focused window matches the clicked window, it's click-initiated
-        // This works for most single-window applications like Notepad, Edge, etc.
-        if (hwnd == _lastClickedWindow)
-        {
-            Logger.Debug("Focus is click-initiated - focused window matches clicked window");
-            return true;
-        }
-
-        // For multi-window applications (browsers with tabs), check UI Automation element comparison
-        return IsFocusedElementAtClickPosition();
-    }
-
-    /// <summary>
-    /// Check if the currently focused element is at or near the last click position
+    /// Check if the currently focused element is at or contains the last click position
     /// </summary>
     private bool IsFocusedElementAtClickPosition()
     {
@@ -482,11 +462,14 @@ public class AutoShowManager : IDisposable
             string focusedName = "N/A";
             int clickedControlType = 0;
             int focusedControlType = 0;
+            string clickedClass = "N/A";
+            string focusedClass = "N/A";
 
             try
             {
                 clickedName = clickedElement.CurrentName ?? "N/A";
                 clickedControlType = clickedElement.CurrentControlType;
+                clickedClass = clickedElement.CurrentClassName ?? "N/A";
             }
             catch { }
 
@@ -494,11 +477,12 @@ public class AutoShowManager : IDisposable
             {
                 focusedName = focusedElement.CurrentName ?? "N/A";
                 focusedControlType = focusedElement.CurrentControlType;
+                focusedClass = focusedElement.CurrentClassName ?? "N/A";
             }
             catch { }
 
-            Logger.Debug($"Clicked element: Name='{clickedName}', Type={clickedControlType}");
-            Logger.Debug($"Focused element: Name='{focusedName}', Type={focusedControlType}");
+            Logger.Debug($"Clicked element: Name='{clickedName}', Type={clickedControlType}, Class='{clickedClass}'");
+            Logger.Debug($"Focused element: Name='{focusedName}', Type={focusedControlType}, Class='{focusedClass}'");
 
             // Compare elements - CompareElements returns 0 if equal, non-zero if different
             int result = _automation.CompareElements(clickedElement, focusedElement);
@@ -506,20 +490,20 @@ public class AutoShowManager : IDisposable
 
             if (isSameElement)
             {
-                Logger.Debug("Focused element matches clicked element - click-initiated focus");
+                Logger.Debug("✓ Focused element matches clicked element - click-initiated focus");
+                return true;
             }
             else
             {
-                Logger.Debug("Focused element differs from clicked element - programmatic focus (tab switch)");
+                Logger.Debug("✗ Focused element differs from clicked element");
+                return false;
             }
-
-            return isSameElement;
         }
         catch (Exception ex)
         {
             Logger.Debug($"Error comparing elements: {ex.Message}");
-            // On error, assume click-initiated to avoid blocking valid cases
-            return true;
+            // On error, be conservative and reject to avoid false positives
+            return false;
         }
         finally
         {
@@ -569,7 +553,7 @@ public class AutoShowManager : IDisposable
             // Edit controls are always valid text inputs
             if (controlType == UIA_EditControlTypeId)
             {
-                Logger.Debug($"Text input detected - Control Type: Edit ({controlType})");
+                Logger.Debug($"✓ Text input detected - Control Type: Edit ({controlType})");
                 return true;
             }
 
@@ -587,7 +571,7 @@ public class AutoShowManager : IDisposable
                     var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
                     if (valuePattern != null && !valuePattern.CurrentIsReadOnly)
                     {
-                        Logger.Debug("Text input detected - Document with editable Value Pattern");
+                        Logger.Debug("✓ Text input detected - Document with editable Value Pattern");
                         hasEditablePattern = true;
                     }
                 }
@@ -609,7 +593,7 @@ public class AutoShowManager : IDisposable
                             if (className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                 className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
-                                Logger.Debug("Text input detected - Document with Text Pattern (editable)");
+                                Logger.Debug("✓ Text input detected - Document with Text Pattern (editable)");
                                 hasEditablePattern = true;
                             }
                         }
@@ -618,6 +602,11 @@ public class AutoShowManager : IDisposable
                     {
                         Logger.Debug($"Text pattern check failed: {ex.Message}");
                     }
+                }
+
+                if (!hasEditablePattern)
+                {
+                    Logger.Debug("✗ Document control is not editable");
                 }
 
                 return hasEditablePattern;
@@ -633,7 +622,7 @@ public class AutoShowManager : IDisposable
                     
                     if (!isReadOnly)
                     {
-                        Logger.Debug($"Text input detected - Control Type {controlType} with editable Value Pattern");
+                        Logger.Debug($"✓ Text input detected - Control Type {controlType} with editable Value Pattern");
                         return true;
                     }
                     else
@@ -647,14 +636,7 @@ public class AutoShowManager : IDisposable
                 Logger.Debug($"Value pattern check (general) failed: {ex.Message}");
             }
 
-            // Additional check: common text input class names
-            if (IsCommonTextInputClassName(hwnd))
-            {
-                Logger.Debug("Text input detected - Common class name");
-                return true;
-            }
-
-            Logger.Debug($"Element is not a text input - Type={controlType}, Class='{className}'");
+            Logger.Debug($"✗ Element is not a text input - Type={controlType}, Class='{className}'");
             return false;
         }
         catch (Exception ex)
@@ -668,47 +650,6 @@ public class AutoShowManager : IDisposable
             {
                 try { Marshal.ReleaseComObject(focusedElement); } catch { }
             }
-        }
-    }
-
-    private bool IsCommonTextInputClassName(IntPtr hwnd)
-    {
-        try
-        {
-            var className = new System.Text.StringBuilder(256);
-            GetClassName(hwnd, className, className.Capacity);
-            string classNameStr = className.ToString();
-
-            // Common text input class names
-            string[] textInputClasses = new[]
-            {
-                "Edit",           // Standard Windows edit control
-                "RichEdit",       // Rich text edit
-                "RichEdit20",     // Rich edit 2.0
-                "RICHEDIT50W",    // Rich edit 5.0
-                "Scintilla",      // Notepad++, SciTE
-                "Scintilla_",     // Notepad++ variants
-                "TextBox",        // .NET TextBox
-                "Internet Explorer_Server",  // IE/Edge text fields
-                "Chrome_RenderWidgetHostHWND", // Chrome text fields
-                "MozillaWindowClass" // Firefox text fields
-            };
-
-            foreach (var textClass in textInputClasses)
-            {
-                if (classNameStr.IndexOf(textClass, StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    Logger.Debug($"Matched text input class: {classNameStr}");
-                    return true;
-                }
-            }
-
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error checking class name", ex);
-            return false;
         }
     }
 
