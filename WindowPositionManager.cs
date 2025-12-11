@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Управляет позиционированием окна клавиатуры на экране
+/// Manages keyboard window positioning on screen
 /// </summary>
 public class WindowPositionManager
 {
@@ -14,7 +14,7 @@ public class WindowPositionManager
     private const int SWP_NOZORDER = 0x0004;
     private const int HWND_TOPMOST = -1;
     
-    // Отступ от панели задач в пикселях
+    // Offset from taskbar in pixels
     private const int TASKBAR_OFFSET = 10;
 
     // Structures
@@ -82,13 +82,13 @@ public class WindowPositionManager
     }
 
     /// <summary>
-    /// Позиционирует окно внизу экрана по центру, над панелью задач
+    /// Positions window at bottom-center of screen, above taskbar
     /// </summary>
     public void PositionWindow()
     {
         try
         {
-            // Получаем размеры окна
+            // Get window size
             if (!GetWindowRect(_hwnd, out RECT windowRect))
             {
                 Logger.Error("Failed to get window rect");
@@ -100,7 +100,7 @@ public class WindowPositionManager
 
             Logger.Info($"Window size: {windowWidth}x{windowHeight}");
 
-            // Получаем монитор, на котором находится окно
+            // Get monitor containing the window
             IntPtr hMonitor = MonitorFromWindow(_hwnd, MONITOR_DEFAULTTONEAREST);
             
             MONITORINFO monitorInfo = new MONITORINFO();
@@ -112,11 +112,11 @@ public class WindowPositionManager
                 return;
             }
 
-            // Получаем рабочую область (без панели задач)
+            // Get work area (excluding taskbar)
             RECT workArea = monitorInfo.rcWork;
             Logger.Info($"Work area: Left={workArea.Left}, Top={workArea.Top}, Right={workArea.Right}, Bottom={workArea.Bottom}");
 
-            // Получаем позицию панели задач
+            // Get taskbar position
             APPBARDATA taskbarData = new APPBARDATA();
             taskbarData.cbSize = Marshal.SizeOf(typeof(APPBARDATA));
             IntPtr result = SHAppBarMessage(ABM_GETTASKBARPOS, ref taskbarData);
@@ -126,10 +126,10 @@ public class WindowPositionManager
 
             if (result != IntPtr.Zero)
             {
-                // Определяем высоту панели задач
+                // Determine taskbar height
                 taskbarHeight = taskbarData.rc.Height;
                 
-                // Проверяем, где находится панель задач
+                // Check taskbar position
                 if (taskbarData.uEdge == 1) // ABE_TOP
                 {
                     taskbarAtBottom = false;
@@ -143,48 +143,48 @@ public class WindowPositionManager
                 else if (taskbarData.uEdge == 0 || taskbarData.uEdge == 2) // ABE_LEFT or ABE_RIGHT
                 {
                     Logger.Info($"Taskbar at side, using work area");
-                    taskbarHeight = 0; // Используем рабочую область
+                    taskbarHeight = 0; // Use work area
                 }
             }
             else
             {
                 Logger.Warning("Could not get taskbar position, using default");
-                // Предполагаем стандартную высоту панели задач
+                // Assume standard taskbar height
                 taskbarHeight = 48;
             }
 
-            // Получаем DPI для корректного масштабирования
+            // Get DPI for correct scaling
             uint dpi = GetDpiForWindow(_hwnd);
             float scalingFactor = dpi / 96f;
             int scaledOffset = (int)(TASKBAR_OFFSET * scalingFactor);
 
-            // Вычисляем позицию X (центр экрана)
+            // Calculate X position (center of screen)
             int screenWidth = workArea.Right - workArea.Left;
             int posX = workArea.Left + (screenWidth - windowWidth) / 2;
 
-            // Вычисляем позицию Y (внизу экрана, над панелью задач)
+            // Calculate Y position (bottom of screen, above taskbar)
             int posY;
             if (taskbarAtBottom)
             {
-                // Панель задач внизу - позиционируем над ней
+                // Taskbar at bottom - position above it
                 posY = workArea.Bottom - windowHeight - scaledOffset;
             }
             else
             {
-                // Панель задач не внизу - используем нижнюю границу рабочей области
+                // Taskbar not at bottom - use bottom edge of work area
                 posY = workArea.Bottom - windowHeight - scaledOffset;
             }
 
             Logger.Info($"Positioning window at X={posX}, Y={posY} (DPI: {dpi}, Scale: {scalingFactor})");
 
-            // Устанавливаем позицию окна
+            // Set window position
             bool success = SetWindowPos(
                 _hwnd,
                 new IntPtr(HWND_TOPMOST),
                 posX,
                 posY,
-                0, // Не меняем ширину
-                0, // Не меняем высоту
+                0, // Don't change width
+                0, // Don't change height
                 SWP_NOACTIVATE | SWP_NOZORDER | 0x0001 // SWP_NOSIZE
             );
 
@@ -205,7 +205,7 @@ public class WindowPositionManager
     }
 
     /// <summary>
-    /// Центрирует окно горизонтально без изменения вертикальной позиции
+    /// Centers window horizontally without changing vertical position
     /// </summary>
     public void CenterHorizontally()
     {
@@ -247,7 +247,7 @@ public class WindowPositionManager
     }
 
     /// <summary>
-    /// Получает текущую позицию окна
+    /// Gets current window position
     /// </summary>
     public (int X, int Y, int Width, int Height) GetWindowPosition()
     {

@@ -11,7 +11,10 @@ public sealed partial class MainWindow : Window
 {
     // Window visibility constants
     private const int SW_HIDE = 0;
-    private const int SW_SHOW = 5;
+    private const int SW_SHOWNOACTIVATE = 4;
+    private const int SWP_NOACTIVATE = 0x0010;
+    private const int SWP_NOZORDER = 0x0004;
+    private const int SWP_SHOWWINDOW = 0x0040;
 
     // P/Invoke for window operations
     [DllImport("user32.dll", SetLastError = true)]
@@ -22,6 +25,9 @@ public sealed partial class MainWindow : Window
     
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
     // Services and managers
     private readonly IntPtr _thisWindowHandle;
@@ -39,7 +45,7 @@ public sealed partial class MainWindow : Window
     private DispatcherTimer _backspaceRepeatTimer;
     private bool _isBackspacePressed = false;
     private const int BACKSPACE_INITIAL_DELAY_MS = 500;
-    private const int BACKSPACE_REPEAT_INTERVAL_MS = 50;
+    private const int BACKSPACE_REPEAT_INTERVAL_MS = 10;
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
@@ -116,6 +122,19 @@ public sealed partial class MainWindow : Window
         // Initialize button references for state manager and layout manager
         _stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
         _layoutManager.InitializeLangButton(this.Content as FrameworkElement);
+        
+        // Apply scale transform if not already applied
+        if (RootScaleTransform != null)
+        {
+            double userScale = _settingsManager.Settings.KeyboardScale;
+            RootScaleTransform.ScaleX = userScale;
+            RootScaleTransform.ScaleY = userScale;
+            Logger.Info($"Scale transform applied in Loaded event: {userScale:P0}");
+        }
+        else
+        {
+            Logger.Warning("RootScaleTransform is null in Loaded event");
+        }
         
         Logger.Info("Long-press handlers and backspace handlers initialized");
     }
@@ -272,7 +291,7 @@ public sealed partial class MainWindow : Window
         uint dpi = GetDpiForWindow(_thisWindowHandle);
         float dpiScale = dpi / 96f;
         
-        // Apply user's scale setting to the content
+        // Apply user's scale setting to the content via ScaleTransform
         double userScale = _settingsManager.Settings.KeyboardScale;
         
         // Apply scale transform to content
@@ -283,14 +302,15 @@ public sealed partial class MainWindow : Window
             Logger.Info($"Applied scale transform: {userScale:P0}");
         }
         
-        // Calculate window size based on base size * user scale * DPI scale
+        // FIXED: Calculate window size based on BASE size * DPI scale ONLY
+        // Do NOT multiply by userScale - that's handled by ScaleTransform
         int baseWidth = 997;
         int baseHeight = 330;
         
-        int physicalWidth = (int)(baseWidth * userScale * dpiScale);
-        int physicalHeight = (int)(baseHeight * userScale * dpiScale);
+        int physicalWidth = (int)(baseWidth * dpiScale);
+        int physicalHeight = (int)(baseHeight * dpiScale);
         
-        Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {dpiScale:F2}, User scale: {userScale:P0})");
+        Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {dpiScale:F2}, User scale applied via transform: {userScale:P0})");
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -507,15 +527,29 @@ public sealed partial class MainWindow : Window
         {
             _positionManager?.PositionWindow();
             
-            ShowWindow(_thisWindowHandle, SW_SHOW);
-            
-            // Only activate if we don't need to preserve focus
-            if (!preserveFocus)
+            // FIXED: Use SetWindowPos with SWP_NOACTIVATE to show window without stealing focus
+            if (preserveFocus)
             {
-                this.Activate();
+                // Get current window position
+                var (x, y, width, height) = _positionManager.GetWindowPosition();
+                
+                // Show window without activating it
+                SetWindowPos(
+                    _thisWindowHandle,
+                    IntPtr.Zero,
+                    x, y, width, height,
+                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW
+                );
+                
+                Logger.Info("Window shown with focus preserved (using SetWindowPos)");
             }
-            
-            Logger.Info($"Window shown from tray (preserveFocus: {preserveFocus})");
+            else
+            {
+                // Show and activate normally
+                ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
+                this.Activate();
+                Logger.Info("Window shown and activated");
+            }
         }
         catch (Exception ex)
         {
