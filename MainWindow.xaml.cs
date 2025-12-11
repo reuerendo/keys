@@ -35,6 +35,12 @@ public sealed partial class MainWindow : Window
     private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
 
+    // Backspace repeat functionality
+    private DispatcherTimer _backspaceRepeatTimer;
+    private bool _isBackspacePressed = false;
+    private const int BACKSPACE_INITIAL_DELAY_MS = 500;
+    private const int BACKSPACE_REPEAT_INTERVAL_MS = 50;
+
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
     private bool _isLongPressHandled = false;
@@ -55,6 +61,9 @@ public sealed partial class MainWindow : Window
         _layoutManager = new LayoutManager();
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
+        
+        // Initialize backspace repeat timer
+        InitializeBackspaceRepeatTimer();
         
         // Initialize auto-show manager
         _autoShowManager = new AutoShowManager(_thisWindowHandle);
@@ -77,20 +86,109 @@ public sealed partial class MainWindow : Window
         this.Closed += MainWindow_Closed;
     }
 
+    private void InitializeBackspaceRepeatTimer()
+    {
+        _backspaceRepeatTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS)
+        };
+        _backspaceRepeatTimer.Tick += BackspaceRepeatTimer_Tick;
+    }
+
+    private void BackspaceRepeatTimer_Tick(object sender, object e)
+    {
+        if (_isBackspacePressed)
+        {
+            // Send backspace key
+            byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
+            _inputService.SendVirtualKey(backspaceVk);
+        }
+    }
+
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _longPressPopup = new LongPressPopup(this.Content as FrameworkElement, _stateManager);
         _longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
         
         SetupLongPressHandlers(this.Content as FrameworkElement);
+        SetupBackspaceHandlers(this.Content as FrameworkElement);
         
-        Logger.Info("Long-press handlers initialized");
+        // Initialize button references for state manager and layout manager
+        _stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
+        _layoutManager.InitializeLangButton(this.Content as FrameworkElement);
+        
+        Logger.Info("Long-press handlers and backspace handlers initialized");
     }
 
     private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
     {
         Logger.Info("Auto-show triggered by text input focus");
-        ShowWindow();
+        ShowWindow(preserveFocus: true);
+    }
+
+    private void SetupBackspaceHandlers(FrameworkElement element)
+    {
+        if (element is Button btn && btn.Tag is string tag && tag == "Backspace")
+        {
+            btn.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(BackspaceButton_PointerPressed), true);
+            btn.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(BackspaceButton_PointerReleased), true);
+            btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(BackspaceButton_PointerCanceled), true);
+            btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(BackspaceButton_PointerCaptureLost), true);
+            Logger.Debug("Backspace handlers attached");
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    SetupBackspaceHandlers(fe);
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            SetupBackspaceHandlers(scrollContent);
+        }
+    }
+
+    private void BackspaceButton_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        _isBackspacePressed = true;
+        
+        // Send first backspace immediately
+        byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
+        _inputService.SendVirtualKey(backspaceVk);
+        
+        // Start repeat timer after initial delay
+        _backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_INITIAL_DELAY_MS);
+        _backspaceRepeatTimer.Start();
+        
+        Logger.Debug("Backspace pressed - starting repeat timer");
+    }
+
+    private void BackspaceButton_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        StopBackspaceRepeat();
+    }
+
+    private void BackspaceButton_PointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        StopBackspaceRepeat();
+    }
+
+    private void BackspaceButton_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        StopBackspaceRepeat();
+    }
+
+    private void StopBackspaceRepeat()
+    {
+        _isBackspacePressed = false;
+        _backspaceRepeatTimer.Stop();
+        // Reset to normal repeat interval for next press
+        _backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS);
+        Logger.Debug("Backspace released - stopping repeat timer");
     }
 
     private void SetupLongPressHandlers(FrameworkElement element)
@@ -172,15 +270,27 @@ public sealed partial class MainWindow : Window
     private void ConfigureWindowSize()
     {
         uint dpi = GetDpiForWindow(_thisWindowHandle);
-        float scalingFactor = dpi / 96f;
+        float dpiScale = dpi / 96f;
         
-        // Apply user's scale setting
+        // Apply user's scale setting to the content
         double userScale = _settingsManager.Settings.KeyboardScale;
         
-        int physicalWidth = (int)(997 * scalingFactor * userScale);
-        int physicalHeight = (int)(330 * scalingFactor * userScale);
+        // Apply scale transform to content
+        if (RootScaleTransform != null)
+        {
+            RootScaleTransform.ScaleX = userScale;
+            RootScaleTransform.ScaleY = userScale;
+            Logger.Info($"Applied scale transform: {userScale:P0}");
+        }
         
-        Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {scalingFactor:F2}, User scale: {userScale:P0})");
+        // Calculate window size based on base size * user scale * DPI scale
+        int baseWidth = 997;
+        int baseHeight = 330;
+        
+        int physicalWidth = (int)(baseWidth * userScale * dpiScale);
+        int physicalHeight = (int)(baseHeight * userScale * dpiScale);
+        
+        Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {dpiScale:F2}, User scale: {userScale:P0})");
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -270,6 +380,10 @@ public sealed partial class MainWindow : Window
                 _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
                 break;
                 
+            case "Backspace":
+                // Handled by pointer events for repeat functionality
+                break;
+                
             default:
                 SendKey(keyCode);
                 
@@ -321,22 +435,18 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                // Shift should ONLY affect letters
                 bool shouldCapitalize = false;
                 
                 if (keyDef.IsLetter)
                 {
-                    // For letters: apply Shift OR Caps Lock
                     shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive);
                     
-                    // If both Shift and Caps Lock are active, they cancel each other out
                     if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive)
                     {
                         shouldCapitalize = false;
                     }
                 }
                 
-                // For all other keys (numbers, symbols, etc.): ignore Shift completely
                 string charToSend = shouldCapitalize ? keyDef.ValueShift : keyDef.Value;
                 
                 Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, shouldCapitalize={shouldCapitalize}, sending='{charToSend}'");
@@ -360,7 +470,7 @@ public sealed partial class MainWindow : Window
 
     private void TrayIcon_ShowRequested(object sender, EventArgs e)
     {
-        ShowWindow();
+        ShowWindow(preserveFocus: false);
     }
 
     private void TrayIcon_ToggleVisibilityRequested(object sender, EventArgs e)
@@ -373,7 +483,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            ShowWindow();
+            ShowWindow(preserveFocus: true); // Preserve focus when toggling visibility
         }
     }
 
@@ -391,16 +501,21 @@ public sealed partial class MainWindow : Window
 
     #region Window Visibility Management
 
-    private void ShowWindow()
+    private void ShowWindow(bool preserveFocus = false)
     {
         try
         {
             _positionManager?.PositionWindow();
             
             ShowWindow(_thisWindowHandle, SW_SHOW);
-            this.Activate();
             
-            Logger.Info("Window shown from tray");
+            // Only activate if we don't need to preserve focus
+            if (!preserveFocus)
+            {
+                this.Activate();
+            }
+            
+            Logger.Info($"Window shown from tray (preserveFocus: {preserveFocus})");
         }
         catch (Exception ex)
         {
@@ -427,9 +542,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Reset all modifiers (Shift, Ctrl, Alt, Caps Lock)
-    /// </summary>
     private void ResetAllModifiers()
     {
         Logger.Info("Resetting all modifiers before hiding window");
@@ -471,7 +583,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            ShowWindow();
+            ShowWindow(preserveFocus: false);
             
             var dialog = new SettingsDialog(_settingsManager)
             {
@@ -552,6 +664,7 @@ public sealed partial class MainWindow : Window
             _isClosing = true;
             ResetAllModifiers();
             
+            _backspaceRepeatTimer?.Stop();
             _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
             Logger.Info("Application exiting");
@@ -572,6 +685,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            _backspaceRepeatTimer?.Stop();
             _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
         }
