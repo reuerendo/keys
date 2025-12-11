@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Window
     x:Class="VirtualKeyboard.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -11,6 +11,9 @@
         <Grid.RenderTransform>
             <ScaleTransform x:Name="RootScaleTransform" ScaleX="1.0" ScaleY="1.0"/>
         </Grid.RenderTransform>
+        <Grid.RenderTransformOrigin>
+            <Point X="0" Y="0"/>
+        </Grid.RenderTransformOrigin>
         
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
