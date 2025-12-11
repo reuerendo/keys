@@ -56,7 +56,6 @@ public class AutoShowManager : IDisposable
     private interface IUIAutomationElement
     {
         void SetFocus();
-        [return: MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)]
         int[] GetRuntimeId();
         IUIAutomationElement FindFirst(TreeScope scope, IUIAutomationCondition condition);
         IUIAutomationElementArray FindAll(TreeScope scope, IUIAutomationCondition condition);
@@ -75,20 +74,14 @@ public class AutoShowManager : IDisposable
         IUIAutomationElementArray GetCachedChildren();
         int CurrentProcessId { get; }
         int CurrentControlType { get; }
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentLocalizedControlType { get; }
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentName { get; }
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentAcceleratorKey { get; }
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentAccessKey { get; }
         bool CurrentHasKeyboardFocus { get; }
         bool CurrentIsKeyboardFocusable { get; }
         bool CurrentIsEnabled { get; }
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentAutomationId { get; }
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentClassName { get; }
     }
 
@@ -121,7 +114,6 @@ public class AutoShowManager : IDisposable
     private interface IUIAutomationValuePattern
     {
         void SetValue([MarshalAs(UnmanagedType.BStr)] string val);
-        [return: MarshalAs(UnmanagedType.BStr)]
         string CurrentValue { get; }
         bool CurrentIsReadOnly { get; }
     }
@@ -132,7 +124,7 @@ public class AutoShowManager : IDisposable
     private interface IUIAutomation
     {
         int CompareElements(IUIAutomationElement el1, IUIAutomationElement el2);
-        int CompareRuntimeIds([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] runtimeId1, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] runtimeId2);
+        int CompareRuntimeIds(int[] runtimeId1, int[] runtimeId2);
         IUIAutomationElement GetRootElement();
         IUIAutomationElement ElementFromHandle(IntPtr hwnd);
         IUIAutomationElement ElementFromPoint(tagPOINT pt);
