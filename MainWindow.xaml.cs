@@ -79,7 +79,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        _longPressPopup = new LongPressPopup(this.Content as FrameworkElement);
+        _longPressPopup = new LongPressPopup(this.Content as FrameworkElement, _stateManager);
         _longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
         
         SetupLongPressHandlers(this.Content as FrameworkElement);
@@ -106,8 +106,6 @@ public sealed partial class MainWindow : Window
                 btn.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(KeyButton_PointerReleased), true);
                 btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(KeyButton_PointerCanceled), true);
                 btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(KeyButton_PointerCaptureLost), true);
-                
-                // Logger.Debug($"Long-press handlers added for key: {tag}");
             }
         }
 
@@ -323,14 +321,25 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                bool shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive) && keyDef.IsLetter;
-                if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive && keyDef.IsLetter)
-                {
-                    shouldCapitalize = false;
-                }
-                bool useShift = _stateManager.IsShiftActive && !keyDef.IsLetter;
+                // Shift should ONLY affect letters
+                bool shouldCapitalize = false;
                 
-                string charToSend = (shouldCapitalize || useShift) ? keyDef.ValueShift : keyDef.Value;
+                if (keyDef.IsLetter)
+                {
+                    // For letters: apply Shift OR Caps Lock
+                    shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive);
+                    
+                    // If both Shift and Caps Lock are active, they cancel each other out
+                    if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive)
+                    {
+                        shouldCapitalize = false;
+                    }
+                }
+                
+                // For all other keys (numbers, symbols, etc.): ignore Shift completely
+                string charToSend = shouldCapitalize ? keyDef.ValueShift : keyDef.Value;
+                
+                Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, shouldCapitalize={shouldCapitalize}, sending='{charToSend}'");
                 
                 foreach (char c in charToSend)
                 {

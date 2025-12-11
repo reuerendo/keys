@@ -20,13 +20,15 @@ public class LongPressPopup
     private DispatcherTimer _longPressTimer;
     private Button _currentButton;
     private FrameworkElement _rootElement;
+    private KeyboardStateManager _stateManager;
     
     public event EventHandler<string> CharacterSelected;
     public bool IsPopupOpen => _popup?.IsOpen ?? false;
 
-    public LongPressPopup(FrameworkElement rootElement)
+    public LongPressPopup(FrameworkElement rootElement, KeyboardStateManager stateManager)
     {
         _rootElement = rootElement;
+        _stateManager = stateManager;
         InitializePopup();
         InitializeLongPressTimer();
         
@@ -68,8 +70,6 @@ public class LongPressPopup
             Interval = TimeSpan.FromMilliseconds(LONG_PRESS_DELAY_MS)
         };
         _longPressTimer.Tick += LongPressTimer_Tick;
-        
-        // Logger.Debug($"Long press timer initialized with {LONG_PRESS_DELAY_MS}ms delay");
     }
 
     public void StartPress(Button button, string layoutName)
@@ -88,7 +88,6 @@ public class LongPressPopup
         var options = GetLongPressOptions(keyTag, layoutName);
         if (options != null && options.Count > 0)
         {
-            // Logger.Info($"Starting long-press timer for '{keyTag}' - {options.Count} options available");
             _longPressTimer.Start();
         }
         else
@@ -150,21 +149,36 @@ public class LongPressPopup
 
         _popupPanel.Children.Clear();
 
+        // Check current modifier state - Shift should ONLY affect letters
+        bool isShiftActive = _stateManager.IsShiftActive || _stateManager.IsCapsLockActive;
+        bool shouldCapitalize = isShiftActive && !(_stateManager.IsShiftActive && _stateManager.IsCapsLockActive);
+
         foreach (var option in options)
         {
+            // Determine which character to display and send
+            string displayChar = option.Display;
+            string valueChar = option.Value;
+            
+            // Apply shift ONLY to letters
+            if (option.IsLetter && shouldCapitalize)
+            {
+                displayChar = option.DisplayShift;
+                valueChar = option.ValueShift;
+            }
+
             var btn = new Button
             {
-                Content = option.Display,
-                Tag = option.Value,
+                Content = displayChar,
+                Tag = valueChar,
                 Width = 48,
                 Height = 48,
-                FontSize = 18
+                FontSize = 14
             };
 
             btn.Click += PopupButton_Click;
             _popupPanel.Children.Add(btn);
             
-            Logger.Debug($"Added popup button: {option.Display}");
+            Logger.Debug($"Added popup button: {displayChar} (value: {valueChar})");
         }
 
         // Set XamlRoot for popup
@@ -202,7 +216,6 @@ public class LongPressPopup
             // Check if popup goes beyond right edge
             if (horizontalOffset + popupWidth > windowWidth - POPUP_MARGIN)
             {
-                // Align to right edge of window
                 horizontalOffset = windowWidth - popupWidth - POPUP_MARGIN;
                 Logger.Debug($"Popup adjusted to right edge: {horizontalOffset}");
             }
@@ -227,7 +240,6 @@ public class LongPressPopup
                 // Check if it goes beyond bottom edge
                 if (verticalOffset + popupHeight > windowHeight - POPUP_MARGIN)
                 {
-                    // Position at bottom edge
                     verticalOffset = windowHeight - popupHeight - POPUP_MARGIN;
                     Logger.Debug($"Popup adjusted to bottom edge: {verticalOffset}");
                 }
@@ -279,155 +291,170 @@ public class LongPressPopup
                 {
                     new LongPressOption("¹", "¹"),
                     new LongPressOption("₁", "₁"),
-					new LongPressOption("½", "½"),
-					new LongPressOption("⅓", "⅓"),
-					new LongPressOption("¼", "¼"),
-					new LongPressOption("⅟", "⅟")
+                    new LongPressOption("½", "½"),
+                    new LongPressOption("⅓", "⅓"),
+                    new LongPressOption("¼", "¼"),
+					new LongPressOption("⅙", "⅙"),
+                    new LongPressOption("⅐", "⅐"),
+                    new LongPressOption("⅛", "⅛"),
+					new LongPressOption("⅑", "⅑"),
+					new LongPressOption("⅒", "⅒")
                 },
-				["2"] = new List<LongPressOption>
+                ["2"] = new List<LongPressOption>
                 {
                     new LongPressOption("²", "²"),
                     new LongPressOption("₂", "₂"),
-					new LongPressOption("⅔", "⅔")
+                    new LongPressOption("⅔", "⅔"),
+                    new LongPressOption("⅖", "⅖")
                 },
-				["3"] = new List<LongPressOption>
+                ["3"] = new List<LongPressOption>
                 {
                     new LongPressOption("³", "³"),
                     new LongPressOption("₃", "₃"),
-					new LongPressOption("¾", "¾")
+                    new LongPressOption("¾", "¾"),
+                    new LongPressOption("⅗", "⅗"),
+                    new LongPressOption("⅜", "⅜")
                 },
-				["4"] = new List<LongPressOption>
+                ["4"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁴", "⁴"),
-                    new LongPressOption("₄", "₄")
+                    new LongPressOption("₄", "₄"),
+                    new LongPressOption("⅘", "⅘")
                 },
-				["5"] = new List<LongPressOption>
+                ["5"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁵", "⁵"),
-                    new LongPressOption("₅", "₅")
+                    new LongPressOption("₅", "₅"),
+                    new LongPressOption("⅚", "⅚"),
+                    new LongPressOption("⅝", "⅝")
                 },
-				["6"] = new List<LongPressOption>
+                ["6"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁶", "⁶"),
                     new LongPressOption("₆", "₆")
                 },
-				["7"] = new List<LongPressOption>
+                ["7"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁷", "⁷"),
-                    new LongPressOption("₇", "₇")
+                    new LongPressOption("₇", "₇"),
+                    new LongPressOption("⅞", "⅞")
                 },
-				["8"] = new List<LongPressOption>
+                ["8"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁸", "⁸"),
                     new LongPressOption("₈", "₈")
                 },
-				["9"] = new List<LongPressOption>
+                ["9"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁹", "⁹"),
                     new LongPressOption("₉", "₉")
                 },
-				["0"] = new List<LongPressOption>
+                ["0"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁰", "⁰"),
                     new LongPressOption("₀", "₀"),
-					new LongPressOption("°", "°")
+                    new LongPressOption("↉", "↉")
                 },
                 ["-"] = new List<LongPressOption>
                 {
                     new LongPressOption("–", "–"),
                     new LongPressOption("—", "—")
                 },
-				["+"] = new List<LongPressOption>
+                ["+"] = new List<LongPressOption>
                 {
                     new LongPressOption("±", "±"),
                     new LongPressOption("∓", "∓")
                 },
-				["="] = new List<LongPressOption>
+                ["="] = new List<LongPressOption>
                 {
-                    new LongPressOption("≡", "≡"),
                     new LongPressOption("≠", "≠"),
-					new LongPressOption("≈", "≈"),
-					new LongPressOption("≉", "≉"),
-					new LongPressOption("¬", "¬")
+                    new LongPressOption("≈", "≈"),
+					new LongPressOption("≡", "≡"),
+                    new LongPressOption("≉", "≉"),
+                    new LongPressOption("¬", "¬")
                 },
-				["/"] = new List<LongPressOption>
+                ["("] = new List<LongPressOption>
+                {
+                    new LongPressOption("[", "["),
+                    new LongPressOption("{", "{")
+                },
+                [")"] = new List<LongPressOption>
+                {
+                    new LongPressOption("]", "]"),
+                    new LongPressOption("}", "}")
+                },
+                ["/"] = new List<LongPressOption>
                 {
                     new LongPressOption("÷", "÷"),
-					new LongPressOption("⁄", "⁄")
+                    new LongPressOption("⁄", "⁄"),
+					new LongPressOption("\\", "\\")
                 },
-				["*"] = new List<LongPressOption>
+                ["*"] = new List<LongPressOption>
                 {
-                    new LongPressOption("×", "×")
+                    new LongPressOption("×", "×"),
+                    new LongPressOption("°", "°"),
+                    new LongPressOption("́", "́")
                 },
                 ["e"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ę", "ę")
+                    new LongPressOption("ę", "ę", true)
                 },
                 ["o"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ó", "ó")
+                    new LongPressOption("ó", "ó", true)
                 },
                 ["a"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ą", "ą"),
+                    new LongPressOption("ą", "ą", true),
                     new LongPressOption("@", "@"),
-					new LongPressOption("ª", "ª")
+                    new LongPressOption("ª", "ª")
                 },
                 ["s"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ś", "ś")
+                    new LongPressOption("ś", "ś", true)
                 },
                 ["l"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ł", "ł")
+                    new LongPressOption("ł", "ł", true)
                 },
                 ["z"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ż", "ż"),
-                    new LongPressOption("ź", "ź")
+                    new LongPressOption("ż", "ż", true),
+                    new LongPressOption("ź", "ź", true)
                 },
                 ["c"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ć", "ć")
+                    new LongPressOption("ć", "ć", true)
                 },
                 ["n"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ń", "ń")
+                    new LongPressOption("ń", "ń", true)
                 },
-				["."] = new List<LongPressOption>
+                ["<"] = new List<LongPressOption>
+                {
+                    new LongPressOption("≤", "≤")
+                },
+                [">"] = new List<LongPressOption>
+                {
+                    new LongPressOption("≥", "≥")
+                },
+                ["\""] = new List<LongPressOption>
+                {
+                    new LongPressOption("«", "«"),
+                    new LongPressOption("»", "»"),
+                    new LongPressOption("„", "„"),
+                    new LongPressOption("”", "”"),
+                    new LongPressOption("‚", "‚"),
+                    new LongPressOption("’", "’")
+                },
+                [","] = new List<LongPressOption>
+                {
+                    new LongPressOption("&", "&")
+                },
+                ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
                     new LongPressOption("·", "·")
-                },
-                ["i"] = new List<LongPressOption>
-                {
-                    new LongPressOption("ì", "ì"),
-                    new LongPressOption("í", "í"),
-                    new LongPressOption("î", "î"),
-                    new LongPressOption("ï", "ï")
-                },
-                ["o"] = new List<LongPressOption>
-                {
-                    new LongPressOption("ò", "ò"),
-                    new LongPressOption("ó", "ó"),
-                    new LongPressOption("ô", "ô"),
-                    new LongPressOption("ö", "ö"),
-                    new LongPressOption("õ", "õ")
-                },
-                ["u"] = new List<LongPressOption>
-                {
-                    new LongPressOption("ù", "ù"),
-                    new LongPressOption("ú", "ú"),
-                    new LongPressOption("û", "û"),
-                    new LongPressOption("ü", "ü")
-                },
-                ["n"] = new List<LongPressOption>
-                {
-                    new LongPressOption("ñ", "ñ")
-                },
-                ["c"] = new List<LongPressOption>
-                {
-                    new LongPressOption("ç", "ç")
                 }
             },
             
@@ -437,120 +464,300 @@ public class LongPressPopup
                 {
                     new LongPressOption("¹", "¹"),
                     new LongPressOption("₁", "₁"),
-					new LongPressOption("½", "½"),
-					new LongPressOption("⅓", "⅓"),
-					new LongPressOption("¼", "¼"),
-					new LongPressOption("⅟", "⅟")
+                    new LongPressOption("½", "½"),
+                    new LongPressOption("⅓", "⅓"),
+                    new LongPressOption("¼", "¼"),
+                    new LongPressOption("⅛", "⅛")
                 },
-				["2"] = new List<LongPressOption>
+                ["2"] = new List<LongPressOption>
                 {
                     new LongPressOption("²", "²"),
                     new LongPressOption("₂", "₂"),
-					new LongPressOption("⅔", "⅔")
+                    new LongPressOption("⅔", "⅔")
                 },
-				["3"] = new List<LongPressOption>
+                ["3"] = new List<LongPressOption>
                 {
                     new LongPressOption("³", "³"),
                     new LongPressOption("₃", "₃"),
-					new LongPressOption("¾", "¾")
+                    new LongPressOption("¾", "¾")
                 },
-				["4"] = new List<LongPressOption>
+                ["4"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁴", "⁴"),
                     new LongPressOption("₄", "₄")
                 },
-				["5"] = new List<LongPressOption>
+                ["5"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁵", "⁵"),
                     new LongPressOption("₅", "₅")
                 },
-				["6"] = new List<LongPressOption>
+                ["6"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁶", "⁶"),
                     new LongPressOption("₆", "₆")
                 },
-				["7"] = new List<LongPressOption>
+                ["7"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁷", "⁷"),
                     new LongPressOption("₇", "₇")
                 },
-				["8"] = new List<LongPressOption>
+                ["8"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁸", "⁸"),
                     new LongPressOption("₈", "₈")
                 },
-				["9"] = new List<LongPressOption>
+                ["9"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁹", "⁹"),
                     new LongPressOption("₉", "₉")
                 },
-				["0"] = new List<LongPressOption>
+                ["0"] = new List<LongPressOption>
                 {
                     new LongPressOption("⁰", "⁰"),
-                    new LongPressOption("₀", "₀"),
-					new LongPressOption("°", "°")
+                    new LongPressOption("₀", "₀")
                 },
                 ["-"] = new List<LongPressOption>
                 {
                     new LongPressOption("–", "–"),
                     new LongPressOption("—", "—")
                 },
-				["+"] = new List<LongPressOption>
+                ["+"] = new List<LongPressOption>
                 {
                     new LongPressOption("±", "±"),
                     new LongPressOption("∓", "∓")
                 },
-				["="] = new List<LongPressOption>
+                ["="] = new List<LongPressOption>
                 {
                     new LongPressOption("≡", "≡"),
                     new LongPressOption("≠", "≠"),
-					new LongPressOption("≈", "≈"),
-					new LongPressOption("≉", "≉"),
-					new LongPressOption("¬", "¬")
+                    new LongPressOption("≈", "≈"),
+                    new LongPressOption("≉", "≉"),
+                    new LongPressOption("¬", "¬")
                 },
-				["/"] = new List<LongPressOption>
+                ["/"] = new List<LongPressOption>
                 {
                     new LongPressOption("÷", "÷"),
-					new LongPressOption("⁄", "⁄")
+                    new LongPressOption("⁄", "⁄"),
+					new LongPressOption("\\", "\\")
                 },
-				["*"] = new List<LongPressOption>
+                ["*"] = new List<LongPressOption>
                 {
-                    new LongPressOption("×", "×")
+                    new LongPressOption("×", "×"),
+                    new LongPressOption("°", "°"),
+                    new LongPressOption("́", "́")
                 },
-				[","] = new List<LongPressOption>
+                [","] = new List<LongPressOption>
                 {
                     new LongPressOption(";", ";")
                 },
-				["."] = new List<LongPressOption>
+                ["."] = new List<LongPressOption>
                 {
                     new LongPressOption(":", ":"),
-					new LongPressOption("…", "…"),
+                    new LongPressOption("…", "…"),
                     new LongPressOption("·", "·")
                 },
                 ["t"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ё", "ё")
+                    new LongPressOption("ё", "ё", true)
                 },
-                ["-"] = new List<LongPressOption>
+                ["u"] = new List<LongPressOption>
                 {
-                    new LongPressOption("–", "–"),
-                    new LongPressOption("—", "—")
+                    new LongPressOption("ґ", "ґ", true)
+                },
+                [";"] = new List<LongPressOption>
+                {
+                    new LongPressOption("є", "є", true)
+                },
+                ["b"] = new List<LongPressOption>
+                {
+                    new LongPressOption("і", "і", true),
+					new LongPressOption("ї", "ї", true)
+                },
+                ["m"] = new List<LongPressOption>
+                {
+                    new LongPressOption("ъ", "ъ", true)
+                },
+                ["\""] = new List<LongPressOption>
+                {
+                    new LongPressOption("«", "«"),
+                    new LongPressOption("»", "»"),
+                    new LongPressOption("„", "„"),
+                    new LongPressOption("”", "”"),
+                    new LongPressOption("‚", "‚"),
+                    new LongPressOption("’", "’")
                 }
             },
             
             ["Symbols"] = new Dictionary<string, List<LongPressOption>>
             {
+                ["1"] = new List<LongPressOption>
+                {
+                    new LongPressOption("¹", "¹"),
+                    new LongPressOption("₁", "₁"),
+                    new LongPressOption("½", "½"),
+                    new LongPressOption("⅓", "⅓"),
+                    new LongPressOption("¼", "¼"),
+					new LongPressOption("⅙", "⅙"),
+                    new LongPressOption("⅐", "⅐"),
+                    new LongPressOption("⅛", "⅛"),
+					new LongPressOption("⅑", "⅑"),
+					new LongPressOption("⅒", "⅒")
+                },
+                ["2"] = new List<LongPressOption>
+                {
+                    new LongPressOption("²", "²"),
+                    new LongPressOption("₂", "₂"),
+                    new LongPressOption("⅔", "⅔"),
+                    new LongPressOption("⅖", "⅖")
+                },
+                ["3"] = new List<LongPressOption>
+                {
+                    new LongPressOption("³", "³"),
+                    new LongPressOption("₃", "₃"),
+                    new LongPressOption("¾", "¾"),
+                    new LongPressOption("⅗", "⅗"),
+                    new LongPressOption("⅜", "⅜")
+                },
+                ["4"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁴", "⁴"),
+                    new LongPressOption("₄", "₄"),
+                    new LongPressOption("⅘", "⅘")
+                },
+                ["5"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁵", "⁵"),
+                    new LongPressOption("₅", "₅"),
+                    new LongPressOption("⅚", "⅚"),
+                    new LongPressOption("⅝", "⅝")
+                },
+                ["6"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁶", "⁶"),
+                    new LongPressOption("₆", "₆")
+                },
+                ["7"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁷", "⁷"),
+                    new LongPressOption("₇", "₇"),
+                    new LongPressOption("⅞", "⅞")
+                },
+                ["8"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁸", "⁸"),
+                    new LongPressOption("₈", "₈")
+                },
+                ["9"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁹", "⁹"),
+                    new LongPressOption("₉", "₉")
+                },
+                ["0"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁰", "⁰"),
+                    new LongPressOption("₀", "₀"),
+                    new LongPressOption("↉", "↉")
+                },
+                ["-"] = new List<LongPressOption>
+                {
+                    new LongPressOption("–", "–"),
+                    new LongPressOption("—", "—")
+                },
+                ["="] = new List<LongPressOption>
+                {
+                    new LongPressOption("≠", "≠"),
+                    new LongPressOption("≈", "≈"),
+					new LongPressOption("≡", "≡"),
+                    new LongPressOption("≉", "≉"),
+                    new LongPressOption("¬", "¬")
+                },
+                ["q"] = new List<LongPressOption>
+                {
+                    new LongPressOption("©", "©"),
+                    new LongPressOption("℗", "℗"),
+					new LongPressOption("®", "®"),
+					new LongPressOption("™", "™"),
+					new LongPressOption("℠", "℠")
+                },
+                ["/"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁄", "⁄"),
+					new LongPressOption("\\", "\\")
+                },
+                ["e"] = new List<LongPressOption>
+                {
+                    new LongPressOption("$", "$"),
+                    new LongPressOption("¥", "¥"),
+                    new LongPressOption("¢", "¢"),
+                    new LongPressOption("₡", "₡"),
+					new LongPressOption("₩", "₩"),
+                    new LongPressOption("₦", "₦"),
+                    new LongPressOption("£", "£"),
+                    new LongPressOption("₹", "₹"),
+					new LongPressOption("₴", "₴")
+                },
+                ["o"] = new List<LongPressOption>
+                {
+                    new LongPressOption("‰", "‰"),
+					new LongPressOption("‱", "‱")
+                },
+                [")"] = new List<LongPressOption>
+                {
+                    new LongPressOption("∓", "∓")
+                },
+                ["*"] = new List<LongPressOption>
+                {
+                    new LongPressOption("⁂", "⁂"),
+                    new LongPressOption("°", "°"),
+                    new LongPressOption("́", "́")
+                },
+                ["l"] = new List<LongPressOption>
+                {
+                    new LongPressOption("〈", "〈")
+                },
+                [":"] = new List<LongPressOption>
+                {
+                    new LongPressOption("〉", "〉")
+                },
+                [";"] = new List<LongPressOption>
+                {
+                    new LongPressOption("¦", "¦"),
+                    new LongPressOption("‖", "‖")
+                },
+                ["x"] = new List<LongPressOption>
+                {
+                    new LongPressOption("‹", "‹")
+                },
+                ["c"] = new List<LongPressOption>
+                {
+                    new LongPressOption("›", "›")
+                },
+                ["v"] = new List<LongPressOption>
+                {
+                    new LongPressOption("‚", "‚")
+                },
+                ["b"] = new List<LongPressOption>
+                {
+                    new LongPressOption("’", "’")
+                },
+                ["m"] = new List<LongPressOption>
+                {
+                    new LongPressOption("¶", "¶"),
+                    new LongPressOption("⸿", "⸿")
+                },
+                ["!"] = new List<LongPressOption>
+                {
+                    new LongPressOption("¡", "¡")
+                },
+                ["?"] = new List<LongPressOption>
+                {
+                    new LongPressOption("¿", "¿")
+                },
                 ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
                     new LongPressOption("·", "·"),
                     new LongPressOption("•", "•")
-                },
-                ["-"] = new List<LongPressOption>
-                {
-                    new LongPressOption("–", "–"),
-                    new LongPressOption("—", "—"),
-                    new LongPressOption("∓", "∓")
                 }
             }
         };
@@ -570,12 +777,34 @@ public class LongPressPopup
     public class LongPressOption
     {
         public string Display { get; set; }
+        public string DisplayShift { get; set; }
         public string Value { get; set; }
+        public string ValueShift { get; set; }
+        public bool IsLetter { get; set; }
 
-        public LongPressOption(string display, string value)
+        // Constructor for letters (auto-capitalize)
+        public LongPressOption(string display, string value, bool isLetter)
         {
             Display = display;
             Value = value;
+            IsLetter = isLetter;
+            
+            if (isLetter)
+            {
+                DisplayShift = display.ToUpper();
+                ValueShift = value.ToUpper();
+            }
+            else
+            {
+                DisplayShift = display;
+                ValueShift = value;
+            }
+        }
+
+        // Constructor for non-letters (no shift variant)
+        public LongPressOption(string display, string value) 
+            : this(display, value, false)
+        {
         }
     }
 }
