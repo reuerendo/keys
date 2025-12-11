@@ -30,6 +30,7 @@ public class AutoShowManager : IDisposable
     private const int UIA_ControlTypePropertyId = 30003;
     private const int UIA_IsEnabledPropertyId = 30010;
     private const int UIA_ClassNamePropertyId = 30012;
+    private const int UIA_IsKeyboardFocusablePropertyId = 30009;
 
     // UI Automation pattern IDs
     private const int UIA_ValuePatternId = 10002;
@@ -209,6 +210,7 @@ public class AutoShowManager : IDisposable
     private DateTime _lastMouseClickTime;
     private POINT _lastClickPosition;
     private IUIAutomationElement _clickedElement;
+    private bool _clickProcessed; // Флаг для предотвращения повторной обработки
     private bool _isDisposed;
 
     public event EventHandler ShowKeyboardRequested;
@@ -241,6 +243,7 @@ public class AutoShowManager : IDisposable
         _lastMouseClickTime = DateTime.MinValue;
         _lastClickPosition = new POINT { x = -1, y = -1 };
         _clickedElement = null;
+        _clickProcessed = false;
         
         try
         {
@@ -326,8 +329,9 @@ public class AutoShowManager : IDisposable
                 {
                     _lastMouseClickTime = DateTime.Now;
                     _lastClickPosition = hookStruct.pt;
+                    _clickProcessed = false; // Сбрасываем флаг при новом клике
                     
-                    // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: получаем элемент под курсором в момент клика
+                    // Получаем элемент под курсором в момент клика
                     ReleaseClickedElement();
                     _clickedElement = GetElementAtPoint(hookStruct.pt);
                     
@@ -404,48 +408,37 @@ public class AutoShowManager : IDisposable
             return;
         }
 
-        // 4. Ignore own window
+        // 4. Check if this click was already processed
+        if (_clickProcessed)
+        {
+            Logger.Debug("Focus event ignored - click already processed");
+            return;
+        }
+
+        // 5. Ignore own window
         if (hwnd == _keyboardWindowHandle) return;
 
         try
         {
-            // 5. Get the actual focused element
+            // 6. Get the actual focused element
             IUIAutomationElement focusedElement = _automation.GetFocusedElement();
             if (focusedElement == null) return;
 
-            // 6. НОВАЯ ЛОГИКА: проверяем элемент, на который кликнули
+            // 7. Проверяем элемент, на который кликнули
             bool isTextInputClicked = false;
             
             if (_clickedElement != null)
             {
-                // Проверяем сам кликнутый элемент
                 isTextInputClicked = IsTextInputElement(_clickedElement);
-                
-                if (!isTextInputClicked)
-                {
-                    // Проверяем, может быть это wrapper - ищем текстовое поле в дочерних элементах
-                    isTextInputClicked = HasTextInputChild(_clickedElement);
-                }
-                
-                if (isTextInputClicked)
-                {
-                    Logger.Debug("Clicked element is a text input or contains one");
-                }
             }
 
-            // 7. Проверяем сфокусированный элемент
+            // 8. Проверяем сфокусированный элемент
             bool isFocusedTextInput = IsTextInputElement(focusedElement);
-            
-            if (!isFocusedTextInput)
-            {
-                // Может быть фокус на wrapper - проверяем дочерние элементы
-                isFocusedTextInput = HasTextInputChild(focusedElement);
-            }
 
-            // 8. Принимаем решение: либо кликнули на текстовое поле, либо фокус на текстовом поле
-            // Это позволяет обрабатывать случаи, когда фокус переходит на родительский элемент
+            // 9. Принимаем решение
             if (isTextInputClicked || isFocusedTextInput)
             {
+                _clickProcessed = true; // Помечаем клик как обработанный
                 Logger.Info($"Text input activated by click. Latency: {timeSinceClick:F0}ms. Showing keyboard.");
                 OnShowKeyboardRequested();
             }
@@ -463,48 +456,7 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Проверяет, содержит ли элемент текстовое поле среди дочерних элементов
-    /// </summary>
-    private bool HasTextInputChild(IUIAutomationElement element)
-    {
-        try
-        {
-            var children = element.GetCachedChildren();
-            if (children == null) return false;
-
-            int count = children.Length;
-            for (int i = 0; i < count; i++)
-            {
-                try
-                {
-                    var child = children.GetElement(i);
-                    if (child != null)
-                    {
-                        bool isTextInput = IsTextInputElement(child);
-                        Marshal.ReleaseComObject(child);
-                        
-                        if (isTextInput)
-                        {
-                            Logger.Debug($"Found text input in child element {i}/{count}");
-                            return true;
-                        }
-                    }
-                }
-                catch { }
-            }
-            
-            Marshal.ReleaseComObject(children);
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error checking child elements: {ex.Message}");
-        }
-        
-        return false;
-    }
-
-    /// <summary>
-    /// Расширенная проверка на текстовое поле с поддержкой большего количества типов
+    /// Строгая проверка на текстовое поле с акцентом на точность
     /// </summary>
     private bool IsTextInputElement(IUIAutomationElement element)
     {
@@ -525,66 +477,91 @@ public class AutoShowManager : IDisposable
 
             Logger.Debug($"Checking element: Type={controlType}, Class='{className}'");
 
-            // 2. Прямые типы текстовых полей
+            // 2. Прямые типы текстовых полей - ВСЕГДА принимаем
             if (controlType == UIA_EditControlTypeId || controlType == UIA_ComboBoxControlTypeId)
             {
                 Logger.Debug("✓ Text input - Edit/ComboBox control");
                 return true;
             }
 
-            // 3. Document / Pane (Web & Electron apps)
-            if (controlType == UIA_DocumentControlTypeId || controlType == UIA_PaneControlTypeId)
+            // 3. Document controls с редактируемым Value Pattern
+            if (controlType == UIA_DocumentControlTypeId)
             {
-                // Value Pattern check
                 if (HasEditableValuePattern(element))
                 {
-                    Logger.Debug("✓ Text input - Editable Value Pattern");
-                    return true;
-                }
-
-                // Text Pattern check
-                if (HasTextPattern(element))
-                {
-                    // Эвристика: проверяем имя класса
-                    if (IsTextInputByClassName(className))
-                    {
-                        Logger.Debug("✓ Text input - Text Pattern + Class Match");
-                        return true;
-                    }
-                }
-            }
-
-            // 4. Custom/Group/DataItem (современные UI фреймворки)
-            if (controlType == UIA_CustomControlTypeId || 
-                controlType == UIA_GroupControlTypeId ||
-                controlType == UIA_DataItemControlTypeId)
-            {
-                // Проверяем по имени класса
-                if (IsTextInputByClassName(className))
-                {
-                    Logger.Debug("✓ Text input - Custom control with text input class name");
+                    Logger.Debug("✓ Text input - Document with editable Value Pattern");
                     return true;
                 }
                 
-                // Проверяем, есть ли Value Pattern
+                // Document с Text Pattern + подходящий класс
+                if (HasTextPattern(element) && IsTextInputByClassName(className))
+                {
+                    Logger.Debug("✓ Text input - Document with Text Pattern + text class");
+                    return true;
+                }
+            }
+
+            // 4. Pane controls - только с явными признаками текстового ввода
+            if (controlType == UIA_PaneControlTypeId)
+            {
+                // Pane с редактируемым Value Pattern
+                if (HasEditableValuePattern(element))
+                {
+                    Logger.Debug("✓ Text input - Pane with editable Value Pattern");
+                    return true;
+                }
+                
+                // Pane с подходящим классом (например, contenteditable в браузерах)
+                if (IsTextInputByClassName(className))
+                {
+                    Logger.Debug("✓ Text input - Pane with text input class name");
+                    return true;
+                }
+            }
+
+            // 5. Custom controls - ТОЛЬКО с очень явными признаками
+            if (controlType == UIA_CustomControlTypeId)
+            {
+                // Custom с редактируемым Value Pattern
                 if (HasEditableValuePattern(element))
                 {
                     Logger.Debug("✓ Text input - Custom control with editable Value Pattern");
                     return true;
                 }
                 
-                // Проверяем фокусируемость для Custom/Group
-                if (controlType != UIA_DataItemControlTypeId)
+                // Custom с явным текстовым классом
+                if (IsTextInputByClassName(className))
                 {
-                    try
-                    {
-                        if (element.CurrentIsKeyboardFocusable && element.CurrentIsEnabled)
-                        {
-                            Logger.Debug("✓ Text input - Focusable Custom/Group element");
-                            return true;
-                        }
-                    }
-                    catch { }
+                    Logger.Debug("✓ Text input - Custom control with text input class");
+                    return true;
+                }
+            }
+
+            // 6. DataItem controls - только с редактируемым Value Pattern
+            if (controlType == UIA_DataItemControlTypeId)
+            {
+                if (HasEditableValuePattern(element))
+                {
+                    Logger.Debug("✓ Text input - DataItem with editable Value Pattern");
+                    return true;
+                }
+            }
+
+            // 7. Group controls - ТОЛЬКО с редактируемым Value Pattern
+            // НЕ используем "просто фокусируемый" - это вызывает ложные срабатывания
+            if (controlType == UIA_GroupControlTypeId)
+            {
+                if (HasEditableValuePattern(element))
+                {
+                    Logger.Debug("✓ Text input - Group with editable Value Pattern");
+                    return true;
+                }
+                
+                // Group с явным текстовым классом
+                if (IsTextInputByClassName(className))
+                {
+                    Logger.Debug("✓ Text input - Group with text input class");
+                    return true;
                 }
             }
 
@@ -607,7 +584,7 @@ public class AutoShowManager : IDisposable
             var valuePattern = element.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
             if (valuePattern != null)
             {
-                bool isReadOnly = false;
+                bool isReadOnly = true;
                 try { isReadOnly = valuePattern.CurrentIsReadOnly; }
                 catch { return false; }
                 
@@ -635,7 +612,7 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Определяет, является ли элемент текстовым полем по имени класса
+    /// Определяет, является ли элемент текстовым полем по имени класса (строгая проверка)
     /// </summary>
     private bool IsTextInputByClassName(string className)
     {
@@ -644,19 +621,27 @@ public class AutoShowManager : IDisposable
 
         string lowerClass = className.ToLowerInvariant();
         
-        // Ключевые слова, указывающие на текстовое поле
+        // СТРОГИЙ список: только явные текстовые поля
         string[] textInputKeywords = new[]
         {
-            "edit", "text", "input", "search", "box",
-            "textbox", "editbox", "searchbox",
-            "richedit", "scintilla", // Notepad++, advanced editors
-            "address", "url", "urlbar", // Browsers
-            "combo", "autocomplete"
+            "edit",        // Standard edit controls
+            "richedit",    // Rich edit controls, Notepad++
+            "scintilla",   // Notepad++, advanced editors
+            "textbox",     // WPF/UWP text boxes
+            "editbox",     // Custom edit implementations
+            "input",       // HTML inputs (но не "inputbutton"!)
+            "searchbox",   // Search fields
+            "urlbar",      // Browser address bars
+            "addressbar",  // Browser address bars (alternative)
         };
 
         foreach (var keyword in textInputKeywords)
         {
-            if (lowerClass.Contains(keyword))
+            // Точное совпадение или содержит, но не как часть другого слова
+            if (lowerClass == keyword || 
+                lowerClass.StartsWith(keyword + " ") ||
+                lowerClass.EndsWith(" " + keyword) ||
+                lowerClass.Contains(" " + keyword + " "))
             {
                 Logger.Debug($"Class name '{className}' matches text input keyword '{keyword}'");
                 return true;
