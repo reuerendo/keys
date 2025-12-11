@@ -524,31 +524,20 @@ public sealed partial class MainWindow : Window
 
     #region Window Visibility Management
 
-    private void ShowWindow(bool preserveFocus = false)
+	private void ShowWindow(bool preserveFocus = false)
     {
         try
         {
             _positionManager?.PositionWindow();
             
-            // FIXED: Use SetWindowPos with SWP_NOACTIVATE to show window without stealing focus
             if (preserveFocus)
             {
-                // Get current window position
-                var (x, y, width, height) = _positionManager.GetWindowPosition();
+                ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
                 
-                // Show window without activating it
-                SetWindowPos(
-                    _thisWindowHandle,
-                    IntPtr.Zero,
-                    x, y, width, height,
-                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW
-                );
-                
-                Logger.Info("Window shown with focus preserved (using SetWindowPos)");
+                Logger.Info("Window shown with focus preserved (using SW_SHOWNOACTIVATE)");
             }
             else
             {
-                // Show and activate normally
                 ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
                 this.Activate();
                 Logger.Info("Window shown and activated");

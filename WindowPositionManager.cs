@@ -175,7 +175,7 @@ public class WindowPositionManager
                 posY = workArea.Bottom - windowHeight - scaledOffset;
             }
 
-            Logger.Info($"Positioning window at X={posX}, Y={posY} (DPI: {dpi}, Scale: {scalingFactor})");
+			Logger.Info($"Positioning window at X={posX}, Y={posY} (DPI: {dpi}, Scale: {scalingFactor})");
 
             // Set window position
             bool success = SetWindowPos(
@@ -185,7 +185,7 @@ public class WindowPositionManager
                 posY,
                 0, // Don't change width
                 0, // Don't change height
-                SWP_NOACTIVATE | SWP_NOZORDER | 0x0001 // SWP_NOSIZE
+                SWP_NOACTIVATE | 0x0001
             );
 
             if (success)
