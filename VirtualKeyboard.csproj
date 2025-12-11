@@ -16,7 +16,7 @@
     <WindowsPackageType>None</WindowsPackageType>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
-    <PublishTrimmed>true</PublishTrimmed>
+    <PublishTrimmed>false</PublishTrimmed>
 	<TrimMode>partial</TrimMode>
 	<PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
@@ -31,8 +31,8 @@
   </ItemGroup>
   
   <ItemGroup>
-  <Content Include="tray_icon.ico">
-    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-  </Content>
+    <Content Include="tray_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>

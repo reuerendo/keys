@@ -69,7 +69,7 @@ public class LongPressPopup
         };
         _longPressTimer.Tick += LongPressTimer_Tick;
         
-        Logger.Debug($"Long press timer initialized with {LONG_PRESS_DELAY_MS}ms delay");
+        // Logger.Debug($"Long press timer initialized with {LONG_PRESS_DELAY_MS}ms delay");
     }
 
     public void StartPress(Button button, string layoutName)
@@ -88,7 +88,7 @@ public class LongPressPopup
         var options = GetLongPressOptions(keyTag, layoutName);
         if (options != null && options.Count > 0)
         {
-            Logger.Info($"Starting long-press timer for '{keyTag}' - {options.Count} options available");
+            // Logger.Info($"Starting long-press timer for '{keyTag}' - {options.Count} options available");
             _longPressTimer.Start();
         }
         else

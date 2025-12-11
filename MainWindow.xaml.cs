@@ -30,6 +30,8 @@ public sealed partial class MainWindow : Window
     private readonly LayoutManager _layoutManager;
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
+    private readonly SettingsManager _settingsManager;
+    private AutoShowManager _autoShowManager;
     private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
 
@@ -47,11 +49,17 @@ public sealed partial class MainWindow : Window
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
+        _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
         _layoutManager = new LayoutManager();
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
+        
+        // Initialize auto-show manager
+        _autoShowManager = new AutoShowManager(_thisWindowHandle);
+        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
+        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
         if (this.Content is FrameworkElement rootElement)
         {
@@ -79,6 +87,12 @@ public sealed partial class MainWindow : Window
         Logger.Info("Long-press handlers initialized");
     }
 
+    private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
+    {
+        Logger.Info("Auto-show triggered by text input focus");
+        ShowWindow();
+    }
+
     private void SetupLongPressHandlers(FrameworkElement element)
     {
         if (element is Button btn && btn.Tag is string tag)
@@ -93,7 +107,7 @@ public sealed partial class MainWindow : Window
                 btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(KeyButton_PointerCanceled), true);
                 btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(KeyButton_PointerCaptureLost), true);
                 
-                Logger.Debug($"Long-press handlers added for key: {tag}");
+                // Logger.Debug($"Long-press handlers added for key: {tag}");
             }
         }
 
@@ -162,8 +176,13 @@ public sealed partial class MainWindow : Window
         uint dpi = GetDpiForWindow(_thisWindowHandle);
         float scalingFactor = dpi / 96f;
         
-        int physicalWidth = (int)(997 * scalingFactor);
-        int physicalHeight = (int)(336 * scalingFactor);
+        // Apply user's scale setting
+        double userScale = _settingsManager.Settings.KeyboardScale;
+        
+        int physicalWidth = (int)(997 * scalingFactor * userScale);
+        int physicalHeight = (int)(330 * scalingFactor * userScale);
+        
+        Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {scalingFactor:F2}, User scale: {userScale:P0})");
         
         var appWindow = this.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
@@ -384,10 +403,13 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // ВАЖНО: Сбросить все модификаторы перед скрытием окна
             ResetAllModifiers();
             
             ShowWindow(_thisWindowHandle, SW_HIDE);
+            
+            // Notify AutoShowManager about hide (for cooldown)
+            _autoShowManager?.NotifyKeyboardHidden();
+            
             Logger.Info("Window hidden to tray");
         }
         catch (Exception ex)
@@ -397,41 +419,36 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Сброс всех модификаторов (Shift, Ctrl, Alt, Caps Lock)
+    /// Reset all modifiers (Shift, Ctrl, Alt, Caps Lock)
     /// </summary>
     private void ResetAllModifiers()
     {
         Logger.Info("Resetting all modifiers before hiding window");
         
-        // Сбросить Shift
         if (_stateManager.IsShiftActive)
         {
             _stateManager.ToggleShift();
             Logger.Info("Shift reset");
         }
         
-        // Сбросить Ctrl
         if (_stateManager.IsCtrlActive)
         {
             _stateManager.ToggleCtrl();
             Logger.Info("Ctrl reset");
         }
         
-        // Сбросить Alt
         if (_stateManager.IsAltActive)
         {
             _stateManager.ToggleAlt();
             Logger.Info("Alt reset");
         }
         
-        // Сбросить Caps Lock
         if (_stateManager.IsCapsLockActive)
         {
             _stateManager.ToggleCapsLock();
             Logger.Info("Caps Lock reset");
         }
         
-        // Обновить отображение клавиш
         _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
         
         Logger.Info("All modifiers reset successfully");
@@ -447,20 +464,75 @@ public sealed partial class MainWindow : Window
         {
             ShowWindow();
             
-            var dialog = new ContentDialog
+            var dialog = new SettingsDialog(_settingsManager)
             {
-                Title = "Настройки",
-                Content = "Окно настроек в разработке.\n\nЗдесь можно будет настроить:\n- Язык интерфейса\n- Горячие клавиши\n- Автозапуск\n- Прозрачность окна",
-                CloseButtonText = "Закрыть",
                 XamlRoot = this.Content.XamlRoot
             };
             
             await dialog.ShowAsync();
-            Logger.Info("Settings dialog shown");
+            
+            // Update auto-show setting immediately
+            if (dialog.RequiresAutoShowUpdate)
+            {
+                bool newAutoShowValue = _settingsManager.GetAutoShowKeyboard();
+                _autoShowManager.IsEnabled = newAutoShowValue;
+                Logger.Info($"AutoShow setting updated to: {newAutoShowValue}");
+            }
+            
+            // Handle restart if scale changed
+            if (dialog.RequiresRestart)
+            {
+                await ShowRestartDialog();
+            }
+            
+            Logger.Info("Settings dialog closed");
         }
         catch (Exception ex)
         {
             Logger.Error("Failed to show settings dialog", ex);
+        }
+    }
+
+    private async System.Threading.Tasks.Task ShowRestartDialog()
+    {
+        var restartDialog = new ContentDialog
+        {
+            Title = "Требуется перезапуск",
+            Content = "Для применения изменений размера клавиатуры необходимо перезапустить приложение.\n\nПерезапустить сейчас?",
+            PrimaryButtonText = "Перезапустить",
+            CloseButtonText = "Позже",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = this.Content.XamlRoot
+        };
+        
+        var result = await restartDialog.ShowAsync();
+        
+        if (result == ContentDialogResult.Primary)
+        {
+            RestartApplication();
+        }
+    }
+
+    private void RestartApplication()
+    {
+        try
+        {
+            Logger.Info("Restarting application...");
+            
+            string executablePath = Environment.ProcessPath;
+            if (!string.IsNullOrEmpty(executablePath))
+            {
+                System.Diagnostics.Process.Start(executablePath);
+                ExitApplication();
+            }
+            else
+            {
+                Logger.Error("Could not determine executable path for restart");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to restart application", ex);
         }
     }
 
@@ -469,10 +541,9 @@ public sealed partial class MainWindow : Window
         try
         {
             _isClosing = true;
-            
-            // Сбросить все модификаторы перед выходом
             ResetAllModifiers();
             
+            _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
             Logger.Info("Application exiting");
             Application.Current.Exit();
@@ -492,6 +563,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
         }
     }
