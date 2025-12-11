@@ -414,8 +414,19 @@ public class TrayIcon : IDisposable
             }
             
             // Create message-only window (HWND_MESSAGE = -3)
-            _hwnd = CreateWindowEx(0, WINDOW_CLASS_NAME, "TrayIconWindow", 0, 0, 0, 0, 0, 
-                new IntPtr(-3), IntPtr.Zero, hInstance, IntPtr.Zero);
+            // Create a hidden top-level window instead of a message-only window.
+			// This is required because Shell_NotifyIcon does NOT reliably support HWND_MESSAGE on Win10/11.
+			_hwnd = CreateWindowEx(
+				0,                      // no special extended style
+				WINDOW_CLASS_NAME,      // class
+				"TrayIconWindow",       // window name (not used)
+				0x80000000,             // WS_POPUP (hidden top-level window)
+				0, 0, 0, 0,             // zero size
+				IntPtr.Zero,            // parent MUST be NULL (top-level)
+				IntPtr.Zero,
+				hInstance,
+				IntPtr.Zero
+			);
             
             if (_hwnd == IntPtr.Zero)
             {
