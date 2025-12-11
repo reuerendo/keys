@@ -16,6 +16,7 @@ public sealed partial class MainWindow : Window
     private const int SWP_NOACTIVATE = 0x0010;
     private const int SWP_NOZORDER = 0x0004;
     private const int SWP_SHOWWINDOW = 0x0040;
+	private FocusTracker _focusTracker;
 
     // P/Invoke for window operations
     [DllImport("user32.dll", SetLastError = true)]
@@ -29,6 +30,12 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+	
+	[DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     // Services and managers
     private readonly IntPtr _thisWindowHandle;
@@ -62,6 +69,7 @@ public sealed partial class MainWindow : Window
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
+		_focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
@@ -323,12 +331,14 @@ public sealed partial class MainWindow : Window
 			presenter.IsAlwaysOnTop = true;
 			presenter.IsResizable = false;
 			presenter.IsMaximizable = false;
+			presenter.IsMinimizable = false;
 		}
 	}
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
     {
         _styleManager.ApplyNoActivateStyle();
+		_styleManager.RemoveMinMaxButtons();
         
         if (!_isInitialPositionSet && e.WindowActivationState != WindowActivationState.Deactivated)
         {
@@ -524,31 +534,39 @@ public sealed partial class MainWindow : Window
 
     #region Window Visibility Management
 
-    private void ShowWindow(bool preserveFocus = false)
+	private void ShowWindow(bool preserveFocus = false)
     {
         try
         {
-            _positionManager?.PositionWindow();
-            
-            // FIXED: Use SetWindowPos with SWP_NOACTIVATE to show window without stealing focus
-            if (preserveFocus)
-            {
-                // Get current window position
-                var (x, y, width, height) = _positionManager.GetWindowPosition();
-                
-                // Show window without activating it
-                SetWindowPos(
-                    _thisWindowHandle,
-                    IntPtr.Zero,
-                    x, y, width, height,
-                    SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW
-                );
-                
-                Logger.Info("Window shown with focus preserved (using SetWindowPos)");
-            }
+            IntPtr previousForegroundWindow = IntPtr.Zero;
+			if (preserveFocus)
+			{
+				previousForegroundWindow = GetForegroundWindow();
+			}
+
+			_positionManager?.PositionWindow(showWindow: true);
+
+			if (preserveFocus)
+			{
+				IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
+
+				if (tracked != IntPtr.Zero && tracked != _thisWindowHandle)
+				{
+					Logger.Info($"Restoring focus to last tracked window: 0x{tracked:X}");
+					FocusHelper.RestoreForegroundWindow(tracked);
+				}
+				else
+				{
+					IntPtr prev = GetForegroundWindow();
+					if (prev != IntPtr.Zero && prev != _thisWindowHandle)
+					{
+						Logger.Info($"Fallback restore to previous foreground window: 0x{prev:X}");
+						FocusHelper.RestoreForegroundWindow(prev);
+					}
+				}
+			}
             else
             {
-                // Show and activate normally
                 ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
                 this.Activate();
                 Logger.Info("Window shown and activated");

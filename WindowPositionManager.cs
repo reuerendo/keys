@@ -81,14 +81,13 @@ public class WindowPositionManager
         _hwnd = hwnd;
     }
 
-    /// <summary>
+	/// <summary>
     /// Positions window at bottom-center of screen, above taskbar
     /// </summary>
-    public void PositionWindow()
+    public void PositionWindow(bool showWindow = false)
     {
         try
         {
-            // Get window size
             if (!GetWindowRect(_hwnd, out RECT windowRect))
             {
                 Logger.Error("Failed to get window rect");
@@ -98,9 +97,6 @@ public class WindowPositionManager
             int windowWidth = windowRect.Width;
             int windowHeight = windowRect.Height;
 
-            Logger.Info($"Window size: {windowWidth}x{windowHeight}");
-
-            // Get monitor containing the window
             IntPtr hMonitor = MonitorFromWindow(_hwnd, MONITOR_DEFAULTTONEAREST);
             
             MONITORINFO monitorInfo = new MONITORINFO();
@@ -112,11 +108,8 @@ public class WindowPositionManager
                 return;
             }
 
-            // Get work area (excluding taskbar)
             RECT workArea = monitorInfo.rcWork;
-            Logger.Info($"Work area: Left={workArea.Left}, Top={workArea.Top}, Right={workArea.Right}, Bottom={workArea.Bottom}");
 
-            // Get taskbar position
             APPBARDATA taskbarData = new APPBARDATA();
             taskbarData.cbSize = Marshal.SizeOf(typeof(APPBARDATA));
             IntPtr result = SHAppBarMessage(ABM_GETTASKBARPOS, ref taskbarData);
@@ -126,71 +119,66 @@ public class WindowPositionManager
 
             if (result != IntPtr.Zero)
             {
-                // Determine taskbar height
                 taskbarHeight = taskbarData.rc.Height;
                 
-                // Check taskbar position
                 if (taskbarData.uEdge == 1) // ABE_TOP
                 {
                     taskbarAtBottom = false;
-                    Logger.Info($"Taskbar at top, height: {taskbarHeight}");
                 }
                 else if (taskbarData.uEdge == 3) // ABE_BOTTOM
                 {
                     taskbarAtBottom = true;
-                    Logger.Info($"Taskbar at bottom, height: {taskbarHeight}");
                 }
                 else if (taskbarData.uEdge == 0 || taskbarData.uEdge == 2) // ABE_LEFT or ABE_RIGHT
                 {
-                    Logger.Info($"Taskbar at side, using work area");
-                    taskbarHeight = 0; // Use work area
+                    taskbarHeight = 0; //
                 }
             }
             else
             {
-                Logger.Warning("Could not get taskbar position, using default");
-                // Assume standard taskbar height
                 taskbarHeight = 48;
             }
 
-            // Get DPI for correct scaling
             uint dpi = GetDpiForWindow(_hwnd);
             float scalingFactor = dpi / 96f;
             int scaledOffset = (int)(TASKBAR_OFFSET * scalingFactor);
 
-            // Calculate X position (center of screen)
             int screenWidth = workArea.Right - workArea.Left;
             int posX = workArea.Left + (screenWidth - windowWidth) / 2;
 
-            // Calculate Y position (bottom of screen, above taskbar)
             int posY;
             if (taskbarAtBottom)
             {
-                // Taskbar at bottom - position above it
                 posY = workArea.Bottom - windowHeight - scaledOffset;
             }
             else
             {
-                // Taskbar not at bottom - use bottom edge of work area
+                // Если таскбар сверху или сбоку, просто прижимаем к низу рабочей области
                 posY = workArea.Bottom - windowHeight - scaledOffset;
             }
 
             Logger.Info($"Positioning window at X={posX}, Y={posY} (DPI: {dpi}, Scale: {scalingFactor})");
 
-            // Set window position
+            uint uFlags = SWP_NOACTIVATE | 0x0001;
+
+            if (showWindow)
+            {
+                uFlags |= 0x0040; // SWP_SHOWWINDOW
+            }
+
             bool success = SetWindowPos(
                 _hwnd,
                 new IntPtr(HWND_TOPMOST),
                 posX,
                 posY,
-                0, // Don't change width
-                0, // Don't change height
-                SWP_NOACTIVATE | SWP_NOZORDER | 0x0001 // SWP_NOSIZE
+                0, // Ширину не меняем
+                0, // Высоту не меняем
+                uFlags
             );
 
             if (success)
             {
-                Logger.Info("Window positioned successfully");
+                Logger.Info($"Window positioned successfully. Flags: 0x{uFlags:X}");
             }
             else
             {
