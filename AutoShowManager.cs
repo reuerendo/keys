@@ -209,6 +209,7 @@ public class AutoShowManager : IDisposable
     private bool _isEnabled;
     private DateTime _lastHideTime;
     private DateTime _lastMouseClickTime;
+    private POINT _lastClickPosition;
     private bool _isDisposed;
 
     public event EventHandler ShowKeyboardRequested;
@@ -239,6 +240,7 @@ public class AutoShowManager : IDisposable
         _keyboardWindowHandle = keyboardWindowHandle;
         _lastHideTime = DateTime.MinValue;
         _lastMouseClickTime = DateTime.MinValue;
+        _lastClickPosition = new POINT { x = -1, y = -1 };
         
         try
         {
@@ -337,6 +339,7 @@ public class AutoShowManager : IDisposable
                 if (clickedWindow != _keyboardWindowHandle)
                 {
                     _lastMouseClickTime = DateTime.Now;
+                    _lastClickPosition = hookStruct.pt;
                     Logger.Debug($"Mouse click detected at ({hookStruct.pt.x}, {hookStruct.pt.y})");
                 }
             }
@@ -387,6 +390,14 @@ public class AutoShowManager : IDisposable
                 return;
             }
 
+            // CRITICAL: Check if the focused element is at the click position
+            // This prevents showing keyboard when switching tabs/windows with pre-focused fields
+            if (!IsFocusedElementAtClickPosition())
+            {
+                Logger.Debug("Focus event ignored - focused element is not at click position (tab/window switch)");
+                return;
+            }
+
             // Check if focused element is a text input
             if (IsTextInputElement(hwnd))
             {
@@ -397,6 +408,81 @@ public class AutoShowManager : IDisposable
         catch (Exception ex)
         {
             Logger.Error("Error processing focus event", ex);
+        }
+    }
+
+    /// <summary>
+    /// Check if the currently focused element is at or near the last click position
+    /// </summary>
+    private bool IsFocusedElementAtClickPosition()
+    {
+        if (_lastClickPosition.x < 0 || _lastClickPosition.y < 0)
+            return false;
+
+        if (_automation == null)
+            return false;
+
+        IUIAutomationElement clickedElement = null;
+
+        try
+        {
+            // Get element at click position
+            var pt = new tagPOINT { x = _lastClickPosition.x, y = _lastClickPosition.y };
+            clickedElement = _automation.ElementFromPoint(pt);
+
+            if (clickedElement == null)
+            {
+                Logger.Debug("Could not get element at click position");
+                return false;
+            }
+
+            // Get currently focused element
+            var focusedElement = _automation.GetFocusedElement();
+            if (focusedElement == null)
+            {
+                Logger.Debug("Could not get focused element");
+                return false;
+            }
+
+            try
+            {
+                // Compare elements
+                int result = _automation.CompareElements(clickedElement, focusedElement);
+                bool isSameElement = (result != 0);
+
+                if (isSameElement)
+                {
+                    Logger.Debug("Focused element matches clicked element - click-initiated focus");
+                }
+                else
+                {
+                    Logger.Debug("Focused element differs from clicked element - programmatic focus (tab switch)");
+                }
+
+                if (focusedElement != null && Marshal.IsComObject(focusedElement))
+                {
+                    Marshal.ReleaseComObject(focusedElement);
+                }
+
+                return isSameElement;
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"Error comparing elements: {ex.Message}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error checking clicked element", ex);
+            return false;
+        }
+        finally
+        {
+            if (clickedElement != null && Marshal.IsComObject(clickedElement))
+            {
+                Marshal.ReleaseComObject(clickedElement);
+            }
         }
     }
 
