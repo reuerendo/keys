@@ -5,51 +5,37 @@ using Microsoft.UI.Xaml;
 
 namespace VirtualKeyboard;
 
-/// <summary>
-/// Manages system tray icon and notifications for the application
-/// </summary>
 public class TrayIcon : IDisposable
 {
-    // Win32 Constants
     private const int WM_USER = 0x0400;
     private const int WM_TRAYICON = WM_USER + 1;
-    private const int WM_LBUTTONUP = 0x0202; // Changed from WM_LBUTTONDBLCLK to WM_LBUTTONUP
+    private const int WM_LBUTTONUP = 0x0202;
     private const int WM_RBUTTONUP = 0x0205;
-    
+
     private const uint NIM_ADD = 0x00000000;
     private const uint NIM_MODIFY = 0x00000001;
     private const uint NIM_DELETE = 0x00000002;
-    
+
     private const uint NIF_MESSAGE = 0x00000001;
     private const uint NIF_ICON = 0x00000002;
     private const uint NIF_TIP = 0x00000004;
-    private const uint NIF_STATE = 0x00000008;
-    private const uint NIF_INFO = 0x00000010;
-    private const uint NIF_GUID = 0x00000020;
-    private const uint NIF_REALTIME = 0x00000040;
     private const uint NIF_SHOWTIP = 0x00000080;
-    
-    private const uint NIS_HIDDEN = 0x00000001;
-    private const uint NIS_SHAREDICON = 0x00000002;
-    
+
     private const int IDI_APPLICATION = 32512;
     private const int IDI_INFORMATION = 32516;
-    
+
     private const uint TPM_RETURNCMD = 0x0100;
     private const uint TPM_RIGHTBUTTON = 0x0002;
-    
+
     private const uint LR_LOADFROMFILE = 0x00000010;
     private const uint LR_DEFAULTSIZE = 0x00000040;
-    
-    // Menu item IDs
+
     private const int MENU_SHOW = 1000;
     private const int MENU_SETTINGS = 1001;
     private const int MENU_EXIT = 1002;
 
-    // NOTIFYICONDATA versions
     private const uint NOTIFYICON_VERSION_4 = 4;
 
-    // Structures
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATA
     {
@@ -73,7 +59,6 @@ public class TrayIcon : IDisposable
         public IntPtr hBalloonIcon;
     }
 
-    // P/Invoke
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
@@ -83,7 +68,7 @@ public class TrayIcon : IDisposable
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr LoadImage(IntPtr hInst, string lpszName, uint uType, int cxDesired, int cyDesired, uint fuLoad);
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll")]
     private static extern bool DestroyIcon(IntPtr hIcon);
 
     [DllImport("user32.dll")]
@@ -128,23 +113,11 @@ public class TrayIcon : IDisposable
     public TrayIcon(IntPtr windowHandle, string tooltip = "Virtual Keyboard")
     {
         _hwnd = windowHandle;
-        
-        // Create message-only window for receiving tray icon messages
+
         _messageWindow = new TrayIconMessageWindow(this);
-        
-        // Load icon
+
         _hIcon = LoadTrayIcon();
-        
-        if (_hIcon == IntPtr.Zero)
-        {
-            Logger.Error("Failed to load any icon!");
-        }
-        else
-        {
-            Logger.Info($"Successfully loaded icon: 0x{_hIcon:X}");
-        }
-        
-        // Initialize NOTIFYICONDATA structure with full size for Windows Vista+
+
         _notifyIconData = new NOTIFYICONDATA
         {
             cbSize = Marshal.SizeOf(typeof(NOTIFYICONDATA)),
@@ -155,65 +128,30 @@ public class TrayIcon : IDisposable
             hIcon = _hIcon,
             szTip = tooltip,
             uVersion = NOTIFYICON_VERSION_4,
-            dwState = 0,
-            dwStateMask = 0,
             guidItem = Guid.NewGuid()
         };
-        
+
         Logger.Info($"TrayIcon initialized. Structure size: {_notifyIconData.cbSize}, Icon: 0x{_hIcon:X}, Window: 0x{_messageWindow.Handle:X}");
     }
 
-    /// <summary>
-    /// Load tray icon with priority: custom file > embedded resource > system icon
-    /// </summary>
     private IntPtr LoadTrayIcon()
     {
-        // Priority 1: Try to load custom icon from file
         string appDir = AppDomain.CurrentDomain.BaseDirectory;
         string iconPath = Path.Combine(appDir, "tray_icon.ico");
-        
+
         if (File.Exists(iconPath))
         {
             Logger.Info($"Found custom icon file: {iconPath}");
             IntPtr hIcon = LoadImage(IntPtr.Zero, iconPath, 1, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
-            
             if (hIcon != IntPtr.Zero)
-            {
-                Logger.Info("Successfully loaded custom icon from file");
                 return hIcon;
-            }
-            else
-            {
-                int error = Marshal.GetLastWin32Error();
-                Logger.Warning($"Failed to load custom icon file. Error: {error}");
-            }
         }
-        else
-        {
-            Logger.Info($"No custom icon file found at: {iconPath}");
-        }
-        
-        // Priority 2: Try to load from module resources
+
         IntPtr hInstance = GetModuleHandle(null);
         IntPtr hIcon2 = LoadIcon(hInstance, IDI_APPLICATION);
-        
         if (hIcon2 != IntPtr.Zero)
-        {
-            Logger.Info("Loaded application icon from module");
             return hIcon2;
-        }
-        
-        // Priority 3: Load standard Windows icon
-        IntPtr hIcon3 = LoadIcon(IntPtr.Zero, IDI_APPLICATION);
-        
-        if (hIcon3 != IntPtr.Zero)
-        {
-            Logger.Info("Loaded standard Windows application icon");
-            return hIcon3;
-        }
-        
-        // Priority 4: Last resort - information icon
-        Logger.Warning("Using fallback information icon");
+
         return LoadIcon(IntPtr.Zero, IDI_INFORMATION);
     }
 
@@ -221,24 +159,12 @@ public class TrayIcon : IDisposable
     {
         if (!_isIconAdded)
         {
-            Logger.Info($"Adding tray icon. cbSize={_notifyIconData.cbSize}, hWnd=0x{_notifyIconData.hWnd:X}, uID={_notifyIconData.uID}, uFlags=0x{_notifyIconData.uFlags:X}, hIcon=0x{_notifyIconData.hIcon:X}");
-            
             bool result = Shell_NotifyIcon(NIM_ADD, ref _notifyIconData);
-            
+
             if (result)
             {
                 _isIconAdded = true;
-                
-                // Set version for balloon tips and modern behavior
                 Shell_NotifyIcon(NIM_MODIFY, ref _notifyIconData);
-                
-                Logger.Info("Tray icon added successfully");
-            }
-            else
-            {
-                int error = Marshal.GetLastWin32Error();
-                Logger.Error($"Failed to add tray icon. Win32 Error: {error}");
-                Logger.Error($"Structure details: cbSize={_notifyIconData.cbSize}, expected={Marshal.SizeOf(typeof(NOTIFYICONDATA))}");
             }
         }
     }
@@ -249,7 +175,6 @@ public class TrayIcon : IDisposable
         {
             Shell_NotifyIcon(NIM_DELETE, ref _notifyIconData);
             _isIconAdded = false;
-            Logger.Info("Tray icon removed");
         }
     }
 
@@ -266,46 +191,38 @@ public class TrayIcon : IDisposable
     {
         switch (message)
         {
-            case WM_LBUTTONUP: // Changed from WM_LBUTTONDBLCLK to WM_LBUTTONUP
-                Logger.Info("Tray icon left-clicked (single click)");
-                ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty); // Invoke toggle event
+            case WM_LBUTTONUP:
+                FocusRestorer.CaptureCurrentFocus();
+                ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty);
+                FocusRestorer.RestoreFocus();
                 break;
-                
+
             case WM_RBUTTONUP:
-                Logger.Info("Tray icon right-clicked");
+                FocusRestorer.CaptureCurrentFocus();
                 ShowContextMenu();
+                FocusRestorer.RestoreFocus();
                 break;
         }
     }
 
     private void ShowContextMenu()
     {
-        // Get cursor position
         GetCursorPos(out POINT pt);
-        
-        // Create popup menu
+
         IntPtr hMenu = CreatePopupMenu();
-        
-        if (hMenu != IntPtr.Zero)
-        {
-            // Add menu items
-            AppendMenu(hMenu, 0, MENU_SHOW, "Показать");
-            AppendMenu(hMenu, 0, MENU_SETTINGS, "Настройки");
-            AppendMenu(hMenu, 0x800, 0, null); // MF_SEPARATOR
-            AppendMenu(hMenu, 0, MENU_EXIT, "Выход");
-            
-            // Set foreground window to make menu work properly
-            SetForegroundWindow(_messageWindow.Handle);
-            
-            // Show menu and get selected item
-            uint cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.X, pt.Y, 0, _messageWindow.Handle, IntPtr.Zero);
-            
-            // Cleanup
-            DestroyMenu(hMenu);
-            
-            // Handle menu selection
-            HandleMenuCommand(cmd);
-        }
+
+        AppendMenu(hMenu, 0, MENU_SHOW, "Показать");
+        AppendMenu(hMenu, 0, MENU_SETTINGS, "Настройки");
+        AppendMenu(hMenu, 0x800, 0, null);
+        AppendMenu(hMenu, 0, MENU_EXIT, "Выход");
+
+        SetForegroundWindow(_messageWindow.Handle);
+
+        uint cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.X, pt.Y, 0, _messageWindow.Handle, IntPtr.Zero);
+
+        DestroyMenu(hMenu);
+
+        HandleMenuCommand(cmd);
     }
 
     private void HandleMenuCommand(uint cmd)
@@ -313,17 +230,12 @@ public class TrayIcon : IDisposable
         switch (cmd)
         {
             case MENU_SHOW:
-                Logger.Info("Menu: Show selected");
                 ShowRequested?.Invoke(this, EventArgs.Empty);
                 break;
-                
             case MENU_SETTINGS:
-                Logger.Info("Menu: Settings selected");
                 SettingsRequested?.Invoke(this, EventArgs.Empty);
                 break;
-                
             case MENU_EXIT:
-                Logger.Info("Menu: Exit selected");
                 ExitRequested?.Invoke(this, EventArgs.Empty);
                 break;
         }
@@ -332,37 +244,33 @@ public class TrayIcon : IDisposable
     public void Dispose()
     {
         Hide();
-        
         if (_hIcon != IntPtr.Zero)
         {
             DestroyIcon(_hIcon);
             _hIcon = IntPtr.Zero;
         }
-        
         _messageWindow?.Dispose();
-        Logger.Info("TrayIcon disposed");
     }
 
-    // Hidden message-only window to receive tray icon messages
     private class TrayIconMessageWindow : IDisposable
     {
         private const string WINDOW_CLASS_NAME = "VirtualKeyboardTrayIconWindow";
-        
+
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
-        
+
         [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         private static extern IntPtr CreateWindowEx(
             uint dwExStyle, string lpClassName, string lpWindowName, uint dwStyle,
             int x, int y, int nWidth, int nHeight, IntPtr hWndParent, IntPtr hMenu,
             IntPtr hInstance, IntPtr lpParam);
-        
+
         [DllImport("user32.dll")]
         private static extern bool DestroyWindow(IntPtr hWnd);
-        
+
         [DllImport("user32.dll")]
         private static extern IntPtr DefWindowProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
-        
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
 
@@ -395,9 +303,9 @@ public class TrayIcon : IDisposable
         {
             _parent = parent;
             _wndProcDelegate = WindowProc;
-            
+
             IntPtr hInstance = GetModuleHandle(null);
-            
+
             WNDCLASSEX wndClass = new WNDCLASSEX
             {
                 cbSize = (uint)Marshal.SizeOf(typeof(WNDCLASSEX)),
@@ -405,37 +313,11 @@ public class TrayIcon : IDisposable
                 hInstance = hInstance,
                 lpszClassName = WINDOW_CLASS_NAME
             };
-            
-            ushort atom = RegisterClassEx(ref wndClass);
-            
-            if (atom == 0)
-            {
-                Logger.Error($"Failed to register window class. Error: {Marshal.GetLastWin32Error()}");
-            }
-            
-            // Create message-only window (HWND_MESSAGE = -3)
-            // Create a hidden top-level window instead of a message-only window.
-			// This is required because Shell_NotifyIcon does NOT reliably support HWND_MESSAGE on Win10/11.
-			_hwnd = CreateWindowEx(
-				0,                      // no special extended style
-				WINDOW_CLASS_NAME,      // class
-				"TrayIconWindow",       // window name (not used)
-				0x80000000,             // WS_POPUP (hidden top-level window)
-				0, 0, 0, 0,             // zero size
-				IntPtr.Zero,            // parent MUST be NULL (top-level)
-				IntPtr.Zero,
-				hInstance,
-				IntPtr.Zero
-			);
-            
-            if (_hwnd == IntPtr.Zero)
-            {
-                Logger.Error($"Failed to create message window. Error: {Marshal.GetLastWin32Error()}");
-            }
-            else
-            {
-                Logger.Info($"Message window created: 0x{_hwnd:X}");
-            }
+
+            RegisterClassEx(ref wndClass);
+
+            _hwnd = CreateWindowEx(0, WINDOW_CLASS_NAME, "TrayIconWindow", 0, 0, 0, 0, 0,
+                new IntPtr(-3), IntPtr.Zero, hInstance, IntPtr.Zero);
         }
 
         private IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -446,7 +328,7 @@ public class TrayIcon : IDisposable
                 _parent.OnTrayIconMessage(message);
                 return IntPtr.Zero;
             }
-            
+
             return DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
@@ -458,5 +340,58 @@ public class TrayIcon : IDisposable
                 _hwnd = IntPtr.Zero;
             }
         }
+    }
+}
+
+
+// ===========================
+//     FocusRestorer
+// ===========================
+public static class FocusRestorer
+{
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    private static IntPtr _prevFocus = IntPtr.Zero;
+    private static IntPtr _prevForeground = IntPtr.Zero;
+
+    public static void CaptureCurrentFocus()
+    {
+        _prevForeground = GetForegroundWindow();
+
+        uint thisThread = GetCurrentThreadId();
+        uint fgThread = GetWindowThreadProcessId(_prevForeground, out _);
+
+        AttachThreadInput(thisThread, fgThread, true);
+        _prevFocus = GetFocus();
+        AttachThreadInput(thisThread, fgThread, false);
+    }
+
+    public static void RestoreFocus()
+    {
+        if (_prevFocus == IntPtr.Zero)
+            return;
+
+        uint thisThread = GetCurrentThreadId();
+        uint fgThread = GetWindowThreadProcessId(_prevForeground, out _);
+
+        AttachThreadInput(thisThread, fgThread, true);
+        SetFocus(_prevFocus);
+        AttachThreadInput(thisThread, fgThread, false);
     }
 }
