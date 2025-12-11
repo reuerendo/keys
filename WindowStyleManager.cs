@@ -12,7 +12,7 @@ namespace VirtualKeyboard
         private const int GWL_EXSTYLE = -20;
         private const long WS_EX_NOACTIVATE = 0x08000000L;
         private const long WS_EX_TOPMOST = 0x00000008L;
-        private const long WS_EX_TOOLWINDOW = 0x00000080L;
+        // private const long WS_EX_TOOLWINDOW = 0x00000080L;
         private const long WS_EX_NOREDIRECTIONBITMAP = 0x00200000L; // optional, may help with rendering/compat
 
         // P/Invoke
