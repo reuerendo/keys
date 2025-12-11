@@ -446,7 +446,11 @@ public class LongPressPopup
                     new LongPressOption("”", "”"),
                     new LongPressOption("‚", "‚"),
                     new LongPressOption("’", "’")
-                }
+                },
+                [","] = new List<LongPressOption>
+                {
+                    new LongPressOption("&", "&")
+                },
                 ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
