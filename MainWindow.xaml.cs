@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Xaml.Media;
 
 namespace VirtualKeyboard;
 
@@ -280,18 +281,45 @@ public sealed partial class MainWindow : Window
 		
 		double userScale = _settingsManager.Settings.KeyboardScale;
 		
-		// Base keyboard size (100% scale)
+		// Base keyboard size (100% scale at 96 DPI)
 		int baseWidth = 997;
 		int baseHeight = 330;
 		
-		// Calculate physical window size with BOTH DPI and user scale
+		// AppWindow.Resize works with PHYSICAL PIXELS, not DIPs
+		// Calculate physical window size: baseSize × DPI scale × user scale
 		int physicalWidth = (int)(baseWidth * dpiScale * userScale);
 		int physicalHeight = (int)(baseHeight * dpiScale * userScale);
 		
-		Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {dpiScale:F2}, User scale: {userScale:P0})");
+		Logger.Info($"Window size: {physicalWidth}x{physicalHeight} (DPI: {dpiScale:F2}, User: {userScale:P0})");
 		
+		// Resize the window to physical pixel size
 		var appWindow = this.AppWindow;
 		appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
+		
+		// Apply ScaleTransform to XAML content with user scale
+		// XAML works in DIPs, so we need to scale the content to match window size
+		// Content: baseDIP × userScale × DPI = physical pixels (matches window)
+		if (this.Content is FrameworkElement rootElement)
+		{
+			// Find the RootScaleTransform from XAML
+			if (rootElement is Grid rootGrid && rootGrid.RenderTransform is ScaleTransform scaleTransform)
+			{
+				scaleTransform.ScaleX = userScale;
+				scaleTransform.ScaleY = userScale;
+				Logger.Info($"Applied ScaleTransform to existing transform: {userScale}x");
+			}
+			else
+			{
+				// If RenderTransform is not set in XAML, create it programmatically
+				var transform = new ScaleTransform
+				{
+					ScaleX = userScale,
+					ScaleY = userScale
+				};
+				rootElement.RenderTransform = transform;
+				Logger.Info($"Created and applied new ScaleTransform: {userScale}x");
+			}
+		}
 		
 		if (appWindow.Presenter is OverlappedPresenter presenter)
 		{
