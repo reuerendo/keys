@@ -37,6 +37,7 @@
     <VersionMinor>1</VersionMinor>
     <WrapperTool>tlbimp</WrapperTool>
   </COMReference>
+</ItemGroup>
   
   <ItemGroup>
     <Content Include="tray_icon.ico">
