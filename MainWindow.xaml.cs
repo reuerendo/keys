@@ -69,7 +69,7 @@ public sealed partial class MainWindow : Window
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
-		_focusTracker = new FocusTracker(_thisHwnd);
+		_focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
@@ -548,7 +548,7 @@ public sealed partial class MainWindow : Window
 			{
 				IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
 
-				if (tracked != IntPtr.Zero && tracked != _thisHwnd)
+				if (tracked != IntPtr.Zero && tracked != _thisWindowHandle)
 				{
 					Logger.Info($"Restoring focus to last tracked window: 0x{tracked:X}");
 					FocusHelper.RestoreForegroundWindow(tracked);
@@ -556,7 +556,7 @@ public sealed partial class MainWindow : Window
 				else
 				{
 					IntPtr prev = GetForegroundWindow();
-					if (prev != IntPtr.Zero && prev != _thisHwnd)
+					if (prev != IntPtr.Zero && prev != _thisWindowHandle)
 					{
 						Logger.Info($"Fallback restore to previous foreground window: 0x{prev:X}");
 						FocusHelper.RestoreForegroundWindow(prev);
