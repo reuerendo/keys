@@ -107,7 +107,7 @@ public sealed partial class MainWindow : Window
                 btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(KeyButton_PointerCanceled), true);
                 btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(KeyButton_PointerCaptureLost), true);
                 
-                Logger.Debug($"Long-press handlers added for key: {tag}");
+                // Logger.Debug($"Long-press handlers added for key: {tag}");
             }
         }
 

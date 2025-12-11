@@ -23,9 +23,10 @@ public class AutoShowManager : IDisposable
     private const int UIA_PaneControlTypeId = 50033;
     private const int UIA_CustomControlTypeId = 50025;
     private const int UIA_GroupControlTypeId = 50026;
+    private const int UIA_DataItemControlTypeId = 50007;
 
     // UI Automation property IDs
-    private const int UIA_BoundingRectanglePropertyId = 30001; // New: For strict location check
+    private const int UIA_BoundingRectanglePropertyId = 30001;
     private const int UIA_ControlTypePropertyId = 30003;
     private const int UIA_IsEnabledPropertyId = 30010;
     private const int UIA_ClassNamePropertyId = 30012;
@@ -37,8 +38,7 @@ public class AutoShowManager : IDisposable
     // Cooldown to prevent keyboard from showing immediately after hide
     private const int HIDE_COOLDOWN_MS = 1000;
     
-    // Reduced timeout back to 1000ms. Since we now check LOCATION, we can be more strict with time.
-    // If we keep it too long, clicking somewhere else and then tabbing might trigger it false-positively.
+    // Timeout for click-to-focus correlation
     private const int CLICK_TIMEOUT_MS = 1000;
 
     #region Win32 Imports
@@ -208,6 +208,7 @@ public class AutoShowManager : IDisposable
     private DateTime _lastHideTime;
     private DateTime _lastMouseClickTime;
     private POINT _lastClickPosition;
+    private IUIAutomationElement _clickedElement;
     private bool _isDisposed;
 
     public event EventHandler ShowKeyboardRequested;
@@ -239,6 +240,7 @@ public class AutoShowManager : IDisposable
         _lastHideTime = DateTime.MinValue;
         _lastMouseClickTime = DateTime.MinValue;
         _lastClickPosition = new POINT { x = -1, y = -1 };
+        _clickedElement = null;
         
         try
         {
@@ -324,6 +326,11 @@ public class AutoShowManager : IDisposable
                 {
                     _lastMouseClickTime = DateTime.Now;
                     _lastClickPosition = hookStruct.pt;
+                    
+                    // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: получаем элемент под курсором в момент клика
+                    ReleaseClickedElement();
+                    _clickedElement = GetElementAtPoint(hookStruct.pt);
+                    
                     Logger.Debug($"Mouse click detected at ({hookStruct.pt.x}, {hookStruct.pt.y}), window: 0x{clickedWindow:X}");
                 }
             }
@@ -334,6 +341,39 @@ public class AutoShowManager : IDisposable
         }
 
         return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+    }
+
+    /// <summary>
+    /// Получает UI Automation элемент в указанной точке экрана
+    /// </summary>
+    private IUIAutomationElement GetElementAtPoint(POINT pt)
+    {
+        try
+        {
+            var tagPt = new tagPOINT { x = pt.x, y = pt.y };
+            return _automation.ElementFromPoint(tagPt);
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Failed to get element at point ({pt.x}, {pt.y}): {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Освобождает COM-объект кликнутого элемента
+    /// </summary>
+    private void ReleaseClickedElement()
+    {
+        if (_clickedElement != null)
+        {
+            try
+            {
+                Marshal.ReleaseComObject(_clickedElement);
+            }
+            catch { }
+            _clickedElement = null;
+        }
     }
 
     private void WinEventCallback(
@@ -369,34 +409,49 @@ public class AutoShowManager : IDisposable
 
         try
         {
-            // 5. Get the actual focused element to perform logic checks
+            // 5. Get the actual focused element
             IUIAutomationElement focusedElement = _automation.GetFocusedElement();
             if (focusedElement == null) return;
 
-            // 6. STRICT LOCATION CHECK:
-            // Did the click happen inside the element that now has focus?
-            // This prevents "Automatic" activation when focus shifts programmatically.
-            bool isClickInside = IsClickInsideElement(focusedElement, _lastClickPosition);
+            // 6. НОВАЯ ЛОГИКА: проверяем элемент, на который кликнули
+            bool isTextInputClicked = false;
             
-            if (!isClickInside)
+            if (_clickedElement != null)
             {
-                // Edge case: Sometimes focused element is a generic "Pane" (like in Chrome), 
-                // but we clicked an 'input' inside it.
-                // However, for strict "click-to-type", requiring overlap is safer.
-                Logger.Debug($"Focus event ignored - Click at ({_lastClickPosition.x},{_lastClickPosition.y}) was NOT inside focused element bounds.");
-                Marshal.ReleaseComObject(focusedElement);
-                return;
+                // Проверяем сам кликнутый элемент
+                isTextInputClicked = IsTextInputElement(_clickedElement);
+                
+                if (!isTextInputClicked)
+                {
+                    // Проверяем, может быть это wrapper - ищем текстовое поле в дочерних элементах
+                    isTextInputClicked = HasTextInputChild(_clickedElement);
+                }
+                
+                if (isTextInputClicked)
+                {
+                    Logger.Debug("Clicked element is a text input or contains one");
+                }
             }
 
-            // 7. Check if it is a Text Input
-            if (IsTextInputElement(focusedElement))
+            // 7. Проверяем сфокусированный элемент
+            bool isFocusedTextInput = IsTextInputElement(focusedElement);
+            
+            if (!isFocusedTextInput)
             {
-                Logger.Info($"Text input focused AND clicked (inside bounds). Latency: {timeSinceClick:F0}ms. Showing keyboard.");
+                // Может быть фокус на wrapper - проверяем дочерние элементы
+                isFocusedTextInput = HasTextInputChild(focusedElement);
+            }
+
+            // 8. Принимаем решение: либо кликнули на текстовое поле, либо фокус на текстовом поле
+            // Это позволяет обрабатывать случаи, когда фокус переходит на родительский элемент
+            if (isTextInputClicked || isFocusedTextInput)
+            {
+                Logger.Info($"Text input activated by click. Latency: {timeSinceClick:F0}ms. Showing keyboard.");
                 OnShowKeyboardRequested();
             }
             else
             {
-                Logger.Debug("Focus event ignored - Element is not a text input");
+                Logger.Debug("Focus event ignored - Neither clicked nor focused element is a text input");
             }
 
             Marshal.ReleaseComObject(focusedElement);
@@ -408,51 +463,48 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Checks if the last click coordinates are within the bounding rectangle of the focused element.
-    /// This ensures we only trigger when the USER interacted with THIS specific element.
+    /// Проверяет, содержит ли элемент текстовое поле среди дочерних элементов
     /// </summary>
-    private bool IsClickInsideElement(IUIAutomationElement element, POINT clickPt)
+    private bool HasTextInputChild(IUIAutomationElement element)
     {
         try
         {
-            // Property ID 30001 is BoundingRectangle
-            object rectObj = element.GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId);
-            
-            // UIA returns an array of 4 doubles: [Left, Top, Width, Height]
-            if (rectObj is double[] rectArray && rectArray.Length == 4)
-            {
-                double left = rectArray[0];
-                double top = rectArray[1];
-                double width = rectArray[2];
-                double height = rectArray[3];
-                
-                // Check for invalid rects (off-screen or empty)
-                if (width <= 0 || height <= 0) return false;
+            var children = element.GetCachedChildren();
+            if (children == null) return false;
 
-                bool inside = clickPt.x >= left && clickPt.x <= (left + width) &&
-                              clickPt.y >= top && clickPt.y <= (top + height);
-                              
-                if (inside) 
+            int count = children.Length;
+            for (int i = 0; i < count; i++)
+            {
+                try
                 {
-                    Logger.Debug($"Click verified inside element bounds: [{left},{top}, {width}x{height}]");
-                    return true;
+                    var child = children.GetElement(i);
+                    if (child != null)
+                    {
+                        bool isTextInput = IsTextInputElement(child);
+                        Marshal.ReleaseComObject(child);
+                        
+                        if (isTextInput)
+                        {
+                            Logger.Debug($"Found text input in child element {i}/{count}");
+                            return true;
+                        }
+                    }
                 }
+                catch { }
             }
+            
+            Marshal.ReleaseComObject(children);
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Failed to check element bounds: {ex.Message}");
-            // If we can't check bounds (e.g. some web elements), should we allow it?
-            // User requested STRICT activation. So default to false implies safety.
-            // But for compatibility, if we can't read bounds, we might assume true if Time is very short.
-            // Let's stick to strict for now to solve the user's primary complaint.
-            return false;
+            Logger.Debug($"Error checking child elements: {ex.Message}");
         }
+        
         return false;
     }
 
     /// <summary>
-    /// Robust check for text input capability with aggressive error handling
+    /// Расширенная проверка на текстовое поле с поддержкой большего количества типов
     /// </summary>
     private bool IsTextInputElement(IUIAutomationElement element)
     {
@@ -460,83 +512,158 @@ public class AutoShowManager : IDisposable
         {
             if (element == null) return false;
 
-            // 1. Basic properties (Safe wrappers)
+            // 1. Basic properties
             int controlType = 0;
             string className = "";
+            bool isEnabled = true;
 
             try { controlType = element.CurrentControlType; } catch { }
             try { className = element.CurrentClassName ?? ""; } catch { }
+            try { isEnabled = element.CurrentIsEnabled; } catch { }
 
-            Logger.Debug($"Checking text input capability: Type={controlType}, Class='{className}'");
+            if (!isEnabled) return false;
 
-            // 2. Fast allow list
+            Logger.Debug($"Checking element: Type={controlType}, Class='{className}'");
+
+            // 2. Прямые типы текстовых полей
             if (controlType == UIA_EditControlTypeId || controlType == UIA_ComboBoxControlTypeId)
-                return true;
-
-            // 3. Document / Pane (Web & Electron)
-            if (controlType == UIA_DocumentControlTypeId || controlType == UIA_PaneControlTypeId)
             {
-                // Try Value Pattern
-                try
-                {
-                    var valuePattern = element.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
-                    if (valuePattern != null)
-                    {
-                        bool isReadOnly = false;
-                        try { isReadOnly = valuePattern.CurrentIsReadOnly; }
-                        catch { /* If we can't read ReadOnly status, usually it means it's not a standard input, or it's dead */ }
-                        
-                        if (!isReadOnly)
-                        {
-                            Logger.Debug("✓ Text input - Editable Value Pattern");
-                            return true;
-                        }
-                    }
-                }
-                catch (COMException) { /* Ignore "OLE variant invalid" etc */ }
-                catch (Exception) { }
-
-                // Try Text Pattern (Last resort for Docs)
-                try
-                {
-                    var textPattern = element.GetCurrentPattern(UIA_TextPatternId);
-                    if (textPattern != null)
-                    {
-                        // Heuristic: Only treat as input if class name suggests it, or it's a Document
-                        if (controlType == UIA_DocumentControlTypeId || 
-                            className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            Logger.Debug("✓ Text input - Text Pattern + Class Match");
-                            return true;
-                        }
-                    }
-                }
-                catch { }
+                Logger.Debug("✓ Text input - Edit/ComboBox control");
+                return true;
             }
 
-            // 4. Custom/Group (Web apps often use these)
-            // Only allow if they are focusable and we clicked inside them (checked previously)
-            if (controlType == UIA_CustomControlTypeId || controlType == UIA_GroupControlTypeId)
+            // 3. Document / Pane (Web & Electron apps)
+            if (controlType == UIA_DocumentControlTypeId || controlType == UIA_PaneControlTypeId)
             {
-                try
+                // Value Pattern check
+                if (HasEditableValuePattern(element))
                 {
-                    if (element.CurrentIsKeyboardFocusable && element.CurrentIsEnabled)
+                    Logger.Debug("✓ Text input - Editable Value Pattern");
+                    return true;
+                }
+
+                // Text Pattern check
+                if (HasTextPattern(element))
+                {
+                    // Эвристика: проверяем имя класса
+                    if (IsTextInputByClassName(className))
                     {
-                        Logger.Debug("✓ Text input - Focusable Custom/Group element");
+                        Logger.Debug("✓ Text input - Text Pattern + Class Match");
                         return true;
                     }
                 }
-                catch { }
+            }
+
+            // 4. Custom/Group/DataItem (современные UI фреймворки)
+            if (controlType == UIA_CustomControlTypeId || 
+                controlType == UIA_GroupControlTypeId ||
+                controlType == UIA_DataItemControlTypeId)
+            {
+                // Проверяем по имени класса
+                if (IsTextInputByClassName(className))
+                {
+                    Logger.Debug("✓ Text input - Custom control with text input class name");
+                    return true;
+                }
+                
+                // Проверяем, есть ли Value Pattern
+                if (HasEditableValuePattern(element))
+                {
+                    Logger.Debug("✓ Text input - Custom control with editable Value Pattern");
+                    return true;
+                }
+                
+                // Проверяем фокусируемость для Custom/Group
+                if (controlType != UIA_DataItemControlTypeId)
+                {
+                    try
+                    {
+                        if (element.CurrentIsKeyboardFocusable && element.CurrentIsEnabled)
+                        {
+                            Logger.Debug("✓ Text input - Focusable Custom/Group element");
+                            return true;
+                        }
+                    }
+                    catch { }
+                }
             }
 
             return false;
         }
         catch (Exception ex)
         {
-            Logger.Error($"Critical error in IsTextInputElement: {ex.Message}", ex);
+            Logger.Debug($"Error in IsTextInputElement: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Проверяет наличие редактируемого Value Pattern
+    /// </summary>
+    private bool HasEditableValuePattern(IUIAutomationElement element)
+    {
+        try
+        {
+            var valuePattern = element.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
+            if (valuePattern != null)
+            {
+                bool isReadOnly = false;
+                try { isReadOnly = valuePattern.CurrentIsReadOnly; }
+                catch { return false; }
+                
+                return !isReadOnly;
+            }
+        }
+        catch { }
+        
+        return false;
+    }
+
+    /// <summary>
+    /// Проверяет наличие Text Pattern
+    /// </summary>
+    private bool HasTextPattern(IUIAutomationElement element)
+    {
+        try
+        {
+            var textPattern = element.GetCurrentPattern(UIA_TextPatternId);
+            return textPattern != null;
+        }
+        catch { }
+        
+        return false;
+    }
+
+    /// <summary>
+    /// Определяет, является ли элемент текстовым полем по имени класса
+    /// </summary>
+    private bool IsTextInputByClassName(string className)
+    {
+        if (string.IsNullOrEmpty(className))
+            return false;
+
+        string lowerClass = className.ToLowerInvariant();
+        
+        // Ключевые слова, указывающие на текстовое поле
+        string[] textInputKeywords = new[]
+        {
+            "edit", "text", "input", "search", "box",
+            "textbox", "editbox", "searchbox",
+            "richedit", "scintilla", // Notepad++, advanced editors
+            "address", "url", "urlbar", // Browsers
+            "combo", "autocomplete"
+        };
+
+        foreach (var keyword in textInputKeywords)
+        {
+            if (lowerClass.Contains(keyword))
+            {
+                Logger.Debug($"Class name '{className}' matches text input keyword '{keyword}'");
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void OnShowKeyboardRequested()
@@ -551,6 +678,8 @@ public class AutoShowManager : IDisposable
 
         _isDisposed = true;
         StopHook();
+
+        ReleaseClickedElement();
 
         if (_automation != null)
         {
