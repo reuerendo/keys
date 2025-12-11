@@ -210,6 +210,7 @@ public class AutoShowManager : IDisposable
     private DateTime _lastHideTime;
     private DateTime _lastMouseClickTime;
     private POINT _lastClickPosition;
+    private IntPtr _lastClickedWindow;
     private bool _isDisposed;
 
     public event EventHandler ShowKeyboardRequested;
@@ -241,6 +242,7 @@ public class AutoShowManager : IDisposable
         _lastHideTime = DateTime.MinValue;
         _lastMouseClickTime = DateTime.MinValue;
         _lastClickPosition = new POINT { x = -1, y = -1 };
+        _lastClickedWindow = IntPtr.Zero;
         
         try
         {
@@ -340,7 +342,8 @@ public class AutoShowManager : IDisposable
                 {
                     _lastMouseClickTime = DateTime.Now;
                     _lastClickPosition = hookStruct.pt;
-                    Logger.Debug($"Mouse click detected at ({hookStruct.pt.x}, {hookStruct.pt.y})");
+                    _lastClickedWindow = clickedWindow;
+                    Logger.Debug($"Mouse click detected at ({hookStruct.pt.x}, {hookStruct.pt.y}), window: 0x{clickedWindow:X}");
                 }
             }
             catch (Exception ex)
@@ -390,19 +393,25 @@ public class AutoShowManager : IDisposable
                 return;
             }
 
-            // CRITICAL: Check if the focused element is at the click position
-            // This prevents showing keyboard when switching tabs/windows with pre-focused fields
-            if (!IsFocusedElementAtClickPosition())
-            {
-                Logger.Debug("Focus event ignored - focused element is not at click position (tab/window switch)");
-                return;
-            }
+            Logger.Debug($"Processing focus event: hwnd=0x{hwnd:X}, lastClickedWindow=0x{_lastClickedWindow:X}");
 
             // Check if focused element is a text input
             if (IsTextInputElement(hwnd))
             {
-                Logger.Info($"Text input focused in window 0x{hwnd:X} after mouse click");
-                OnShowKeyboardRequested();
+                // Check if the focus is click-initiated (not programmatic)
+                if (IsFocusClickInitiated(hwnd))
+                {
+                    Logger.Info($"Text input focused in window 0x{hwnd:X} after mouse click");
+                    OnShowKeyboardRequested();
+                }
+                else
+                {
+                    Logger.Debug("Focus event ignored - not click-initiated (programmatic focus or tab switch)");
+                }
+            }
+            else
+            {
+                Logger.Debug("Focus event ignored - not a text input element");
             }
         }
         catch (Exception ex)
@@ -412,17 +421,41 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
+    /// Check if the focus was initiated by a click rather than programmatically
+    /// </summary>
+    private bool IsFocusClickInitiated(IntPtr hwnd)
+    {
+        // Simple heuristic: if the focused window matches the clicked window, it's click-initiated
+        // This works for most single-window applications like Notepad, Edge, etc.
+        if (hwnd == _lastClickedWindow)
+        {
+            Logger.Debug("Focus is click-initiated - focused window matches clicked window");
+            return true;
+        }
+
+        // For multi-window applications (browsers with tabs), check UI Automation element comparison
+        return IsFocusedElementAtClickPosition();
+    }
+
+    /// <summary>
     /// Check if the currently focused element is at or near the last click position
     /// </summary>
     private bool IsFocusedElementAtClickPosition()
     {
         if (_lastClickPosition.x < 0 || _lastClickPosition.y < 0)
+        {
+            Logger.Debug("No valid click position stored");
             return false;
+        }
 
         if (_automation == null)
+        {
+            Logger.Debug("UI Automation not available");
             return false;
+        }
 
         IUIAutomationElement clickedElement = null;
+        IUIAutomationElement focusedElement = null;
 
         try
         {
@@ -437,51 +470,66 @@ public class AutoShowManager : IDisposable
             }
 
             // Get currently focused element
-            var focusedElement = _automation.GetFocusedElement();
+            focusedElement = _automation.GetFocusedElement();
             if (focusedElement == null)
             {
                 Logger.Debug("Could not get focused element");
                 return false;
             }
 
+            // Get element info for logging
+            string clickedName = "N/A";
+            string focusedName = "N/A";
+            int clickedControlType = 0;
+            int focusedControlType = 0;
+
             try
             {
-                // Compare elements
-                int result = _automation.CompareElements(clickedElement, focusedElement);
-                bool isSameElement = (result != 0);
-
-                if (isSameElement)
-                {
-                    Logger.Debug("Focused element matches clicked element - click-initiated focus");
-                }
-                else
-                {
-                    Logger.Debug("Focused element differs from clicked element - programmatic focus (tab switch)");
-                }
-
-                if (focusedElement != null && Marshal.IsComObject(focusedElement))
-                {
-                    Marshal.ReleaseComObject(focusedElement);
-                }
-
-                return isSameElement;
+                clickedName = clickedElement.CurrentName ?? "N/A";
+                clickedControlType = clickedElement.CurrentControlType;
             }
-            catch (Exception ex)
+            catch { }
+
+            try
             {
-                Logger.Debug($"Error comparing elements: {ex.Message}");
-                return false;
+                focusedName = focusedElement.CurrentName ?? "N/A";
+                focusedControlType = focusedElement.CurrentControlType;
             }
+            catch { }
+
+            Logger.Debug($"Clicked element: Name='{clickedName}', Type={clickedControlType}");
+            Logger.Debug($"Focused element: Name='{focusedName}', Type={focusedControlType}");
+
+            // Compare elements - CompareElements returns 0 if equal, non-zero if different
+            int result = _automation.CompareElements(clickedElement, focusedElement);
+            bool isSameElement = (result == 0);
+
+            if (isSameElement)
+            {
+                Logger.Debug("Focused element matches clicked element - click-initiated focus");
+            }
+            else
+            {
+                Logger.Debug("Focused element differs from clicked element - programmatic focus (tab switch)");
+            }
+
+            return isSameElement;
         }
         catch (Exception ex)
         {
-            Logger.Error("Error checking clicked element", ex);
-            return false;
+            Logger.Debug($"Error comparing elements: {ex.Message}");
+            // On error, assume click-initiated to avoid blocking valid cases
+            return true;
         }
         finally
         {
             if (clickedElement != null && Marshal.IsComObject(clickedElement))
             {
-                Marshal.ReleaseComObject(clickedElement);
+                try { Marshal.ReleaseComObject(clickedElement); } catch { }
+            }
+            if (focusedElement != null && Marshal.IsComObject(focusedElement))
+            {
+                try { Marshal.ReleaseComObject(focusedElement); } catch { }
             }
         }
     }
@@ -499,7 +547,10 @@ public class AutoShowManager : IDisposable
             focusedElement = _automation.GetFocusedElement();
             
             if (focusedElement == null)
+            {
+                Logger.Debug("GetFocusedElement returned null");
                 return false;
+            }
 
             // Check if element actually has keyboard focus
             if (!focusedElement.CurrentHasKeyboardFocus)
@@ -510,6 +561,10 @@ public class AutoShowManager : IDisposable
 
             // Check control type
             int controlType = focusedElement.CurrentControlType;
+            string className = focusedElement.CurrentClassName ?? "";
+            string elementName = focusedElement.CurrentName ?? "";
+            
+            Logger.Debug($"Checking element: Type={controlType}, Class='{className}', Name='{elementName}'");
             
             // Edit controls are always valid text inputs
             if (controlType == UIA_EditControlTypeId)
@@ -521,6 +576,8 @@ public class AutoShowManager : IDisposable
             // Document controls (web pages) need additional validation
             if (controlType == UIA_DocumentControlTypeId)
             {
+                Logger.Debug("Checking Document control for editability");
+                
                 // Check for editable patterns
                 bool hasEditablePattern = false;
                 
@@ -534,7 +591,10 @@ public class AutoShowManager : IDisposable
                         hasEditablePattern = true;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Logger.Debug($"Value pattern check failed: {ex.Message}");
+                }
 
                 // Check Text pattern for contenteditable elements
                 if (!hasEditablePattern)
@@ -546,7 +606,6 @@ public class AutoShowManager : IDisposable
                         {
                             // Additional check: verify it's actually editable
                             // For contenteditable, check if class name contains "edit" or similar
-                            string className = focusedElement.CurrentClassName ?? "";
                             if (className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                 className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
@@ -555,7 +614,10 @@ public class AutoShowManager : IDisposable
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Logger.Debug($"Text pattern check failed: {ex.Message}");
+                    }
                 }
 
                 return hasEditablePattern;
@@ -574,9 +636,16 @@ public class AutoShowManager : IDisposable
                         Logger.Debug($"Text input detected - Control Type {controlType} with editable Value Pattern");
                         return true;
                     }
+                    else
+                    {
+                        Logger.Debug($"Element has Value Pattern but is read-only");
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Logger.Debug($"Value pattern check (general) failed: {ex.Message}");
+            }
 
             // Additional check: common text input class names
             if (IsCommonTextInputClassName(hwnd))
@@ -585,6 +654,7 @@ public class AutoShowManager : IDisposable
                 return true;
             }
 
+            Logger.Debug($"Element is not a text input - Type={controlType}, Class='{className}'");
             return false;
         }
         catch (Exception ex)
@@ -596,7 +666,7 @@ public class AutoShowManager : IDisposable
         {
             if (focusedElement != null && Marshal.IsComObject(focusedElement))
             {
-                Marshal.ReleaseComObject(focusedElement);
+                try { Marshal.ReleaseComObject(focusedElement); } catch { }
             }
         }
     }
