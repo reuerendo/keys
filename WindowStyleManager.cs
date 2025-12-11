@@ -43,7 +43,7 @@ namespace VirtualKeyboard
                 // ensure we set required flags; use bitwise OR to preserve existing flags
                 newFlags |= WS_EX_NOACTIVATE;
                 newFlags |= WS_EX_TOPMOST;
-                newFlags |= WS_EX_TOOLWINDOW;
+                // newFlags |= WS_EX_TOOLWINDOW;
                 // optional: newFlags |= WS_EX_NOREDIRECTIONBITMAP;
 
                 if (newFlags != exStyle)
