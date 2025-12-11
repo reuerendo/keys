@@ -535,27 +535,36 @@ public sealed partial class MainWindow : Window
         try
         {
             IntPtr previousForegroundWindow = IntPtr.Zero;
-            if (preserveFocus)
-            {
-                previousForegroundWindow = GetForegroundWindow();
-            }
+			if (preserveFocus)
+			{
+				previousForegroundWindow = GetForegroundWindow();
+			}
 
-            _positionManager?.PositionWindow(showWindow: true);
+			_positionManager?.PositionWindow(showWindow: true);
 
-            if (preserveFocus)
-            {
-                ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
+			if (preserveFocus)
+			{
+				// Show without activating
+				ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
 
-                if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _thisWindowHandle)
-                {
-                    SetForegroundWindow(previousForegroundWindow);
-                    Logger.Info($"Restored focus to window: 0x{previousForegroundWindow:X}");
-                }
-                else
-                {
-                    Logger.Info("Window shown without activation (SW_SHOWNOACTIVATE)");
-                }
-            }
+				// Try robust restore of previous foreground window (AttachThreadInput + SetForegroundWindow)
+				if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _thisWindowHandle)
+				{
+					bool restored = FocusHelper.RestoreForegroundWindow(previousForegroundWindow);
+					if (restored)
+					{
+						Logger.Info($"Restored focus to window: 0x{previousForegroundWindow:X}");
+					}
+					else
+					{
+						Logger.Warning($"Failed to restore focus to: 0x{previousForegroundWindow:X}");
+					}
+				}
+				else
+				{
+					Logger.Info("Window shown without activation (SW_SHOWNOACTIVATE)");
+				}
+			}
             else
             {
                 ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
