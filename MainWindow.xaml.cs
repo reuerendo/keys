@@ -111,33 +111,20 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
-    {
-        _longPressPopup = new LongPressPopup(this.Content as FrameworkElement, _stateManager);
-        _longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
-        
-        SetupLongPressHandlers(this.Content as FrameworkElement);
-        SetupBackspaceHandlers(this.Content as FrameworkElement);
-        
-        // Initialize button references for state manager and layout manager
-        _stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
-        _layoutManager.InitializeLangButton(this.Content as FrameworkElement);
-        
-        // Apply scale transform if not already applied
-        if (RootScaleTransform != null)
-        {
-            double userScale = _settingsManager.Settings.KeyboardScale;
-            RootScaleTransform.ScaleX = userScale;
-            RootScaleTransform.ScaleY = userScale;
-            Logger.Info($"Scale transform applied in Loaded event: {userScale:P0}");
-        }
-        else
-        {
-            Logger.Warning("RootScaleTransform is null in Loaded event");
-        }
-        
-        Logger.Info("Long-press handlers and backspace handlers initialized");
-    }
+	private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+	{
+		_longPressPopup = new LongPressPopup(this.Content as FrameworkElement, _stateManager);
+		_longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
+		
+		SetupLongPressHandlers(this.Content as FrameworkElement);
+		SetupBackspaceHandlers(this.Content as FrameworkElement);
+		
+		// Initialize button references for state manager and layout manager
+		_stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
+		_layoutManager.InitializeLangButton(this.Content as FrameworkElement);
+		
+		Logger.Info("Long-press handlers and backspace handlers initialized");
+	}
 
     private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
     {
@@ -286,42 +273,37 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ConfigureWindowSize()
-    {
-        uint dpi = GetDpiForWindow(_thisWindowHandle);
-        float dpiScale = dpi / 96f;
-        
-        // Apply user's scale setting to the content via ScaleTransform
-        double userScale = _settingsManager.Settings.KeyboardScale;
-        
-        // Apply scale transform to content
-        if (RootScaleTransform != null)
-        {
-            RootScaleTransform.ScaleX = userScale;
-            RootScaleTransform.ScaleY = userScale;
-            Logger.Info($"Applied scale transform: {userScale:P0}");
-        }
-        
-        // FIXED: Calculate window size based on BASE size * DPI scale ONLY
-        // Do NOT multiply by userScale - that's handled by ScaleTransform
-        int baseWidth = 997;
-        int baseHeight = 330;
-        
-        int physicalWidth = (int)(baseWidth * dpiScale);
-        int physicalHeight = (int)(baseHeight * dpiScale);
-        
-        Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {dpiScale:F2}, User scale applied via transform: {userScale:P0})");
-        
-        var appWindow = this.AppWindow;
-        appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
-        
-        if (appWindow.Presenter is OverlappedPresenter presenter)
-        {
-            presenter.IsAlwaysOnTop = true;
-            presenter.IsResizable = false;
-            presenter.IsMaximizable = false;
-        }
-    }
+	private void ConfigureWindowSize()
+	{
+		uint dpi = GetDpiForWindow(_thisWindowHandle);
+		float dpiScale = dpi / 96f;
+		
+		double userScale = _settingsManager.Settings.KeyboardScale;
+		
+		if (RootScaleTransform != null)
+		{
+			RootScaleTransform.ScaleX = 1.0;
+			RootScaleTransform.ScaleY = 1.0;
+		}
+		
+		int baseWidth = 997;
+		int baseHeight = 330;
+		
+		int physicalWidth = (int)(baseWidth * dpiScale * userScale);
+		int physicalHeight = (int)(baseHeight * dpiScale * userScale);
+		
+		Logger.Info($"Window size calculated: {physicalWidth}x{physicalHeight} (DPI scale: {dpiScale:F2}, User scale: {userScale:P0})");
+		
+		var appWindow = this.AppWindow;
+		appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
+		
+		if (appWindow.Presenter is OverlappedPresenter presenter)
+		{
+			presenter.IsAlwaysOnTop = true;
+			presenter.IsResizable = false;
+			presenter.IsMaximizable = false;
+		}
+	}
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
     {
