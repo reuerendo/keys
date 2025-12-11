@@ -287,6 +287,17 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Check if key should ignore Shift modifier (numbers and slash)
+    /// </summary>
+    private bool ShouldIgnoreShift(string key)
+    {
+        // Numbers 0-9 and slash should not be affected by Shift
+        return key == "0" || key == "1" || key == "2" || key == "3" || key == "4" ||
+               key == "5" || key == "6" || key == "7" || key == "8" || key == "9" ||
+               key == "/";
+    }
+
     private void SendKey(string key)
     {
         IntPtr currentForeground = _inputService.GetForegroundWindowHandle();
@@ -323,14 +334,22 @@ public sealed partial class MainWindow : Window
             }
             else
             {
+                // Check if this key should ignore Shift
+                bool ignoreShift = ShouldIgnoreShift(key);
+                
+                // Determine if we should capitalize (for letters only)
                 bool shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive) && keyDef.IsLetter;
                 if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive && keyDef.IsLetter)
                 {
                     shouldCapitalize = false;
                 }
-                bool useShift = _stateManager.IsShiftActive && !keyDef.IsLetter;
+                
+                // Use shift variant only for non-letters when shift is active AND key doesn't ignore shift
+                bool useShift = _stateManager.IsShiftActive && !keyDef.IsLetter && !ignoreShift;
                 
                 string charToSend = (shouldCapitalize || useShift) ? keyDef.ValueShift : keyDef.Value;
+                
+                Logger.Debug($"Key '{key}': isLetter={keyDef.IsLetter}, ignoreShift={ignoreShift}, shouldCapitalize={shouldCapitalize}, useShift={useShift}, sending='{charToSend}'");
                 
                 foreach (char c in charToSend)
                 {
