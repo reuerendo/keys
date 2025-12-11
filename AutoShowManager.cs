@@ -42,6 +42,9 @@ public class AutoShowManager : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
     private delegate void WinEventDelegate(
         IntPtr hWinEventHook, uint eventType, IntPtr hwnd, 
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
@@ -265,6 +268,13 @@ public class AutoShowManager : IDisposable
             return;
         }
 
+        // Don't show if keyboard is already visible
+        if (IsWindowVisible(_keyboardWindowHandle))
+        {
+            Logger.Debug("Focus event ignored - keyboard already visible");
+            return;
+        }
+
         try
         {
             // Ignore if focus is on keyboard window
@@ -302,17 +312,67 @@ public class AutoShowManager : IDisposable
             if (focusedElement == null)
                 return false;
 
+            // Check if element actually has keyboard focus
+            if (!focusedElement.CurrentHasKeyboardFocus)
+            {
+                Logger.Debug("Element does not have keyboard focus");
+                return false;
+            }
+
             // Check control type
             int controlType = focusedElement.CurrentControlType;
             
-            if (controlType == UIA_EditControlTypeId || 
-                controlType == UIA_DocumentControlTypeId)
+            // Edit controls are always valid text inputs
+            if (controlType == UIA_EditControlTypeId)
             {
-                Logger.Debug($"Text input detected - Control Type: {controlType}");
+                Logger.Debug($"Text input detected - Control Type: Edit ({controlType})");
                 return true;
             }
 
-            // Check for Value pattern (editable text fields)
+            // Document controls (web pages) need additional validation
+            if (controlType == UIA_DocumentControlTypeId)
+            {
+                // Check for editable patterns
+                bool hasEditablePattern = false;
+                
+                // Check Value pattern (editable text fields)
+                try
+                {
+                    var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
+                    if (valuePattern != null && !valuePattern.CurrentIsReadOnly)
+                    {
+                        Logger.Debug("Text input detected - Document with editable Value Pattern");
+                        hasEditablePattern = true;
+                    }
+                }
+                catch { }
+
+                // Check Text pattern for contenteditable elements
+                if (!hasEditablePattern)
+                {
+                    try
+                    {
+                        var textPattern = focusedElement.GetCurrentPattern(UIA_TextPatternId);
+                        if (textPattern != null)
+                        {
+                            // Additional check: verify it's actually editable
+                            // For contenteditable, check if class name contains "edit" or similar
+                            string className = focusedElement.CurrentClassName ?? "";
+                            if (className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                Logger.Debug("Text input detected - Document with Text Pattern (editable)");
+                                hasEditablePattern = true;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                return hasEditablePattern;
+            }
+
+            // Check for Value pattern (other editable text fields)
             try
             {
                 var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
@@ -322,21 +382,9 @@ public class AutoShowManager : IDisposable
                     
                     if (!isReadOnly)
                     {
-                        Logger.Debug("Text input detected - Value Pattern (editable)");
+                        Logger.Debug($"Text input detected - Control Type {controlType} with editable Value Pattern");
                         return true;
                     }
-                }
-            }
-            catch { }
-
-            // Check for Text pattern (rich text controls)
-            try
-            {
-                var textPattern = focusedElement.GetCurrentPattern(UIA_TextPatternId);
-                if (textPattern != null)
-                {
-                    Logger.Debug("Text input detected - Text Pattern");
-                    return true;
                 }
             }
             catch { }
