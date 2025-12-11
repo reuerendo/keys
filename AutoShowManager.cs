@@ -19,8 +19,10 @@ public class AutoShowManager : IDisposable
 
     // UI Automation control type IDs for text inputs
     private const int UIA_EditControlTypeId = 50004;
+    private const int UIA_ComboBoxControlTypeId = 50003; // Added ComboBox support
     private const int UIA_DocumentControlTypeId = 50030;
     private const int UIA_PaneControlTypeId = 50033;
+    private const int UIA_CustomControlTypeId = 50025; // Often used in web/electron
 
     // UI Automation property IDs
     private const int UIA_ControlTypePropertyId = 30003;
@@ -35,7 +37,8 @@ public class AutoShowManager : IDisposable
     private const int HIDE_COOLDOWN_MS = 1000;
     
     // Time window after mouse click to consider focus change as click-initiated
-    private const int CLICK_TIMEOUT_MS = 500;
+    // Increased to 2000ms to handle slow UI responses (Electron/Browsers)
+    private const int CLICK_TIMEOUT_MS = 2000;
 
     #region Win32 Imports
 
@@ -374,8 +377,10 @@ public class AutoShowManager : IDisposable
             return;
         }
 
-        // Check if there was a recent mouse click (within CLICK_TIMEOUT_MS)
+        // Check if there was a recent mouse click
         double timeSinceClick = (DateTime.Now - _lastMouseClickTime).TotalMilliseconds;
+        
+        // If click was too long ago, ignore it. 
         if (timeSinceClick > CLICK_TIMEOUT_MS)
         {
             Logger.Debug($"Focus event ignored - no recent click (last click {timeSinceClick:F0}ms ago)");
@@ -396,16 +401,13 @@ public class AutoShowManager : IDisposable
             // Check if focused element is a text input
             if (IsTextInputElement(hwnd))
             {
-                // Check if the focus is click-initiated (not programmatic)
-                if (IsFocusClickInitiated())
-                {
-                    Logger.Info($"Text input focused in window 0x{hwnd:X} after direct click");
-                    OnShowKeyboardRequested();
-                }
-                else
-                {
-                    Logger.Debug("Focus event ignored - not click-initiated (programmatic focus or tab switch)");
-                }
+                // We rely on the time check we did above. 
+                // If it's a text input and the user clicked recently, we show the keyboard.
+                // We do NOT strictly check IsFocusClickInitiated() anymore because mismatched elements 
+                // in web apps caused failures.
+                
+                Logger.Info($"Text input focused in window 0x{hwnd:X} after recent click ({timeSinceClick:F0}ms). Showing keyboard.");
+                OnShowKeyboardRequested();
             }
             else
             {
@@ -419,151 +421,50 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Check if the focus was initiated by a click rather than programmatically
-    /// Uses multiple heuristics to determine if focus came from user click
+    /// Heuristic to check if click and focus locations match.
+    /// Kept for debugging/logging, but no longer a strict requirement for showing keyboard.
     /// </summary>
     private bool IsFocusClickInitiated()
     {
-        if (_lastClickPosition.x < 0 || _lastClickPosition.y < 0)
-        {
-            Logger.Debug("No valid click position stored");
-            return false;
-        }
-
-        if (_automation == null)
-        {
-            Logger.Debug("UI Automation not available");
-            return false;
-        }
+        if (_lastClickPosition.x < 0 || _lastClickPosition.y < 0) return false;
+        if (_automation == null) return false;
 
         IUIAutomationElement clickedElement = null;
         IUIAutomationElement focusedElement = null;
 
         try
         {
-            // Get element at click position
             var pt = new tagPOINT { x = _lastClickPosition.x, y = _lastClickPosition.y };
             clickedElement = _automation.ElementFromPoint(pt);
-
-            if (clickedElement == null)
-            {
-                Logger.Debug("Could not get element at click position - assuming click-initiated");
-                return true; // Be permissive if we can't verify
-            }
-
-            // Get currently focused element
             focusedElement = _automation.GetFocusedElement();
-            if (focusedElement == null)
-            {
-                Logger.Debug("Could not get focused element");
-                return false;
-            }
 
-            // Get element info for comparison
-            string clickedName = "";
-            string focusedName = "";
-            int clickedControlType = 0;
-            int focusedControlType = 0;
-            string clickedClass = "";
-            string focusedClass = "";
+            if (clickedElement == null || focusedElement == null) return true; // Be permissive
 
-            try
-            {
-                clickedName = clickedElement.CurrentName ?? "";
-                clickedControlType = clickedElement.CurrentControlType;
-                clickedClass = clickedElement.CurrentClassName ?? "";
-            }
-            catch { }
+            // Direct comparison
+            try {
+                if (_automation.CompareElements(clickedElement, focusedElement) == 0) return true;
+            } catch { }
 
-            try
-            {
-                focusedName = focusedElement.CurrentName ?? "";
-                focusedControlType = focusedElement.CurrentControlType;
-                focusedClass = focusedElement.CurrentClassName ?? "";
-            }
-            catch { }
-
-            Logger.Debug($"Clicked: Name='{clickedName}', Type={clickedControlType}, Class='{clickedClass}'");
-            Logger.Debug($"Focused: Name='{focusedName}', Type={focusedControlType}, Class='{focusedClass}'");
-
-            // Method 1: Direct element comparison
-            try
-            {
-                int result = _automation.CompareElements(clickedElement, focusedElement);
-                if (result == 0)
-                {
-                    Logger.Debug("✓ Elements match (CompareElements) - click-initiated");
-                    return true;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug($"CompareElements failed: {ex.Message}");
-            }
-
-            // Method 2: Check if clicked element is parent or child of focused element
-            // This handles cases where clicking on a container focuses a child input
-            try
-            {
+            // Parent check
+            try {
                 var focusedParent = focusedElement.GetCachedParent();
-                if (focusedParent != null)
-                {
+                if (focusedParent != null) {
                     int parentResult = _automation.CompareElements(clickedElement, focusedParent);
-                    if (parentResult == 0)
-                    {
-                        Logger.Debug("✓ Clicked element is parent of focused - click-initiated");
-                        if (Marshal.IsComObject(focusedParent))
-                            Marshal.ReleaseComObject(focusedParent);
-                        return true;
-                    }
-                    if (Marshal.IsComObject(focusedParent))
-                        Marshal.ReleaseComObject(focusedParent);
+                    if (Marshal.IsComObject(focusedParent)) Marshal.ReleaseComObject(focusedParent);
+                    if (parentResult == 0) return true;
                 }
-            }
-            catch { }
+            } catch { }
 
-            // Method 3: Name and class matching for dynamically created elements
-            // Some apps (like Windows Explorer rename) recreate elements, so CompareElements fails
-            // but the elements have the same name and class
-            if (!string.IsNullOrEmpty(focusedName) && focusedName == clickedName &&
-                focusedControlType == UIA_EditControlTypeId)
-            {
-                Logger.Debug("✓ Elements have matching name and focused is Edit control - click-initiated");
-                return true;
-            }
-
-            // Method 4: Check if clicked and focused have same class and both are text inputs
-            // This handles Scintilla and other special edit controls
-            if (!string.IsNullOrEmpty(clickedClass) && !string.IsNullOrEmpty(focusedClass) &&
-                clickedClass == focusedClass &&
-                (focusedControlType == UIA_EditControlTypeId || 
-                 focusedControlType == UIA_PaneControlTypeId ||
-                 clickedClass.Contains("Scintilla") || 
-                 clickedClass.Contains("Edit")))
-            {
-                Logger.Debug("✓ Elements have matching class and are text input types - click-initiated");
-                return true;
-            }
-
-            Logger.Debug("✗ No match found - not click-initiated");
             return false;
         }
-        catch (Exception ex)
+        catch
         {
-            Logger.Debug($"Error in IsFocusClickInitiated: {ex.Message}");
-            // Be permissive on errors to avoid blocking legitimate cases
-            return true;
+            return true; // Default to permissive on error
         }
         finally
         {
-            if (clickedElement != null && Marshal.IsComObject(clickedElement))
-            {
-                try { Marshal.ReleaseComObject(clickedElement); } catch { }
-            }
-            if (focusedElement != null && Marshal.IsComObject(focusedElement))
-            {
-                try { Marshal.ReleaseComObject(focusedElement); } catch { }
-            }
+            if (clickedElement != null && Marshal.IsComObject(clickedElement)) try { Marshal.ReleaseComObject(clickedElement); } catch { }
+            if (focusedElement != null && Marshal.IsComObject(focusedElement)) try { Marshal.ReleaseComObject(focusedElement); } catch { }
         }
     }
 
@@ -595,14 +496,13 @@ public class AutoShowManager : IDisposable
             // Check control type
             int controlType = focusedElement.CurrentControlType;
             string className = focusedElement.CurrentClassName ?? "";
-            string elementName = focusedElement.CurrentName ?? "";
             
-            Logger.Debug($"Checking element: Type={controlType}, Class='{className}', Name='{elementName}'");
+            Logger.Debug($"Checking element: Type={controlType}, Class='{className}'");
             
-            // Edit controls are always valid text inputs
-            if (controlType == UIA_EditControlTypeId)
+            // Edit controls and ComboBoxes are always valid text inputs
+            if (controlType == UIA_EditControlTypeId || controlType == UIA_ComboBoxControlTypeId)
             {
-                Logger.Debug($"✓ Text input detected - Control Type: Edit ({controlType})");
+                Logger.Debug($"✓ Text input detected - Control Type: {controlType}");
                 return true;
             }
 
@@ -617,19 +517,27 @@ public class AutoShowManager : IDisposable
             // Document controls (web pages) need additional validation
             if (controlType == UIA_DocumentControlTypeId)
             {
-                Logger.Debug("Checking Document control for editability");
-                
-                // Check for editable patterns
                 bool hasEditablePattern = false;
                 
                 // Check Value pattern (editable text fields)
                 try
                 {
                     var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
-                    if (valuePattern != null && !valuePattern.CurrentIsReadOnly)
+                    if (valuePattern != null)
                     {
-                        Logger.Debug("✓ Text input detected - Document with editable Value Pattern");
-                        hasEditablePattern = true;
+                        // Wrap check in try-catch as some OLE implementations throw exceptions here
+                        bool isReadOnly = false;
+                        try {
+                            isReadOnly = valuePattern.CurrentIsReadOnly;
+                        } catch {
+                            Logger.Debug("Could not read IsReadOnly, assuming editable");
+                        }
+
+                        if (!isReadOnly)
+                        {
+                            Logger.Debug("✓ Text input detected - Document with editable Value Pattern");
+                            hasEditablePattern = true;
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -637,7 +545,6 @@ public class AutoShowManager : IDisposable
                     Logger.Debug($"Value pattern check failed: {ex.Message}");
                 }
 
-                // Check Text pattern for contenteditable elements
                 if (!hasEditablePattern)
                 {
                     try
@@ -645,8 +552,6 @@ public class AutoShowManager : IDisposable
                         var textPattern = focusedElement.GetCurrentPattern(UIA_TextPatternId);
                         if (textPattern != null)
                         {
-                            // Additional check: verify it's actually editable
-                            // For contenteditable, check if class name contains "edit" or similar
                             if (className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
                                 className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
@@ -660,12 +565,6 @@ public class AutoShowManager : IDisposable
                         Logger.Debug($"Text pattern check failed: {ex.Message}");
                     }
                 }
-
-                if (!hasEditablePattern)
-                {
-                    Logger.Debug("✗ Document control is not editable");
-                }
-
                 return hasEditablePattern;
             }
 
@@ -675,7 +574,18 @@ public class AutoShowManager : IDisposable
                 var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
                 if (valuePattern != null)
                 {
-                    bool isReadOnly = valuePattern.CurrentIsReadOnly;
+                    // CRITICAL FIX: Wrapped in try-catch to handle 'Specified OLE variant is invalid' exceptions
+                    // which caused the logic to fail prematurely for many apps
+                    bool isReadOnly = false;
+                    try 
+                    {
+                        isReadOnly = valuePattern.CurrentIsReadOnly;
+                    } 
+                    catch (Exception valEx) 
+                    {
+                        Logger.Debug($"ValuePattern property read error: {valEx.Message}. Assuming editable.");
+                        isReadOnly = false; // Fail safe: assume editable if we can't read it
+                    }
                     
                     if (!isReadOnly)
                     {
@@ -691,6 +601,18 @@ public class AutoShowManager : IDisposable
             catch (Exception ex)
             {
                 Logger.Debug($"Value pattern check (general) failed: {ex.Message}");
+            }
+
+            // Last resort: Check for generic Custom/Group controls that are focusable (Common in Web/Electron)
+            if (controlType == UIA_CustomControlTypeId || controlType == 50026 /* Group */)
+            {
+                if (focusedElement.CurrentIsKeyboardFocusable && focusedElement.CurrentIsEnabled)
+                {
+                     // If we are here, we passed the ValuePattern check (or it failed), but the element accepts focus.
+                     // In modern web apps, this is often enough to assume input.
+                     Logger.Debug("✓ Text input assumed - Custom/Group control with keyboard focus");
+                     return true;
+                }
             }
 
             Logger.Debug($"✗ Element is not a text input - Type={controlType}, Class='{className}'");
