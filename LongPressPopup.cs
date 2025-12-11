@@ -350,6 +350,18 @@ public class LongPressPopup
 					new LongPressOption("≉", "≉"),
 					new LongPressOption("¬", "¬")
                 },
+				
+				["("] = new List<LongPressOption>
+                {
+                    new LongPressOption("[", "["),
+					new LongPressOption("{", "}")
+                },
+				
+				[")"] = new List<LongPressOption>
+                {
+                    new LongPressOption("]", "]"),
+					new LongPressOption("}", "}")
+                },
 				["/"] = new List<LongPressOption>
                 {
                     new LongPressOption("÷", "÷"),
@@ -369,7 +381,7 @@ public class LongPressPopup
                 },
                 ["a"] = new List<LongPressOption>
                 {
-                    new LongPressOption("ą", "ą"),
+                    new LongPressOption("ą", "Ą"),
                     new LongPressOption("@", "@"),
 					new LongPressOption("ª", "ª")
                 },
@@ -531,10 +543,14 @@ public class LongPressPopup
                 {
                     new LongPressOption("ё", "ё")
                 },
-                ["-"] = new List<LongPressOption>
+				["\""] = new List<LongPressOption>
                 {
-                    new LongPressOption("–", "–"),
-                    new LongPressOption("—", "—")
+                    new LongPressOption("«", "«"),
+					new LongPressOption("»", "»"),
+                    new LongPressOption("„", "„"),
+                    new LongPressOption("”", "”"),
+                    new LongPressOption("‚", "‚"),
+                    new LongPressOption("‘", "‘")
                 }
             },
             
