@@ -331,12 +331,14 @@ public sealed partial class MainWindow : Window
 			presenter.IsAlwaysOnTop = true;
 			presenter.IsResizable = false;
 			presenter.IsMaximizable = false;
+			presenter.IsMinimizable = false;
 		}
 	}
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
     {
         _styleManager.ApplyNoActivateStyle();
+		_styleManager.RemoveMinMaxButtons();
         
         if (!_isInitialPositionSet && e.WindowActivationState != WindowActivationState.Deactivated)
         {

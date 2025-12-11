@@ -8,17 +8,16 @@ namespace VirtualKeyboard
     /// </summary>
     public class WindowStyleManager
     {
-        // Window long indices
+        // Window Styles
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
-
-        // Window styles
+        
         private const long WS_MINIMIZEBOX = 0x00020000L;
         private const long WS_MAXIMIZEBOX = 0x00010000L;
-
-        // Extended styles
+        
         private const long WS_EX_NOACTIVATE = 0x08000000L;
         private const long WS_EX_TOPMOST = 0x00000008L;
+        private const long WS_EX_NOREDIRECTIONBITMAP = 0x00200000L;
 
         // P/Invoke
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
@@ -35,57 +34,55 @@ namespace VirtualKeyboard
         }
 
         /// <summary>
-        /// Applies all required modifications:
-        /// - Removes minimize & maximize buttons
-        /// - Prevents window from stealing focus (WS_EX_NOACTIVATE)
-        /// - Keeps window always on top (WS_EX_TOPMOST)
+        /// Apply WS_EX_NOACTIVATE + WS_EX_TOPMOST to prevent window from stealing focus
         /// </summary>
-        public void ApplyOptimizedStyles()
+        public void ApplyNoActivateStyle()
         {
             try
             {
-                ModifyMainStyle();
-                ModifyExtendedStyle();
+                IntPtr exStylePtr = GetWindowLongPtr(_hwnd, GWL_EXSTYLE);
+                long exStyle = exStylePtr.ToInt64();
+
+                long newFlags = exStyle;
+                newFlags |= WS_EX_NOACTIVATE;
+                newFlags |= WS_EX_TOPMOST;
+
+                if (newFlags != exStyle)
+                {
+                    SetWindowLongPtr(_hwnd, GWL_EXSTYLE, (IntPtr)newFlags);
+                    Logger.Info($"Applied extended window styles: 0x{newFlags:X}");
+                }
             }
             catch (Exception ex)
             {
-                Logger.Error("Failed to apply optimized window styles", ex);
+                Logger.Error("Failed to apply window style", ex);
             }
         }
 
-        private void ModifyMainStyle()
+        /// <summary>
+        /// Remove minimize and maximize buttons from the window
+        /// </summary>
+        public void RemoveMinMaxButtons()
         {
-            IntPtr stylePtr = GetWindowLongPtr(_hwnd, GWL_STYLE);
-            long style = stylePtr.ToInt64();
-
-            long newStyle = style;
-
-            // Remove minimize & maximize buttons
-            newStyle &= ~WS_MINIMIZEBOX;
-            newStyle &= ~WS_MAXIMIZEBOX;
-
-            if (newStyle != style)
+            try
             {
-                SetWindowLongPtr(_hwnd, GWL_STYLE, (IntPtr)newStyle);
-                Logger.Info($"Updated GWL_STYLE: 0x{newStyle:X}");
+                IntPtr stylePtr = GetWindowLongPtr(_hwnd, GWL_STYLE);
+                long style = stylePtr.ToInt64();
+
+                // Remove minimize and maximize box styles
+                long newStyle = style;
+                newStyle &= ~WS_MINIMIZEBOX;
+                newStyle &= ~WS_MAXIMIZEBOX;
+
+                if (newStyle != style)
+                {
+                    SetWindowLongPtr(_hwnd, GWL_STYLE, (IntPtr)newStyle);
+                    Logger.Info($"Removed minimize/maximize buttons. Style: 0x{newStyle:X}");
+                }
             }
-        }
-
-        private void ModifyExtendedStyle()
-        {
-            IntPtr exPtr = GetWindowLongPtr(_hwnd, GWL_EXSTYLE);
-            long exStyle = exPtr.ToInt64();
-
-            long newStyle = exStyle;
-
-            // Add required flags
-            newStyle |= WS_EX_NOACTIVATE;
-            newStyle |= WS_EX_TOPMOST;
-
-            if (newStyle != exStyle)
+            catch (Exception ex)
             {
-                SetWindowLongPtr(_hwnd, GWL_EXSTYLE, (IntPtr)newStyle);
-                Logger.Info($"Updated GWL_EXSTYLE: 0x{newStyle:X}");
+                Logger.Error("Failed to remove min/max buttons", ex);
             }
         }
     }
