@@ -20,6 +20,7 @@ public class AutoShowManager : IDisposable
     // UI Automation control type IDs for text inputs
     private const int UIA_EditControlTypeId = 50004;
     private const int UIA_DocumentControlTypeId = 50030;
+    private const int UIA_PaneControlTypeId = 50033;
 
     // UI Automation property IDs
     private const int UIA_ControlTypePropertyId = 30003;
@@ -395,15 +396,15 @@ public class AutoShowManager : IDisposable
             // Check if focused element is a text input
             if (IsTextInputElement(hwnd))
             {
-                // CRITICAL: Check if the focused element is at the click position
-                if (IsFocusedElementAtClickPosition())
+                // Check if the focus is click-initiated (not programmatic)
+                if (IsFocusClickInitiated())
                 {
                     Logger.Info($"Text input focused in window 0x{hwnd:X} after direct click");
                     OnShowKeyboardRequested();
                 }
                 else
                 {
-                    Logger.Debug("Focus event ignored - focused element is not at click position (programmatic focus)");
+                    Logger.Debug("Focus event ignored - not click-initiated (programmatic focus or tab switch)");
                 }
             }
             else
@@ -418,9 +419,10 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Check if the currently focused element is at or contains the last click position
+    /// Check if the focus was initiated by a click rather than programmatically
+    /// Uses multiple heuristics to determine if focus came from user click
     /// </summary>
-    private bool IsFocusedElementAtClickPosition()
+    private bool IsFocusClickInitiated()
     {
         if (_lastClickPosition.x < 0 || _lastClickPosition.y < 0)
         {
@@ -445,8 +447,8 @@ public class AutoShowManager : IDisposable
 
             if (clickedElement == null)
             {
-                Logger.Debug("Could not get element at click position");
-                return false;
+                Logger.Debug("Could not get element at click position - assuming click-initiated");
+                return true; // Be permissive if we can't verify
             }
 
             // Get currently focused element
@@ -457,53 +459,100 @@ public class AutoShowManager : IDisposable
                 return false;
             }
 
-            // Get element info for logging
-            string clickedName = "N/A";
-            string focusedName = "N/A";
+            // Get element info for comparison
+            string clickedName = "";
+            string focusedName = "";
             int clickedControlType = 0;
             int focusedControlType = 0;
-            string clickedClass = "N/A";
-            string focusedClass = "N/A";
+            string clickedClass = "";
+            string focusedClass = "";
 
             try
             {
-                clickedName = clickedElement.CurrentName ?? "N/A";
+                clickedName = clickedElement.CurrentName ?? "";
                 clickedControlType = clickedElement.CurrentControlType;
-                clickedClass = clickedElement.CurrentClassName ?? "N/A";
+                clickedClass = clickedElement.CurrentClassName ?? "";
             }
             catch { }
 
             try
             {
-                focusedName = focusedElement.CurrentName ?? "N/A";
+                focusedName = focusedElement.CurrentName ?? "";
                 focusedControlType = focusedElement.CurrentControlType;
-                focusedClass = focusedElement.CurrentClassName ?? "N/A";
+                focusedClass = focusedElement.CurrentClassName ?? "";
             }
             catch { }
 
-            Logger.Debug($"Clicked element: Name='{clickedName}', Type={clickedControlType}, Class='{clickedClass}'");
-            Logger.Debug($"Focused element: Name='{focusedName}', Type={focusedControlType}, Class='{focusedClass}'");
+            Logger.Debug($"Clicked: Name='{clickedName}', Type={clickedControlType}, Class='{clickedClass}'");
+            Logger.Debug($"Focused: Name='{focusedName}', Type={focusedControlType}, Class='{focusedClass}'");
 
-            // Compare elements - CompareElements returns 0 if equal, non-zero if different
-            int result = _automation.CompareElements(clickedElement, focusedElement);
-            bool isSameElement = (result == 0);
-
-            if (isSameElement)
+            // Method 1: Direct element comparison
+            try
             {
-                Logger.Debug("✓ Focused element matches clicked element - click-initiated focus");
+                int result = _automation.CompareElements(clickedElement, focusedElement);
+                if (result == 0)
+                {
+                    Logger.Debug("✓ Elements match (CompareElements) - click-initiated");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"CompareElements failed: {ex.Message}");
+            }
+
+            // Method 2: Check if clicked element is parent or child of focused element
+            // This handles cases where clicking on a container focuses a child input
+            try
+            {
+                var focusedParent = focusedElement.GetCachedParent();
+                if (focusedParent != null)
+                {
+                    int parentResult = _automation.CompareElements(clickedElement, focusedParent);
+                    if (parentResult == 0)
+                    {
+                        Logger.Debug("✓ Clicked element is parent of focused - click-initiated");
+                        if (Marshal.IsComObject(focusedParent))
+                            Marshal.ReleaseComObject(focusedParent);
+                        return true;
+                    }
+                    if (Marshal.IsComObject(focusedParent))
+                        Marshal.ReleaseComObject(focusedParent);
+                }
+            }
+            catch { }
+
+            // Method 3: Name and class matching for dynamically created elements
+            // Some apps (like Windows Explorer rename) recreate elements, so CompareElements fails
+            // but the elements have the same name and class
+            if (!string.IsNullOrEmpty(focusedName) && focusedName == clickedName &&
+                focusedControlType == UIA_EditControlTypeId)
+            {
+                Logger.Debug("✓ Elements have matching name and focused is Edit control - click-initiated");
                 return true;
             }
-            else
+
+            // Method 4: Check if clicked and focused have same class and both are text inputs
+            // This handles Scintilla and other special edit controls
+            if (!string.IsNullOrEmpty(clickedClass) && !string.IsNullOrEmpty(focusedClass) &&
+                clickedClass == focusedClass &&
+                (focusedControlType == UIA_EditControlTypeId || 
+                 focusedControlType == UIA_PaneControlTypeId ||
+                 clickedClass.Contains("Scintilla") || 
+                 clickedClass.Contains("Edit")))
             {
-                Logger.Debug("✗ Focused element differs from clicked element");
-                return false;
+                Logger.Debug("✓ Elements have matching class and are text input types - click-initiated");
+                return true;
             }
+
+            Logger.Debug("✗ No match found - not click-initiated");
+            return false;
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Error comparing elements: {ex.Message}");
-            // On error, be conservative and reject to avoid false positives
-            return false;
+            Logger.Debug($"Error in IsFocusClickInitiated: {ex.Message}");
+            // Be permissive on errors to avoid blocking legitimate cases
+            return true;
         }
         finally
         {
@@ -554,6 +603,14 @@ public class AutoShowManager : IDisposable
             if (controlType == UIA_EditControlTypeId)
             {
                 Logger.Debug($"✓ Text input detected - Control Type: Edit ({controlType})");
+                return true;
+            }
+
+            // Pane controls with Scintilla class (Notepad++, code editors)
+            if (controlType == UIA_PaneControlTypeId && 
+                className.IndexOf("Scintilla", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Logger.Debug($"✓ Text input detected - Scintilla editor (Pane + Scintilla class)");
                 return true;
             }
 
