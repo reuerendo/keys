@@ -10,7 +10,12 @@ public class AutoShowManager : IDisposable
 {
     // Win32 event constants
     private const uint EVENT_OBJECT_FOCUS = 0x8005;
+    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
+    // Mouse event constants
+    private const int WH_MOUSE_LL = 14;
+    private const int WM_LBUTTONDOWN = 0x0201;
 
     // UI Automation control type IDs for text inputs
     private const int UIA_EditControlTypeId = 50004;
@@ -27,6 +32,9 @@ public class AutoShowManager : IDisposable
 
     // Cooldown to prevent keyboard from showing immediately after hide
     private const int HIDE_COOLDOWN_MS = 1000;
+    
+    // Time window after mouse click to consider focus change as click-initiated
+    private const int CLICK_TIMEOUT_MS = 500;
 
     #region Win32 Imports
 
@@ -45,9 +53,43 @@ public class AutoShowManager : IDisposable
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT pt);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSLLHOOKSTRUCT
+    {
+        public POINT pt;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
     private delegate void WinEventDelegate(
         IntPtr hWinEventHook, uint eventType, IntPtr hwnd, 
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
 
     #endregion
 
@@ -160,10 +202,13 @@ public class AutoShowManager : IDisposable
 
     private readonly IntPtr _keyboardWindowHandle;
     private IntPtr _hookHandle;
+    private IntPtr _mouseHookHandle;
     private WinEventDelegate _hookDelegate;
+    private LowLevelMouseProc _mouseHookDelegate;
     private IUIAutomation _automation;
     private bool _isEnabled;
     private DateTime _lastHideTime;
+    private DateTime _lastMouseClickTime;
     private bool _isDisposed;
 
     public event EventHandler ShowKeyboardRequested;
@@ -193,6 +238,7 @@ public class AutoShowManager : IDisposable
     {
         _keyboardWindowHandle = keyboardWindowHandle;
         _lastHideTime = DateTime.MinValue;
+        _lastMouseClickTime = DateTime.MinValue;
         
         try
         {
@@ -237,10 +283,27 @@ public class AutoShowManager : IDisposable
             {
                 Logger.Error("Failed to install focus event hook");
             }
+
+            // Install mouse hook to track clicks
+            _mouseHookDelegate = new LowLevelMouseProc(MouseHookCallback);
+            _mouseHookHandle = SetWindowsHookEx(
+                WH_MOUSE_LL, 
+                _mouseHookDelegate, 
+                GetModuleHandle(null), 
+                0);
+
+            if (_mouseHookHandle != IntPtr.Zero)
+            {
+                Logger.Info("Mouse hook installed successfully");
+            }
+            else
+            {
+                Logger.Error("Failed to install mouse hook");
+            }
         }
         catch (Exception ex)
         {
-            Logger.Error("Error installing focus event hook", ex);
+            Logger.Error("Error installing event hooks", ex);
         }
     }
 
@@ -252,6 +315,38 @@ public class AutoShowManager : IDisposable
             _hookHandle = IntPtr.Zero;
             Logger.Info("Focus event hook removed");
         }
+
+        if (_mouseHookHandle != IntPtr.Zero)
+        {
+            UnhookWindowsHookEx(_mouseHookHandle);
+            _mouseHookHandle = IntPtr.Zero;
+            Logger.Info("Mouse hook removed");
+        }
+    }
+
+    private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && wParam == (IntPtr)WM_LBUTTONDOWN)
+        {
+            try
+            {
+                var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                IntPtr clickedWindow = WindowFromPoint(hookStruct.pt);
+
+                // Ignore clicks on keyboard window
+                if (clickedWindow != _keyboardWindowHandle)
+                {
+                    _lastMouseClickTime = DateTime.Now;
+                    Logger.Debug($"Mouse click detected at ({hookStruct.pt.x}, {hookStruct.pt.y})");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Error processing mouse click", ex);
+            }
+        }
+
+        return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
     }
 
     private void WinEventCallback(
@@ -275,6 +370,14 @@ public class AutoShowManager : IDisposable
             return;
         }
 
+        // Check if there was a recent mouse click (within CLICK_TIMEOUT_MS)
+        double timeSinceClick = (DateTime.Now - _lastMouseClickTime).TotalMilliseconds;
+        if (timeSinceClick > CLICK_TIMEOUT_MS)
+        {
+            Logger.Debug($"Focus event ignored - no recent click (last click {timeSinceClick:F0}ms ago)");
+            return;
+        }
+
         try
         {
             // Ignore if focus is on keyboard window
@@ -287,7 +390,7 @@ public class AutoShowManager : IDisposable
             // Check if focused element is a text input
             if (IsTextInputElement(hwnd))
             {
-                Logger.Info($"Text input focused in window 0x{hwnd:X}");
+                Logger.Info($"Text input focused in window 0x{hwnd:X} after mouse click");
                 OnShowKeyboardRequested();
             }
         }
@@ -423,12 +526,14 @@ public class AutoShowManager : IDisposable
             // Common text input class names
             string[] textInputClasses = new[]
             {
-                "Edit",
-                "RichEdit",
-                "RichEdit20",
-                "RICHEDIT50W",
-                "TextBox",
-                "Internet Explorer_Server", // Web browser text fields
+                "Edit",           // Standard Windows edit control
+                "RichEdit",       // Rich text edit
+                "RichEdit20",     // Rich edit 2.0
+                "RICHEDIT50W",    // Rich edit 5.0
+                "Scintilla",      // Notepad++, SciTE
+                "Scintilla_",     // Notepad++ variants
+                "TextBox",        // .NET TextBox
+                "Internet Explorer_Server",  // IE/Edge text fields
                 "Chrome_RenderWidgetHostHWND", // Chrome text fields
                 "MozillaWindowClass" // Firefox text fields
             };
@@ -437,6 +542,7 @@ public class AutoShowManager : IDisposable
             {
                 if (classNameStr.IndexOf(textClass, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
+                    Logger.Debug($"Matched text input class: {classNameStr}");
                     return true;
                 }
             }
