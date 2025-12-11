@@ -10,7 +10,6 @@ public class AutoShowManager : IDisposable
 {
     // Win32 event constants
     private const uint EVENT_OBJECT_FOCUS = 0x8005;
-    private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
     // Mouse event constants
@@ -19,12 +18,14 @@ public class AutoShowManager : IDisposable
 
     // UI Automation control type IDs for text inputs
     private const int UIA_EditControlTypeId = 50004;
-    private const int UIA_ComboBoxControlTypeId = 50003; // Added ComboBox support
+    private const int UIA_ComboBoxControlTypeId = 50003;
     private const int UIA_DocumentControlTypeId = 50030;
     private const int UIA_PaneControlTypeId = 50033;
-    private const int UIA_CustomControlTypeId = 50025; // Often used in web/electron
+    private const int UIA_CustomControlTypeId = 50025;
+    private const int UIA_GroupControlTypeId = 50026;
 
     // UI Automation property IDs
+    private const int UIA_BoundingRectanglePropertyId = 30001; // New: For strict location check
     private const int UIA_ControlTypePropertyId = 30003;
     private const int UIA_IsEnabledPropertyId = 30010;
     private const int UIA_ClassNamePropertyId = 30012;
@@ -36,9 +37,9 @@ public class AutoShowManager : IDisposable
     // Cooldown to prevent keyboard from showing immediately after hide
     private const int HIDE_COOLDOWN_MS = 1000;
     
-    // Time window after mouse click to consider focus change as click-initiated
-    // Increased to 2000ms to handle slow UI responses (Electron/Browsers)
-    private const int CLICK_TIMEOUT_MS = 2000;
+    // Reduced timeout back to 1000ms. Since we now check LOCATION, we can be more strict with time.
+    // If we keep it too long, clicking somewhere else and then tabbing might trigger it false-positively.
+    private const int CLICK_TIMEOUT_MS = 1000;
 
     #region Win32 Imports
 
@@ -50,9 +51,6 @@ public class AutoShowManager : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -146,16 +144,12 @@ public class AutoShowManager : IDisposable
     [ComImport]
     [Guid("352FFBA8-0973-437C-A61F-F64CAFD81DF9")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IUIAutomationCondition
-    {
-    }
+    private interface IUIAutomationCondition { }
 
     [ComImport]
     [Guid("B32A92B5-BC25-4078-9C08-D7EE95C48E03")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IUIAutomationCacheRequest
-    {
-    }
+    private interface IUIAutomationCacheRequest { }
 
     [ComImport]
     [Guid("A94CD8B1-0844-4CD6-9D2D-640537AB39E9")]
@@ -257,9 +251,6 @@ public class AutoShowManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Notify that keyboard was hidden (starts cooldown)
-    /// </summary>
     public void NotifyKeyboardHidden()
     {
         _lastHideTime = DateTime.Now;
@@ -273,7 +264,6 @@ public class AutoShowManager : IDisposable
 
         try
         {
-            // Keep delegate reference to prevent GC
             _hookDelegate = new WinEventDelegate(WinEventCallback);
             
             _hookHandle = SetWinEventHook(
@@ -282,15 +272,10 @@ public class AutoShowManager : IDisposable
                 0, 0, WINEVENT_OUTOFCONTEXT);
 
             if (_hookHandle != IntPtr.Zero)
-            {
                 Logger.Info("Focus event hook installed successfully");
-            }
             else
-            {
                 Logger.Error("Failed to install focus event hook");
-            }
 
-            // Install mouse hook to track clicks
             _mouseHookDelegate = new LowLevelMouseProc(MouseHookCallback);
             _mouseHookHandle = SetWindowsHookEx(
                 WH_MOUSE_LL, 
@@ -299,13 +284,9 @@ public class AutoShowManager : IDisposable
                 0);
 
             if (_mouseHookHandle != IntPtr.Zero)
-            {
                 Logger.Info("Mouse hook installed successfully");
-            }
             else
-            {
                 Logger.Error("Failed to install mouse hook");
-            }
         }
         catch (Exception ex)
         {
@@ -339,7 +320,6 @@ public class AutoShowManager : IDisposable
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 IntPtr clickedWindow = WindowFromPoint(hookStruct.pt);
 
-                // Ignore clicks on keyboard window
                 if (clickedWindow != _keyboardWindowHandle)
                 {
                     _lastMouseClickTime = DateTime.Now;
@@ -360,59 +340,66 @@ public class AutoShowManager : IDisposable
         IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
-        if (!_isEnabled || _isDisposed)
-            return;
+        if (!_isEnabled || _isDisposed) return;
 
-        // Check cooldown
+        // 1. Cooldown check
         if ((DateTime.Now - _lastHideTime).TotalMilliseconds < HIDE_COOLDOWN_MS)
         {
             Logger.Debug("Focus event ignored - within cooldown period");
             return;
         }
 
-        // Don't show if keyboard is already visible
+        // 2. Already visible check
         if (IsWindowVisible(_keyboardWindowHandle))
         {
             Logger.Debug("Focus event ignored - keyboard already visible");
             return;
         }
 
-        // Check if there was a recent mouse click
+        // 3. Time check (Click must be recent)
         double timeSinceClick = (DateTime.Now - _lastMouseClickTime).TotalMilliseconds;
-        
-        // If click was too long ago, ignore it. 
         if (timeSinceClick > CLICK_TIMEOUT_MS)
         {
             Logger.Debug($"Focus event ignored - no recent click (last click {timeSinceClick:F0}ms ago)");
             return;
         }
 
+        // 4. Ignore own window
+        if (hwnd == _keyboardWindowHandle) return;
+
         try
         {
-            // Ignore if focus is on keyboard window
-            if (hwnd == _keyboardWindowHandle)
+            // 5. Get the actual focused element to perform logic checks
+            IUIAutomationElement focusedElement = _automation.GetFocusedElement();
+            if (focusedElement == null) return;
+
+            // 6. STRICT LOCATION CHECK:
+            // Did the click happen inside the element that now has focus?
+            // This prevents "Automatic" activation when focus shifts programmatically.
+            bool isClickInside = IsClickInsideElement(focusedElement, _lastClickPosition);
+            
+            if (!isClickInside)
             {
-                Logger.Debug("Focus event ignored - keyboard window");
+                // Edge case: Sometimes focused element is a generic "Pane" (like in Chrome), 
+                // but we clicked an 'input' inside it.
+                // However, for strict "click-to-type", requiring overlap is safer.
+                Logger.Debug($"Focus event ignored - Click at ({_lastClickPosition.x},{_lastClickPosition.y}) was NOT inside focused element bounds.");
+                Marshal.ReleaseComObject(focusedElement);
                 return;
             }
 
-            Logger.Debug($"Processing focus event: hwnd=0x{hwnd:X}, click position: ({_lastClickPosition.x}, {_lastClickPosition.y})");
-
-            // Check if focused element is a text input
-            if (IsTextInputElement(hwnd))
+            // 7. Check if it is a Text Input
+            if (IsTextInputElement(focusedElement))
             {
-                // We rely on the time check we did above. 
-                // If it's a text input and the user clicked recently, we show the keyboard.
-                // We do NOT strictly check IsFocusClickInitiated() anymore because mismatched elements 
-                // in web apps caused failures.
-                
-                Logger.Info($"Text input focused in window 0x{hwnd:X} after recent click ({timeSinceClick:F0}ms). Showing keyboard.");
+                Logger.Info($"Text input focused AND clicked (inside bounds). Latency: {timeSinceClick:F0}ms. Showing keyboard.");
                 OnShowKeyboardRequested();
             }
             else
             {
-                Logger.Debug("Focus event ignored - not a text input element");
+                Logger.Debug("Focus event ignored - Element is not a text input");
             }
+
+            Marshal.ReleaseComObject(focusedElement);
         }
         catch (Exception ex)
         {
@@ -421,214 +408,134 @@ public class AutoShowManager : IDisposable
     }
 
     /// <summary>
-    /// Heuristic to check if click and focus locations match.
-    /// Kept for debugging/logging, but no longer a strict requirement for showing keyboard.
+    /// Checks if the last click coordinates are within the bounding rectangle of the focused element.
+    /// This ensures we only trigger when the USER interacted with THIS specific element.
     /// </summary>
-    private bool IsFocusClickInitiated()
+    private bool IsClickInsideElement(IUIAutomationElement element, POINT clickPt)
     {
-        if (_lastClickPosition.x < 0 || _lastClickPosition.y < 0) return false;
-        if (_automation == null) return false;
-
-        IUIAutomationElement clickedElement = null;
-        IUIAutomationElement focusedElement = null;
-
         try
         {
-            var pt = new tagPOINT { x = _lastClickPosition.x, y = _lastClickPosition.y };
-            clickedElement = _automation.ElementFromPoint(pt);
-            focusedElement = _automation.GetFocusedElement();
+            // Property ID 30001 is BoundingRectangle
+            object rectObj = element.GetCurrentPropertyValue(UIA_BoundingRectanglePropertyId);
+            
+            // UIA returns an array of 4 doubles: [Left, Top, Width, Height]
+            if (rectObj is double[] rectArray && rectArray.Length == 4)
+            {
+                double left = rectArray[0];
+                double top = rectArray[1];
+                double width = rectArray[2];
+                double height = rectArray[3];
+                
+                // Check for invalid rects (off-screen or empty)
+                if (width <= 0 || height <= 0) return false;
 
-            if (clickedElement == null || focusedElement == null) return true; // Be permissive
-
-            // Direct comparison
-            try {
-                if (_automation.CompareElements(clickedElement, focusedElement) == 0) return true;
-            } catch { }
-
-            // Parent check
-            try {
-                var focusedParent = focusedElement.GetCachedParent();
-                if (focusedParent != null) {
-                    int parentResult = _automation.CompareElements(clickedElement, focusedParent);
-                    if (Marshal.IsComObject(focusedParent)) Marshal.ReleaseComObject(focusedParent);
-                    if (parentResult == 0) return true;
+                bool inside = clickPt.x >= left && clickPt.x <= (left + width) &&
+                              clickPt.y >= top && clickPt.y <= (top + height);
+                              
+                if (inside) 
+                {
+                    Logger.Debug($"Click verified inside element bounds: [{left},{top}, {width}x{height}]");
+                    return true;
                 }
-            } catch { }
-
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Failed to check element bounds: {ex.Message}");
+            // If we can't check bounds (e.g. some web elements), should we allow it?
+            // User requested STRICT activation. So default to false implies safety.
+            // But for compatibility, if we can't read bounds, we might assume true if Time is very short.
+            // Let's stick to strict for now to solve the user's primary complaint.
             return false;
         }
-        catch
-        {
-            return true; // Default to permissive on error
-        }
-        finally
-        {
-            if (clickedElement != null && Marshal.IsComObject(clickedElement)) try { Marshal.ReleaseComObject(clickedElement); } catch { }
-            if (focusedElement != null && Marshal.IsComObject(focusedElement)) try { Marshal.ReleaseComObject(focusedElement); } catch { }
-        }
+        return false;
     }
 
-    private bool IsTextInputElement(IntPtr hwnd)
+    /// <summary>
+    /// Robust check for text input capability with aggressive error handling
+    /// </summary>
+    private bool IsTextInputElement(IUIAutomationElement element)
     {
-        if (_automation == null || hwnd == IntPtr.Zero)
-            return false;
-
-        IUIAutomationElement focusedElement = null;
-
         try
         {
-            // Get focused element from UI Automation
-            focusedElement = _automation.GetFocusedElement();
-            
-            if (focusedElement == null)
-            {
-                Logger.Debug("GetFocusedElement returned null");
-                return false;
-            }
+            if (element == null) return false;
 
-            // Check if element actually has keyboard focus
-            if (!focusedElement.CurrentHasKeyboardFocus)
-            {
-                Logger.Debug("Element does not have keyboard focus");
-                return false;
-            }
+            // 1. Basic properties (Safe wrappers)
+            int controlType = 0;
+            string className = "";
 
-            // Check control type
-            int controlType = focusedElement.CurrentControlType;
-            string className = focusedElement.CurrentClassName ?? "";
-            
-            Logger.Debug($"Checking element: Type={controlType}, Class='{className}'");
-            
-            // Edit controls and ComboBoxes are always valid text inputs
+            try { controlType = element.CurrentControlType; } catch { }
+            try { className = element.CurrentClassName ?? ""; } catch { }
+
+            Logger.Debug($"Checking text input capability: Type={controlType}, Class='{className}'");
+
+            // 2. Fast allow list
             if (controlType == UIA_EditControlTypeId || controlType == UIA_ComboBoxControlTypeId)
-            {
-                Logger.Debug($"✓ Text input detected - Control Type: {controlType}");
                 return true;
-            }
 
-            // Pane controls with Scintilla class (Notepad++, code editors)
-            if (controlType == UIA_PaneControlTypeId && 
-                className.IndexOf("Scintilla", StringComparison.OrdinalIgnoreCase) >= 0)
+            // 3. Document / Pane (Web & Electron)
+            if (controlType == UIA_DocumentControlTypeId || controlType == UIA_PaneControlTypeId)
             {
-                Logger.Debug($"✓ Text input detected - Scintilla editor (Pane + Scintilla class)");
-                return true;
-            }
-
-            // Document controls (web pages) need additional validation
-            if (controlType == UIA_DocumentControlTypeId)
-            {
-                bool hasEditablePattern = false;
-                
-                // Check Value pattern (editable text fields)
+                // Try Value Pattern
                 try
                 {
-                    var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
+                    var valuePattern = element.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
                     if (valuePattern != null)
                     {
-                        // Wrap check in try-catch as some OLE implementations throw exceptions here
                         bool isReadOnly = false;
-                        try {
-                            isReadOnly = valuePattern.CurrentIsReadOnly;
-                        } catch {
-                            Logger.Debug("Could not read IsReadOnly, assuming editable");
-                        }
-
+                        try { isReadOnly = valuePattern.CurrentIsReadOnly; }
+                        catch { /* If we can't read ReadOnly status, usually it means it's not a standard input, or it's dead */ }
+                        
                         if (!isReadOnly)
                         {
-                            Logger.Debug("✓ Text input detected - Document with editable Value Pattern");
-                            hasEditablePattern = true;
+                            Logger.Debug("✓ Text input - Editable Value Pattern");
+                            return true;
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    Logger.Debug($"Value pattern check failed: {ex.Message}");
-                }
+                catch (COMException) { /* Ignore "OLE variant invalid" etc */ }
+                catch (Exception) { }
 
-                if (!hasEditablePattern)
+                // Try Text Pattern (Last resort for Docs)
+                try
                 {
-                    try
+                    var textPattern = element.GetCurrentPattern(UIA_TextPatternId);
+                    if (textPattern != null)
                     {
-                        var textPattern = focusedElement.GetCurrentPattern(UIA_TextPatternId);
-                        if (textPattern != null)
+                        // Heuristic: Only treat as input if class name suggests it, or it's a Document
+                        if (controlType == UIA_DocumentControlTypeId || 
+                            className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            if (className.IndexOf("edit", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                className.IndexOf("input", StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                Logger.Debug("✓ Text input detected - Document with Text Pattern (editable)");
-                                hasEditablePattern = true;
-                            }
+                            Logger.Debug("✓ Text input - Text Pattern + Class Match");
+                            return true;
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.Debug($"Text pattern check failed: {ex.Message}");
-                    }
                 }
-                return hasEditablePattern;
+                catch { }
             }
 
-            // Check for Value pattern (other editable text fields)
-            try
+            // 4. Custom/Group (Web apps often use these)
+            // Only allow if they are focusable and we clicked inside them (checked previously)
+            if (controlType == UIA_CustomControlTypeId || controlType == UIA_GroupControlTypeId)
             {
-                var valuePattern = focusedElement.GetCurrentPattern(UIA_ValuePatternId) as IUIAutomationValuePattern;
-                if (valuePattern != null)
+                try
                 {
-                    // CRITICAL FIX: Wrapped in try-catch to handle 'Specified OLE variant is invalid' exceptions
-                    // which caused the logic to fail prematurely for many apps
-                    bool isReadOnly = false;
-                    try 
+                    if (element.CurrentIsKeyboardFocusable && element.CurrentIsEnabled)
                     {
-                        isReadOnly = valuePattern.CurrentIsReadOnly;
-                    } 
-                    catch (Exception valEx) 
-                    {
-                        Logger.Debug($"ValuePattern property read error: {valEx.Message}. Assuming editable.");
-                        isReadOnly = false; // Fail safe: assume editable if we can't read it
-                    }
-                    
-                    if (!isReadOnly)
-                    {
-                        Logger.Debug($"✓ Text input detected - Control Type {controlType} with editable Value Pattern");
+                        Logger.Debug("✓ Text input - Focusable Custom/Group element");
                         return true;
                     }
-                    else
-                    {
-                        Logger.Debug($"Element has Value Pattern but is read-only");
-                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger.Debug($"Value pattern check (general) failed: {ex.Message}");
+                catch { }
             }
 
-            // Last resort: Check for generic Custom/Group controls that are focusable (Common in Web/Electron)
-            if (controlType == UIA_CustomControlTypeId || controlType == 50026 /* Group */)
-            {
-                if (focusedElement.CurrentIsKeyboardFocusable && focusedElement.CurrentIsEnabled)
-                {
-                     // If we are here, we passed the ValuePattern check (or it failed), but the element accepts focus.
-                     // In modern web apps, this is often enough to assume input.
-                     Logger.Debug("✓ Text input assumed - Custom/Group control with keyboard focus");
-                     return true;
-                }
-            }
-
-            Logger.Debug($"✗ Element is not a text input - Type={controlType}, Class='{className}'");
             return false;
         }
         catch (Exception ex)
         {
-            Logger.Error("Error checking if element is text input", ex);
+            Logger.Error($"Critical error in IsTextInputElement: {ex.Message}", ex);
             return false;
-        }
-        finally
-        {
-            if (focusedElement != null && Marshal.IsComObject(focusedElement))
-            {
-                try { Marshal.ReleaseComObject(focusedElement); } catch { }
-            }
         }
     }
 
@@ -652,10 +559,7 @@ public class AutoShowManager : IDisposable
                 Marshal.ReleaseComObject(_automation);
                 _automation = null;
             }
-            catch (Exception ex)
-            {
-                Logger.Error("Error releasing UI Automation COM object", ex);
-            }
+            catch { }
         }
 
         Logger.Info("AutoShowManager disposed");
