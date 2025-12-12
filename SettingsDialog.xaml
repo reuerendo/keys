@@ -13,8 +13,85 @@
     PrimaryButtonClick="SaveButton_Click"
     CloseButtonClick="CancelButton_Click">
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="600">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="700">
         <StackPanel Spacing="24" Padding="8">
+            
+            <!-- Keyboard Layouts Section -->
+            <StackPanel Spacing="12">
+                <TextBlock 
+                    Text="Языковые раскладки" 
+                    FontSize="16" 
+                    FontWeight="SemiBold"/>
+                
+                <TextBlock 
+                    Text="Выберите раскладки, которые будут доступны при переключении языка" 
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap"
+                    Margin="0,0,0,8"/>
+                
+                <StackPanel x:Name="LayoutsPanel" Spacing="8">
+                    <!-- Чекбоксы раскладок будут добавлены программно -->
+                </StackPanel>
+                
+                <Border 
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="12"
+                    Margin="0,8,0,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="ℹ️ "/>
+                            <Run Text="Переключение между языками осуществляется кнопкой 'Lang'"/>
+                        </TextBlock>
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="💡 "/>
+                            <Run Text="Необходимо выбрать хотя бы одну раскладку"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Default Layout Section -->
+            <StackPanel Spacing="12">
+                <TextBlock 
+                    Text="Раскладка по умолчанию" 
+                    FontSize="16" 
+                    FontWeight="SemiBold"/>
+                
+                <TextBlock 
+                    Text="Выберите раскладку, которая будет активна при запуске приложения" 
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap"
+                    Margin="0,0,0,8"/>
+                
+                <ComboBox 
+                    x:Name="DefaultLayoutComboBox"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="DefaultLayoutComboBox_SelectionChanged"/>
+                
+                <Border 
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="12"
+                    Margin="0,8,0,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="💡 "/>
+                            <Run Text="При запуске приложения будет установлена выбранная раскладка"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
             
             <!-- Keyboard Scale Section -->
             <StackPanel Spacing="12">

@@ -1,5 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace VirtualKeyboard;
 
@@ -10,27 +12,92 @@ public class LayoutManager
 {
     private readonly KeyboardLayout _englishLayout;
     private readonly KeyboardLayout _russianLayout;
+    private readonly KeyboardLayout _polishLayout;
     private readonly KeyboardLayout _symbolLayout;
     
-    private KeyboardLayout _currentLayout;
+    private List<KeyboardLayout> _availableLayouts;
+    private int _currentLayoutIndex;
     private KeyboardLayout _previousLayout;
     private bool _isSymbolMode;
 
     private Button _langButton;
+    private readonly SettingsManager _settingsManager;
 
-    public KeyboardLayout CurrentLayout => _currentLayout;
+    public KeyboardLayout CurrentLayout => _isSymbolMode ? _symbolLayout : _availableLayouts[_currentLayoutIndex];
     public bool IsSymbolMode => _isSymbolMode;
 
-    public LayoutManager()
+    public LayoutManager(SettingsManager settingsManager)
     {
+        _settingsManager = settingsManager;
+        
         _englishLayout = KeyboardLayout.CreateEnglishLayout();
         _russianLayout = KeyboardLayout.CreateRussianLayout();
+        _polishLayout = KeyboardLayout.CreatePolishLayout();
         _symbolLayout = KeyboardLayout.CreateSymbolLayout();
-        _currentLayout = _englishLayout;
+        
+        RefreshAvailableLayouts();
+        SetDefaultLayout();
     }
 
     /// <summary>
-    /// Switch between English and Russian layouts
+    /// Set current layout to default layout from settings
+    /// </summary>
+    public void SetDefaultLayout()
+    {
+        string defaultLayoutCode = _settingsManager.GetDefaultLayout();
+        
+        // Find the index of the default layout
+        for (int i = 0; i < _availableLayouts.Count; i++)
+        {
+            if (_availableLayouts[i].Code == defaultLayoutCode)
+            {
+                _currentLayoutIndex = i;
+                Logger.Info($"Default layout set to: {_availableLayouts[i].Name} ({defaultLayoutCode})");
+                return;
+            }
+        }
+        
+        // If default layout not found in available layouts, use first one
+        _currentLayoutIndex = 0;
+        Logger.Warning($"Default layout {defaultLayoutCode} not found in available layouts, using {_availableLayouts[0].Name}");
+    }
+
+    /// <summary>
+    /// Refresh available layouts based on settings
+    /// </summary>
+    public void RefreshAvailableLayouts()
+    {
+        var enabledLayouts = _settingsManager.GetEnabledLayouts();
+        _availableLayouts = new List<KeyboardLayout>();
+
+        if (enabledLayouts.Contains("EN"))
+            _availableLayouts.Add(_englishLayout);
+        if (enabledLayouts.Contains("RU"))
+            _availableLayouts.Add(_russianLayout);
+        if (enabledLayouts.Contains("PL"))
+            _availableLayouts.Add(_polishLayout);
+
+        // Ensure at least one layout is available
+        if (_availableLayouts.Count == 0)
+        {
+            _availableLayouts.Add(_englishLayout);
+            Logger.Warning("No layouts enabled, defaulting to English");
+        }
+
+        // Reset index if current is out of bounds
+        if (_currentLayoutIndex >= _availableLayouts.Count)
+        {
+            _currentLayoutIndex = 0;
+        }
+
+        Logger.Info($"Available layouts refreshed: {string.Join(", ", _availableLayouts.Select(l => l.Code))}");
+        
+        // Reapply default layout after refresh
+        SetDefaultLayout();
+    }
+
+    /// <summary>
+    /// Switch to next available layout
     /// </summary>
     public void SwitchLanguage()
     {
@@ -38,9 +105,12 @@ public class LayoutManager
         {
             return; // Don't switch language in symbol mode
         }
-        
-        _currentLayout = (_currentLayout == _englishLayout) ? _russianLayout : _englishLayout;
-        Logger.Info($"Switched to layout: {_currentLayout.Name}");
+
+        if (_availableLayouts.Count > 1)
+        {
+            _currentLayoutIndex = (_currentLayoutIndex + 1) % _availableLayouts.Count;
+            Logger.Info($"Switched to layout: {CurrentLayout.Name} ({CurrentLayout.Code})");
+        }
     }
 
     /// <summary>
@@ -53,16 +123,18 @@ public class LayoutManager
         if (_isSymbolMode)
         {
             // Remember current layout before switching to symbols
-            _previousLayout = _currentLayout;
-            _currentLayout = _symbolLayout;
+            _previousLayout = _availableLayouts[_currentLayoutIndex];
         }
         else
         {
             // Restore previous layout when leaving symbol mode
-            _currentLayout = _previousLayout ?? _englishLayout;
+            if (_previousLayout != null && _availableLayouts.Contains(_previousLayout))
+            {
+                _currentLayoutIndex = _availableLayouts.IndexOf(_previousLayout);
+            }
         }
         
-        Logger.Info($"Symbol mode: {_isSymbolMode}, Layout: {_currentLayout.Name}");
+        Logger.Info($"Symbol mode: {_isSymbolMode}, Layout: {CurrentLayout.Name}");
     }
 
     /// <summary>
@@ -70,7 +142,7 @@ public class LayoutManager
     /// </summary>
     public bool IsLayoutKey(string key)
     {
-        return _currentLayout.Keys.ContainsKey(key);
+        return CurrentLayout.Keys.ContainsKey(key);
     }
 
     /// <summary>
@@ -78,7 +150,7 @@ public class LayoutManager
     /// </summary>
     public KeyboardLayout.KeyDefinition GetKeyDefinition(string key)
     {
-        return _currentLayout.Keys.ContainsKey(key) ? _currentLayout.Keys[key] : null;
+        return CurrentLayout.Keys.ContainsKey(key) ? CurrentLayout.Keys[key] : null;
     }
 
     /// <summary>
@@ -105,9 +177,9 @@ public class LayoutManager
             {
                 // Don't update control keys except Lang button (handled separately)
             }
-            else if (_currentLayout.Keys.ContainsKey(tag))
+            else if (CurrentLayout.Keys.ContainsKey(tag))
             {
-                var keyDef = _currentLayout.Keys[tag];
+                var keyDef = CurrentLayout.Keys[tag];
                 
                 // Shift should ONLY affect letters
                 bool shouldCapitalize = false;
@@ -144,7 +216,7 @@ public class LayoutManager
     }
 
     /// <summary>
-    /// Update Lang button label
+    /// Update Lang button label with current layout code
     /// </summary>
     private void UpdateLangButtonLabel()
     {
@@ -154,7 +226,7 @@ public class LayoutManager
             return;
         }
         
-        _langButton.Content = _isSymbolMode ? "abc" : "Lang";
+        _langButton.Content = _isSymbolMode ? "abc" : CurrentLayout.Code;
     }
 
     /// <summary>
@@ -163,6 +235,7 @@ public class LayoutManager
     public void InitializeLangButton(FrameworkElement rootElement)
     {
         FindLangButton(rootElement);
+        UpdateLangButtonLabel();
     }
 
     /// <summary>

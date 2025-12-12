@@ -1,10 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
 using System.IO;
-using Microsoft.UI.Xaml;
 
 namespace VirtualKeyboard;
 
+/// <summary>
+/// Manages system tray icon with context menu and event handling
+/// </summary>
 public class TrayIcon : IDisposable
 {
     private const int WM_USER = 0x0400;
@@ -36,6 +38,8 @@ public class TrayIcon : IDisposable
 
     private const uint NOTIFYICON_VERSION_4 = 4;
 
+    #region Win32 Structures and Imports
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATA
     {
@@ -57,6 +61,13 @@ public class TrayIcon : IDisposable
         public uint dwInfoFlags;
         public Guid guidItem;
         public IntPtr hBalloonIcon;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
     }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
@@ -92,12 +103,7 @@ public class TrayIcon : IDisposable
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandle(string lpModuleName);
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public int X;
-        public int Y;
-    }
+    #endregion
 
     private IntPtr _hwnd;
     private NOTIFYICONDATA _notifyIconData;
@@ -113,9 +119,7 @@ public class TrayIcon : IDisposable
     public TrayIcon(IntPtr windowHandle, string tooltip = "Virtual Keyboard")
     {
         _hwnd = windowHandle;
-
         _messageWindow = new TrayIconMessageWindow(this);
-
         _hIcon = LoadTrayIcon();
 
         _notifyIconData = new NOTIFYICONDATA
@@ -134,6 +138,9 @@ public class TrayIcon : IDisposable
         Logger.Info($"TrayIcon initialized. Structure size: {_notifyIconData.cbSize}, Icon: 0x{_hIcon:X}, Window: 0x{_messageWindow.Handle:X}");
     }
 
+    /// <summary>
+    /// Load tray icon from file or use default system icon
+    /// </summary>
     private IntPtr LoadTrayIcon()
     {
         string appDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -155,6 +162,9 @@ public class TrayIcon : IDisposable
         return LoadIcon(IntPtr.Zero, IDI_INFORMATION);
     }
 
+    /// <summary>
+    /// Show the tray icon
+    /// </summary>
     public void Show()
     {
         if (!_isIconAdded)
@@ -169,6 +179,9 @@ public class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>
+    /// Hide the tray icon
+    /// </summary>
     public void Hide()
     {
         if (_isIconAdded)
@@ -178,6 +191,9 @@ public class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>
+    /// Update tooltip text
+    /// </summary>
     public void UpdateTooltip(string tooltip)
     {
         if (_isIconAdded)
@@ -187,24 +203,46 @@ public class TrayIcon : IDisposable
         }
     }
 
+    /// <summary>
+    /// Handle tray icon mouse messages
+    /// </summary>
     private void OnTrayIconMessage(int message)
     {
         switch (message)
         {
             case WM_LBUTTONUP:
-                FocusRestorer.CaptureCurrentFocus();
-                ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty);
-                FocusRestorer.RestoreFocus();
+                OnLeftClick();
                 break;
 
             case WM_RBUTTONUP:
-                FocusRestorer.CaptureCurrentFocus();
-                ShowContextMenu();
-                FocusRestorer.RestoreFocus();
+                OnRightClick();
                 break;
         }
     }
 
+    /// <summary>
+    /// Handle left click on tray icon - toggle visibility
+    /// </summary>
+    private void OnLeftClick()
+    {
+        FocusRestorer.CaptureCurrentFocus();
+        ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty);
+        FocusRestorer.RestoreFocus();
+    }
+
+    /// <summary>
+    /// Handle right click on tray icon - show context menu
+    /// </summary>
+    private void OnRightClick()
+    {
+        FocusRestorer.CaptureCurrentFocus();
+        ShowContextMenu();
+        FocusRestorer.RestoreFocus();
+    }
+
+    /// <summary>
+    /// Show context menu at cursor position
+    /// </summary>
     private void ShowContextMenu()
     {
         GetCursorPos(out POINT pt);
@@ -213,7 +251,7 @@ public class TrayIcon : IDisposable
 
         AppendMenu(hMenu, 0, MENU_SHOW, "Показать");
         AppendMenu(hMenu, 0, MENU_SETTINGS, "Настройки");
-        AppendMenu(hMenu, 0x800, 0, null);
+        AppendMenu(hMenu, 0x800, 0, null); // Separator
         AppendMenu(hMenu, 0, MENU_EXIT, "Выход");
 
         SetForegroundWindow(_messageWindow.Handle);
@@ -225,6 +263,9 @@ public class TrayIcon : IDisposable
         HandleMenuCommand(cmd);
     }
 
+    /// <summary>
+    /// Handle menu command selection
+    /// </summary>
     private void HandleMenuCommand(uint cmd)
     {
         switch (cmd)
@@ -252,6 +293,11 @@ public class TrayIcon : IDisposable
         _messageWindow?.Dispose();
     }
 
+    #region TrayIconMessageWindow
+
+    /// <summary>
+    /// Hidden message-only window for receiving tray icon notifications
+    /// </summary>
     private class TrayIconMessageWindow : IDisposable
     {
         private const string WINDOW_CLASS_NAME = "VirtualKeyboardTrayIconWindow";
@@ -341,12 +387,15 @@ public class TrayIcon : IDisposable
             }
         }
     }
+
+    #endregion
 }
 
+#region FocusRestorer
 
-// ===========================
-//     FocusRestorer
-// ===========================
+/// <summary>
+/// Helper class to capture and restore focus when showing context menus
+/// </summary>
 public static class FocusRestorer
 {
     [DllImport("user32.dll")]
@@ -370,6 +419,9 @@ public static class FocusRestorer
     private static IntPtr _prevFocus = IntPtr.Zero;
     private static IntPtr _prevForeground = IntPtr.Zero;
 
+    /// <summary>
+    /// Capture current focus state
+    /// </summary>
     public static void CaptureCurrentFocus()
     {
         _prevForeground = GetForegroundWindow();
@@ -382,6 +434,9 @@ public static class FocusRestorer
         AttachThreadInput(thisThread, fgThread, false);
     }
 
+    /// <summary>
+    /// Restore previously captured focus
+    /// </summary>
     public static void RestoreFocus()
     {
         if (_prevFocus == IntPtr.Zero)
@@ -395,3 +450,5 @@ public static class FocusRestorer
         AttachThreadInput(thisThread, fgThread, false);
     }
 }
+
+#endregion

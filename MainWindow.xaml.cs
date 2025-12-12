@@ -1,6 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
@@ -10,34 +9,15 @@ namespace VirtualKeyboard;
 
 public sealed partial class MainWindow : Window
 {
-    // Window visibility constants
-    private const int SW_HIDE = 0;
-    private const int SW_SHOWNOACTIVATE = 4;
-    private const int SWP_NOACTIVATE = 0x0010;
-    private const int SWP_NOZORDER = 0x0004;
-    private const int SWP_SHOWWINDOW = 0x0040;
-	private FocusTracker _focusTracker;
+    #region Win32 Imports
 
-    // P/Invoke for window operations
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
 
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-    
-    [DllImport("user32.dll")]
-    private static extern bool IsWindowVisible(IntPtr hWnd);
+    #endregion
 
-    [DllImport("user32.dll")]
-    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-	
-	[DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
+    #region Services and Managers
 
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    // Services and managers
     private readonly IntPtr _thisWindowHandle;
     private readonly KeyboardInputService _inputService;
     private readonly KeyboardStateManager _stateManager;
@@ -45,20 +25,23 @@ public sealed partial class MainWindow : Window
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
     private readonly SettingsManager _settingsManager;
+    private readonly FocusTracker _focusTracker;
+    
     private AutoShowManager _autoShowManager;
+    private BackspaceRepeatHandler _backspaceHandler;
+    private KeyboardEventCoordinator _eventCoordinator;
+    private WindowVisibilityManager _visibilityManager;
     private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
 
-    // Backspace repeat functionality
-    private DispatcherTimer _backspaceRepeatTimer;
-    private bool _isBackspacePressed = false;
-    private const int BACKSPACE_INITIAL_DELAY_MS = 500;
-    private const int BACKSPACE_REPEAT_INTERVAL_MS = 50;
-	private bool _backspaceInitialDelayPassed = false;
+    #endregion
+
+    #region State Flags
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
-    private bool _isLongPressHandled = false;
+
+    #endregion
 
     public MainWindow()
     {
@@ -67,288 +50,140 @@ public sealed partial class MainWindow : Window
         
         Logger.Info("=== MainWindow Constructor Started ===");
         
+        // Get window handle
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
-		_focusTracker = new FocusTracker(_thisWindowHandle);
+        // Initialize core services
+        _focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
-        _layoutManager = new LayoutManager();
+        _layoutManager = new LayoutManager(_settingsManager);
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         
-        // Initialize backspace repeat timer
-        InitializeBackspaceRepeatTimer();
+        // Configure window
+        ConfigureWindowSize();
+        _styleManager.ApplyNoActivateStyle();
+        
+        // Initialize tray icon
+        InitializeTrayIcon();
+        
+        // Setup event handlers
+        if (this.Content is FrameworkElement rootElement)
+        {
+            rootElement.Loaded += MainWindow_Loaded;
+        }
+        
+        this.Activated += MainWindow_Activated;
+        this.Closed += MainWindow_Closed;
+
+        Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
+        Logger.Info("=== MainWindow Constructor Completed ===");
+    }
+
+    #region Initialization
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        var rootElement = this.Content as FrameworkElement;
+        
+        // Initialize long press popup
+        _longPressPopup = new LongPressPopup(rootElement, _stateManager);
+        
+        // Set initial layout for long press popup (ИСПРАВЛЕНИЕ: инициализация раскладки для long press)
+        _longPressPopup.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+        
+        // Initialize specialized handlers
+        _backspaceHandler = new BackspaceRepeatHandler(_inputService);
+        _eventCoordinator = new KeyboardEventCoordinator(_inputService, _stateManager, _layoutManager, _longPressPopup);
+        
+        // Initialize visibility manager
+        _visibilityManager = new WindowVisibilityManager(
+            _thisWindowHandle,
+            this,
+            _positionManager,
+            _stateManager,
+            _layoutManager,
+            _focusTracker,
+            _autoShowManager,
+            rootElement
+        );
+        
+        // Setup handlers
+        _backspaceHandler.SetupHandlers(rootElement);
+        _eventCoordinator.SetupLongPressHandlers(rootElement);
+        
+        // Initialize button references
+        _stateManager.InitializeButtonReferences(rootElement);
+        _layoutManager.InitializeLangButton(rootElement);
+        
+        // Update key labels to match current layout (ИСПРАВЛЕНИЕ: обновление меток при загрузке)
+        _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
         
         // Initialize auto-show manager
         _autoShowManager = new AutoShowManager(_thisWindowHandle);
         _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
         _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
+        Logger.Info("MainWindow fully initialized");
+    }
+
+    private void ConfigureWindowSize()
+    {
+        uint dpi = GetDpiForWindow(_thisWindowHandle);
+        float dpiScale = dpi / 96f;
+        double userScale = _settingsManager.Settings.KeyboardScale;
+
+        int baseWidth = 997;
+        int baseHeight = 330;
+        int physicalWidth = (int)(baseWidth * dpiScale * userScale);
+        int physicalHeight = (int)(baseHeight * dpiScale * userScale);
+
+        Logger.Info($"Window size: {physicalWidth}x{physicalHeight} (DPI: {dpiScale:F2}, User: {userScale:P0})");
+
+        var appWindow = this.AppWindow;
+        appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
+
         if (this.Content is FrameworkElement rootElement)
         {
-            rootElement.Loaded += MainWindow_Loaded;
-        }
-        
-        ConfigureWindowSize();
-        _styleManager.ApplyNoActivateStyle();
-        InitializeTrayIcon();
+            rootElement.Width = baseWidth;
+            rootElement.Height = baseHeight;
+            rootElement.HorizontalAlignment = HorizontalAlignment.Left;
+            rootElement.VerticalAlignment = VerticalAlignment.Top;
 
-        Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
-        Logger.Info("=== MainWindow Constructor Completed ===");
-        
-        this.Activated += MainWindow_Activated;
-        this.Closed += MainWindow_Closed;
-    }
-
-	private void InitializeBackspaceRepeatTimer()
-	{
-		_backspaceRepeatTimer = new DispatcherTimer
-		{
-			Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS)
-		};
-		_backspaceRepeatTimer.Tick += BackspaceRepeatTimer_Tick;
-	}
-
-	private void BackspaceRepeatTimer_Tick(object sender, object e)
-	{
-		// After initial delay, switch to fast repeat interval
-		if (!_backspaceInitialDelayPassed)
-		{
-			_backspaceInitialDelayPassed = true;
-			_backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS);
-			Logger.Debug($"Switched to fast repeat interval: {BACKSPACE_REPEAT_INTERVAL_MS}ms");
-		}
-		
-		if (_isBackspacePressed)
-		{
-			// Send backspace key
-			byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
-			_inputService.SendVirtualKey(backspaceVk);
-		}
-	}
-
-	private void MainWindow_Loaded(object sender, RoutedEventArgs e)
-	{
-		_longPressPopup = new LongPressPopup(this.Content as FrameworkElement, _stateManager);
-		_longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
-		
-		SetupLongPressHandlers(this.Content as FrameworkElement);
-		SetupBackspaceHandlers(this.Content as FrameworkElement);
-		
-		// Initialize button references for state manager and layout manager
-		_stateManager.InitializeButtonReferences(this.Content as FrameworkElement);
-		_layoutManager.InitializeLangButton(this.Content as FrameworkElement);
-		
-		Logger.Info("Long-press handlers and backspace handlers initialized");
-	}
-
-    private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
-    {
-        Logger.Info("Auto-show triggered by text input focus");
-        ShowWindow(preserveFocus: true);
-    }
-
-    private void SetupBackspaceHandlers(FrameworkElement element)
-    {
-        if (element is Button btn && btn.Tag is string tag && tag == "Backspace")
-        {
-            btn.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(BackspaceButton_PointerPressed), true);
-            btn.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(BackspaceButton_PointerReleased), true);
-            btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(BackspaceButton_PointerCanceled), true);
-            btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(BackspaceButton_PointerCaptureLost), true);
-            Logger.Debug("Backspace handlers attached");
-            return;
-        }
-
-        if (element is Panel panel)
-        {
-            foreach (var child in panel.Children)
+            if (rootElement is Grid rootGrid && rootGrid.RenderTransform is ScaleTransform scaleTransform)
             {
-                if (child is FrameworkElement fe)
-                    SetupBackspaceHandlers(fe);
+                scaleTransform.ScaleX = userScale;
+                scaleTransform.ScaleY = userScale;
+                Logger.Info($"Applied ScaleTransform to existing transform: {userScale}x");
             }
-        }
-        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
-        {
-            SetupBackspaceHandlers(scrollContent);
-        }
-    }
-
-	private void BackspaceButton_PointerPressed(object sender, PointerRoutedEventArgs e)
-	{
-		_isBackspacePressed = true;
-		_backspaceInitialDelayPassed = false; // Reset flag
-		
-		// Send first backspace immediately
-		byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
-		_inputService.SendVirtualKey(backspaceVk);
-		
-		// Start timer with initial delay
-		_backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_INITIAL_DELAY_MS);
-		_backspaceRepeatTimer.Start();
-		
-		Logger.Debug($"Backspace pressed - initial delay: {BACKSPACE_INITIAL_DELAY_MS}ms");
-	}
-
-    private void BackspaceButton_PointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        StopBackspaceRepeat();
-    }
-
-    private void BackspaceButton_PointerCanceled(object sender, PointerRoutedEventArgs e)
-    {
-        StopBackspaceRepeat();
-    }
-
-    private void BackspaceButton_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-    {
-        StopBackspaceRepeat();
-    }
-
-	private void StopBackspaceRepeat()
-	{
-		_isBackspacePressed = false;
-		_backspaceInitialDelayPassed = false; // Reset flag
-		_backspaceRepeatTimer.Stop();
-		
-		Logger.Debug("Backspace released - stopping repeat");
-	}
-
-    private void SetupLongPressHandlers(FrameworkElement element)
-    {
-        if (element is Button btn && btn.Tag is string tag)
-        {
-            if (tag != "Shift" && tag != "Lang" && tag != "&.." && 
-                tag != "Esc" && tag != "Tab" && tag != "Caps" && 
-                tag != "Ctrl" && tag != "Alt" && tag != "Enter" && 
-                tag != "Backspace" && tag != " ")
+            else
             {
-                btn.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(KeyButton_PointerPressed), true);
-                btn.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(KeyButton_PointerReleased), true);
-                btn.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(KeyButton_PointerCanceled), true);
-                btn.AddHandler(UIElement.PointerCaptureLostEvent, new PointerEventHandler(KeyButton_PointerCaptureLost), true);
+                var transform = new ScaleTransform
+                {
+                    ScaleX = userScale,
+                    ScaleY = userScale
+                };
+                rootElement.RenderTransform = transform;
+                Logger.Info($"Created and applied new ScaleTransform: {userScale}x");
             }
         }
 
-        if (element is Panel panel)
+        if (appWindow.Presenter is OverlappedPresenter presenter)
         {
-            foreach (var child in panel.Children)
-            {
-                if (child is FrameworkElement fe)
-                    SetupLongPressHandlers(fe);
-            }
-        }
-        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
-        {
-            SetupLongPressHandlers(scrollContent);
+            presenter.IsAlwaysOnTop = true;
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+            presenter.IsMinimizable = false;
         }
     }
-
-    private void KeyButton_PointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        _isLongPressHandled = false;
-        
-        if (sender is Button btn)
-        {
-            Logger.Debug($"PointerPressed on button: {btn.Tag}");
-            _longPressPopup?.StartPress(btn, _layoutManager.CurrentLayout.Name);
-        }
-    }
-
-    private void KeyButton_PointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        Logger.Debug($"PointerReleased on button: {(sender as Button)?.Tag}");
-        
-        if (_longPressPopup != null)
-        {
-            _isLongPressHandled = false;
-        }
-        
-        _longPressPopup?.CancelPress();
-    }
-
-    private void KeyButton_PointerCanceled(object sender, PointerRoutedEventArgs e)
-    {
-        Logger.Debug($"PointerCanceled on button: {(sender as Button)?.Tag}");
-        _longPressPopup?.CancelPress();
-    }
-
-    private void KeyButton_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-    {
-        Logger.Debug($"PointerCaptureLost on button: {(sender as Button)?.Tag}");
-        _longPressPopup?.CancelPress();
-    }
-
-    private void LongPressPopup_CharacterSelected(object sender, string character)
-    {
-        Logger.Info($"Long-press character selected: '{character}'");
-        _isLongPressHandled = true;
-        
-        foreach (char c in character)
-        {
-            _inputService.SendUnicodeChar(c);
-        }
-    }
-
-	private void ConfigureWindowSize()
-	{
-		uint dpi = GetDpiForWindow(_thisWindowHandle);
-		float dpiScale = dpi / 96f;
-
-		double userScale = _settingsManager.Settings.KeyboardScale;
-
-		int baseWidth = 997;
-		int baseHeight = 330;
-
-		int physicalWidth = (int)(baseWidth * dpiScale * userScale);
-		int physicalHeight = (int)(baseHeight * dpiScale * userScale);
-
-		Logger.Info($"Window size: {physicalWidth}x{physicalHeight} (DPI: {dpiScale:F2}, User: {userScale:P0})");
-
-		var appWindow = this.AppWindow;
-		appWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
-
-		if (this.Content is FrameworkElement rootElement)
-		{
-			rootElement.Width = baseWidth;
-			rootElement.Height = baseHeight;
-
-			rootElement.HorizontalAlignment = HorizontalAlignment.Left;
-			rootElement.VerticalAlignment = VerticalAlignment.Top;
-
-			if (rootElement is Grid rootGrid && rootGrid.RenderTransform is ScaleTransform scaleTransform)
-			{
-				scaleTransform.ScaleX = userScale;
-				scaleTransform.ScaleY = userScale;
-				Logger.Info($"Applied ScaleTransform to existing transform: {userScale}x");
-			}
-			else
-			{
-				var transform = new ScaleTransform
-				{
-					ScaleX = userScale,
-					ScaleY = userScale
-				};
-				rootElement.RenderTransform = transform;
-				Logger.Info($"Created and applied new ScaleTransform: {userScale}x");
-			}
-		}
-
-		if (appWindow.Presenter is OverlappedPresenter presenter)
-		{
-			presenter.IsAlwaysOnTop = true;
-			presenter.IsResizable = false;
-			presenter.IsMaximizable = false;
-			presenter.IsMinimizable = false;
-		}
-	}
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
     {
         _styleManager.ApplyNoActivateStyle();
-		_styleManager.RemoveMinMaxButtons();
+        _styleManager.RemoveMinMaxButtons();
         
         if (!_isInitialPositionSet && e.WindowActivationState != WindowActivationState.Deactivated)
         {
@@ -358,15 +193,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    #endregion
+
+    #region Tray Icon
+
     private void InitializeTrayIcon()
     {
         try
         {
             _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
-            _trayIcon.ShowRequested += TrayIcon_ShowRequested;
-            _trayIcon.ToggleVisibilityRequested += TrayIcon_ToggleVisibilityRequested;
-            _trayIcon.SettingsRequested += TrayIcon_SettingsRequested;
-            _trayIcon.ExitRequested += TrayIcon_ExitRequested;
+            _trayIcon.ShowRequested += (s, e) => _visibilityManager?.Show(preserveFocus: false);
+            _trayIcon.ToggleVisibilityRequested += (s, e) => _visibilityManager?.Toggle();
+            _trayIcon.SettingsRequested += (s, e) => ShowSettingsDialog();
+            _trayIcon.ExitRequested += (s, e) => ExitApplication();
             _trayIcon.Show();
             
             Logger.Info("Tray icon initialized and shown");
@@ -377,278 +216,37 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    #endregion
+
+    #region Auto-Show Event Handler
+
+    private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
+    {
+        Logger.Info("Auto-show triggered by text input focus");
+        _visibilityManager?.Show(preserveFocus: true);
+    }
+
+    #endregion
+
+    #region Key Button Click Handler
+
     private void KeyButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isLongPressHandled)
-        {
-            _isLongPressHandled = false;
-            Logger.Debug("Skipping click - long press was handled");
-            return;
-        }
-
         if (sender is not Button button || button.Tag is not string keyCode)
             return;
 
-        _longPressPopup?.HidePopup();
-
-        switch (keyCode)
-        {
-            case "Shift":
-                _stateManager.ToggleShift();
-                _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
-                break;
-                
-            case "Caps":
-                _stateManager.ToggleCapsLock();
-                _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
-                break;
-                
-            case "Ctrl":
-                _stateManager.ToggleCtrl();
-                break;
-                
-            case "Alt":
-                _stateManager.ToggleAlt();
-                break;
-                
-            case "Lang":
-                _layoutManager.SwitchLanguage();
-                _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
-                _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
-                break;
-                
-            case "&..":
-                _layoutManager.ToggleSymbolMode();
-                _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
-                _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
-                break;
-                
-            case "Backspace":
-                // Handled by pointer events for repeat functionality
-                break;
-                
-            default:
-                SendKey(keyCode);
-                
-                if (_stateManager.IsShiftActive && _layoutManager.IsLayoutKey(keyCode))
-                {
-                    _stateManager.ToggleShift();
-                    _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
-                }
-                
-                _stateManager.ResetCtrlIfActive();
-                _stateManager.ResetAltIfActive();
-                break;
-        }
-    }
-
-    private void SendKey(string key)
-    {
-        IntPtr currentForeground = _inputService.GetForegroundWindowHandle();
-        string currentTitle = _inputService.GetWindowTitle(currentForeground);
-
-        Logger.Info($"Clicking '{key}'. Target Window: 0x{currentForeground:X} ({currentTitle}). Modifiers: Ctrl={_stateManager.IsCtrlActive}, Alt={_stateManager.IsAltActive}, Shift={_stateManager.IsShiftActive}, Caps={_stateManager.IsCapsLockActive}");
-
-        if (_inputService.IsKeyboardWindowFocused())
-        {
-            Logger.Warning("CRITICAL: Keyboard has focus! Keys will not be sent to target app. WS_EX_NOACTIVATE failed.");
-        }
-
-        byte controlVk = _inputService.GetVirtualKeyCode(key);
-        if (controlVk != 0)
-        {
-            _inputService.SendVirtualKey(controlVk);
-            return;
-        }
-
-        var keyDef = _layoutManager.GetKeyDefinition(key);
-        if (keyDef != null)
-        {
-            if (_stateManager.IsCtrlActive || _stateManager.IsAltActive)
-            {
-                byte vk = _inputService.GetVirtualKeyCodeForLayoutKey(key);
-                if (vk != 0)
-                {
-                    _inputService.SendVirtualKey(vk, skipModifiers: true);
-                }
-                else
-                {
-                    Logger.Warning($"No VK code found for '{key}' - shortcuts may not work");
-                }
-            }
-            else
-            {
-                bool shouldCapitalize = false;
-                
-                if (keyDef.IsLetter)
-                {
-                    shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive);
-                    
-                    if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive)
-                    {
-                        shouldCapitalize = false;
-                    }
-                }
-                
-                string charToSend = shouldCapitalize ? keyDef.ValueShift : keyDef.Value;
-                
-                Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, shouldCapitalize={shouldCapitalize}, sending='{charToSend}'");
-                
-                foreach (char c in charToSend)
-                {
-                    _inputService.SendUnicodeChar(c);
-                }
-            }
-        }
-        else
-        {
-            if (key.Length == 1 && !char.IsControl(key[0]))
-            {
-                _inputService.SendUnicodeChar(key[0]);
-            }
-        }
-    }
-
-    #region Tray Icon Event Handlers
-
-    private void TrayIcon_ShowRequested(object sender, EventArgs e)
-    {
-        ShowWindow(preserveFocus: false);
-    }
-
-    private void TrayIcon_ToggleVisibilityRequested(object sender, EventArgs e)
-    {
-        bool isVisible = IsWindowVisible(_thisWindowHandle);
-        
-        if (isVisible)
-        {
-            HideWindow();
-        }
-        else
-        {
-            ShowWindow(preserveFocus: true); // Preserve focus when toggling visibility
-        }
-    }
-
-    private void TrayIcon_SettingsRequested(object sender, EventArgs e)
-    {
-        ShowSettingsDialog();
-    }
-
-    private void TrayIcon_ExitRequested(object sender, EventArgs e)
-    {
-        ExitApplication();
+        _eventCoordinator?.HandleKeyButtonClick(keyCode, this.Content as FrameworkElement);
     }
 
     #endregion
 
-    #region Window Visibility Management
-
-	private void ShowWindow(bool preserveFocus = false)
-    {
-        try
-        {
-            IntPtr previousForegroundWindow = IntPtr.Zero;
-			if (preserveFocus)
-			{
-				previousForegroundWindow = GetForegroundWindow();
-			}
-
-			_positionManager?.PositionWindow(showWindow: true);
-
-			if (preserveFocus)
-			{
-				IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
-
-				if (tracked != IntPtr.Zero && tracked != _thisWindowHandle)
-				{
-					Logger.Info($"Restoring focus to last tracked window: 0x{tracked:X}");
-					FocusHelper.RestoreForegroundWindow(tracked);
-				}
-				else
-				{
-					IntPtr prev = GetForegroundWindow();
-					if (prev != IntPtr.Zero && prev != _thisWindowHandle)
-					{
-						Logger.Info($"Fallback restore to previous foreground window: 0x{prev:X}");
-						FocusHelper.RestoreForegroundWindow(prev);
-					}
-				}
-			}
-            else
-            {
-                ShowWindow(_thisWindowHandle, SW_SHOWNOACTIVATE);
-                this.Activate();
-                Logger.Info("Window shown and activated");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to show window", ex);
-        }
-    }
-
-    private void HideWindow()
-    {
-        try
-        {
-            ResetAllModifiers();
-            
-            ShowWindow(_thisWindowHandle, SW_HIDE);
-            
-            // Notify AutoShowManager about hide (for cooldown)
-            _autoShowManager?.NotifyKeyboardHidden();
-            
-            Logger.Info("Window hidden to tray");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to hide window", ex);
-        }
-    }
-
-    private void ResetAllModifiers()
-    {
-        Logger.Info("Resetting all modifiers before hiding window");
-        
-        if (_stateManager.IsShiftActive)
-        {
-            _stateManager.ToggleShift();
-            Logger.Info("Shift reset");
-        }
-        
-        if (_stateManager.IsCtrlActive)
-        {
-            _stateManager.ToggleCtrl();
-            Logger.Info("Ctrl reset");
-        }
-        
-        if (_stateManager.IsAltActive)
-        {
-            _stateManager.ToggleAlt();
-            Logger.Info("Alt reset");
-        }
-        
-        if (_stateManager.IsCapsLockActive)
-        {
-            _stateManager.ToggleCapsLock();
-            Logger.Info("Caps Lock reset");
-        }
-        
-        _layoutManager.UpdateKeyLabels(this.Content as FrameworkElement, _stateManager);
-        
-        Logger.Info("All modifiers reset successfully");
-    }
-
-    #endregion
-
-    #region Settings and Exit
+    #region Settings Dialog
 
     private async void ShowSettingsDialog()
     {
         try
         {
-            ShowWindow(preserveFocus: false);
+            _visibilityManager?.Show(preserveFocus: false);
             
             var dialog = new SettingsDialog(_settingsManager)
             {
@@ -663,6 +261,15 @@ public sealed partial class MainWindow : Window
                 bool newAutoShowValue = _settingsManager.GetAutoShowKeyboard();
                 _autoShowManager.IsEnabled = newAutoShowValue;
                 Logger.Info($"AutoShow setting updated to: {newAutoShowValue}");
+            }
+            
+            // Update layouts if changed (this includes default layout changes)
+            if (dialog.RequiresLayoutUpdate)
+            {
+                _layoutManager.RefreshAvailableLayouts();
+                var rootElement = this.Content as FrameworkElement;
+                _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
+                Logger.Info("Keyboard layouts refreshed and default layout applied");
             }
             
             // Handle restart if scale changed
@@ -722,16 +329,22 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    #endregion
+
+    #region Application Exit
+
     private void ExitApplication()
     {
         try
         {
             _isClosing = true;
-            ResetAllModifiers();
             
-            _backspaceRepeatTimer?.Stop();
+            // Cleanup
+            _backspaceHandler?.Dispose();
             _autoShowManager?.Dispose();
+            _focusTracker?.Dispose();
             _trayIcon?.Dispose();
+            
             Logger.Info("Application exiting");
             Application.Current.Exit();
         }
@@ -746,12 +359,13 @@ public sealed partial class MainWindow : Window
         if (!_isClosing)
         {
             args.Handled = true;
-            HideWindow();
+            _visibilityManager?.Hide();
         }
         else
         {
-            _backspaceRepeatTimer?.Stop();
+            _backspaceHandler?.Dispose();
             _autoShowManager?.Dispose();
+            _focusTracker?.Dispose();
             _trayIcon?.Dispose();
         }
     }
