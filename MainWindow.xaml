@@ -22,11 +22,10 @@
                 Height="42">
             
             <Grid>
-                <!-- Drag region for moving window (behind buttons) -->
+                <!-- Drag region for moving window -->
                 <Border x:Name="DragRegion" 
                         Background="Transparent"
-                        HorizontalAlignment="Stretch"
-                        Margin="0,0,0,0"/>
+                        HorizontalAlignment="Stretch"/>
                 
                 <!-- Toolbar buttons -->
                 <StackPanel Orientation="Horizontal" 
@@ -38,6 +37,7 @@
                     <Button x:Name="CopyButton"
                             Click="CopyButton_Click"
                             Width="36" Height="30"
+                            Padding="0"
                             ToolTipService.ToolTip="Копировать (Ctrl+C)"
                             Background="White">
                         <FontIcon Glyph="&#xE8C8;" FontSize="12" IsHitTestVisible="False"/>
@@ -46,6 +46,7 @@
                     <Button x:Name="CutButton"
                             Click="CutButton_Click"
                             Width="36" Height="30"
+                            Padding="0"
                             ToolTipService.ToolTip="Вырезать (Ctrl+X)"
                             Background="White">
                         <FontIcon Glyph="&#xE8C6;" FontSize="12" IsHitTestVisible="False"/>
@@ -54,6 +55,7 @@
                     <Button x:Name="PasteButton"
                             Click="PasteButton_Click"
                             Width="36" Height="30"
+                            Padding="0"
                             ToolTipService.ToolTip="Вставить (Ctrl+V)"
                             Background="White">
                         <FontIcon Glyph="&#xE77F;" FontSize="12" IsHitTestVisible="False"/>
@@ -62,6 +64,7 @@
                     <Button x:Name="DeleteButton"
                             Click="DeleteButton_Click"
                             Width="36" Height="30"
+                            Padding="0"
                             ToolTipService.ToolTip="Удалить"
                             Background="White">
                         <FontIcon Glyph="&#xE74D;" FontSize="12" IsHitTestVisible="False"/>
@@ -70,6 +73,7 @@
                     <Button x:Name="SelectAllButton"
                             Click="SelectAllButton_Click"
                             Width="36" Height="30"
+                            Padding="0"
                             ToolTipService.ToolTip="Выделить всё (Ctrl+A)"
                             Background="White">
                         <FontIcon Glyph="&#xE8B3;" FontSize="12" IsHitTestVisible="False"/>

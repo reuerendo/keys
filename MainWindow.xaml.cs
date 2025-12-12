@@ -20,6 +20,9 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
     private const uint WM_NCLBUTTONDOWN = 0x00A1;
     private const uint HTCAPTION = 0x0002;
 
@@ -49,6 +52,10 @@ public sealed partial class MainWindow : Window
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
+    
+    // Track last click time to prevent double-click maximize
+    private DateTime _lastDragRegionClickTime = DateTime.MinValue;
+    private uint _doubleClickTime;
 
     #endregion
 
@@ -62,6 +69,10 @@ public sealed partial class MainWindow : Window
         // Get window handle
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
+        
+        // Get system double-click time
+        _doubleClickTime = GetDoubleClickTime();
+        Logger.Info($"System double-click time: {_doubleClickTime}ms");
         
         // Initialize core services
         _focusTracker = new FocusTracker(_thisWindowHandle);
@@ -140,7 +151,6 @@ public sealed partial class MainWindow : Window
         if (rootElement.FindName("DragRegion") is UIElement dragRegion)
         {
             dragRegion.PointerPressed += DragRegion_PointerPressed;
-            dragRegion.DoubleTapped += DragRegion_DoubleTapped;
         }
         
         Logger.Info("MainWindow fully initialized");
@@ -207,14 +217,12 @@ public sealed partial class MainWindow : Window
             var titleBar = this.AppWindow.TitleBar;
             titleBar.ExtendsContentIntoTitleBar = true;
             
-            // Set default colors for title bar buttons (close button will be visible)
+            // Set title bar button colors - close button will be visible with default color
             titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
             titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
             
-            // Keep default foreground color (black) for close button to be visible
-            // These will use system default colors
-            titleBar.ButtonForegroundColor = null;
-            titleBar.ButtonInactiveForegroundColor = null;
+            // Keep default foreground color for visibility
+            // Setting to null uses system default (black icon on light background)
             
             Logger.Info("Custom title bar configured - close button visible");
         }
@@ -278,18 +286,26 @@ public sealed partial class MainWindow : Window
     {
         if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
         {
+            // Check if this is a double-click
+            DateTime now = DateTime.Now;
+            double timeSinceLastClick = (now - _lastDragRegionClickTime).TotalMilliseconds;
+            
+            if (timeSinceLastClick < _doubleClickTime)
+            {
+                // This is a double-click - don't initiate drag to prevent maximize
+                Logger.Info($"Double-click detected on drag region ({timeSinceLastClick:F0}ms) - blocked to prevent maximize");
+                e.Handled = true;
+                _lastDragRegionClickTime = DateTime.MinValue; // Reset to prevent triple-click issues
+                return;
+            }
+            
+            // Update last click time
+            _lastDragRegionClickTime = now;
+            
             // Use Win32 API to enable window dragging
             ReleaseCapture();
             SendMessage(_thisWindowHandle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
         }
-    }
-
-    // Prevent double-click from maximizing window
-    private void DragRegion_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
-    {
-        // Mark event as handled to prevent window maximization
-        e.Handled = true;
-        Logger.Info("Double-click on drag region blocked");
     }
 
     #endregion
