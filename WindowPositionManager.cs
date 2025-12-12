@@ -15,7 +15,7 @@ public class WindowPositionManager
     private const int HWND_TOPMOST = -1;
     
     // Offset from taskbar in pixels
-    private const int TASKBAR_OFFSET = 10;
+    private const int TASKBAR_OFFSET = 5;
 
     // Structures
     [StructLayout(LayoutKind.Sequential)]

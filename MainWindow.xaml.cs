@@ -53,7 +53,7 @@ public sealed partial class MainWindow : Window
     private DispatcherTimer _backspaceRepeatTimer;
     private bool _isBackspacePressed = false;
     private const int BACKSPACE_INITIAL_DELAY_MS = 500;
-    private const int BACKSPACE_REPEAT_INTERVAL_MS = 1;
+    private const int BACKSPACE_REPEAT_INTERVAL_MS = 50;
 	private bool _backspaceInitialDelayPassed = false;
 
     private bool _isClosing = false;
