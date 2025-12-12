@@ -14,6 +14,15 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_NCLBUTTONDOWN = 0x00A1;
+    private const uint HTCAPTION = 0x0002;
+
     #endregion
 
     #region Services and Managers
@@ -92,7 +101,7 @@ public sealed partial class MainWindow : Window
         // Initialize long press popup
         _longPressPopup = new LongPressPopup(rootElement, _stateManager);
         
-        // Set initial layout for long press popup (ИСПРАВЛЕНИЕ: инициализация раскладки для long press)
+        // Set initial layout for long press popup
         _longPressPopup.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
         
         // Initialize specialized handlers
@@ -119,13 +128,19 @@ public sealed partial class MainWindow : Window
         _stateManager.InitializeButtonReferences(rootElement);
         _layoutManager.InitializeLangButton(rootElement);
         
-        // Update key labels to match current layout (ИСПРАВЛЕНИЕ: обновление меток при загрузке)
+        // Update key labels to match current layout
         _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
         
         // Initialize auto-show manager
         _autoShowManager = new AutoShowManager(_thisWindowHandle);
         _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
         _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
+        
+        // Setup drag region for moving window
+        if (rootElement.FindName("DragRegion") is UIElement dragRegion)
+        {
+            dragRegion.PointerPressed += DragRegion_PointerPressed;
+        }
         
         Logger.Info("MainWindow fully initialized");
     }
@@ -137,7 +152,7 @@ public sealed partial class MainWindow : Window
         double userScale = _settingsManager.Settings.KeyboardScale;
 
         int baseWidth = 997;
-        int baseHeight = 330;
+        int baseHeight = 370; // Increased from 330 to accommodate toolbar
         int physicalWidth = (int)(baseWidth * dpiScale * userScale);
         int physicalHeight = (int)(baseHeight * dpiScale * userScale);
 
@@ -177,6 +192,30 @@ public sealed partial class MainWindow : Window
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
+        }
+        
+        // Configure custom title bar
+        ConfigureTitleBar();
+    }
+
+    private void ConfigureTitleBar()
+    {
+        // Hide the default title bar
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = this.AppWindow.TitleBar;
+            titleBar.ExtendsContentIntoTitleBar = true;
+            
+            // Make title bar buttons invisible
+            titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonForegroundColor = Microsoft.UI.Colors.Transparent;
+            
+            Logger.Info("Custom title bar configured");
+        }
+        else
+        {
+            Logger.Warning("Title bar customization not supported");
         }
     }
 
@@ -224,6 +263,54 @@ public sealed partial class MainWindow : Window
     {
         Logger.Info("Auto-show triggered by text input focus");
         _visibilityManager?.Show(preserveFocus: true);
+    }
+
+    #endregion
+
+    #region Window Drag Handler
+
+    private void DragRegion_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
+        {
+            // Use Win32 API to enable window dragging
+            ReleaseCapture();
+            SendMessage(_thisWindowHandle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+        }
+    }
+
+    #endregion
+
+    #region Clipboard Operations
+
+    private void CopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Copy requested");
+        _inputService.SendCtrlKey('C');
+    }
+
+    private void CutButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Cut requested");
+        _inputService.SendCtrlKey('X');
+    }
+
+    private void PasteButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Paste requested");
+        _inputService.SendCtrlKey('V');
+    }
+
+    private void DeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Delete requested");
+        _inputService.SendKey(0x2E); // VK_DELETE
+    }
+
+    private void SelectAllButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Select All requested");
+        _inputService.SendCtrlKey('A');
     }
 
     #endregion
