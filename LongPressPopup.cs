@@ -285,7 +285,7 @@ public class LongPressPopup
     {
         var optionsMap = new Dictionary<string, Dictionary<string, List<LongPressOption>>>
         {
-            ["English"] = new Dictionary<string, List<LongPressOption>>
+            ["Polish"] = new Dictionary<string, List<LongPressOption>>
             {
                 ["1"] = new List<LongPressOption>
                 {

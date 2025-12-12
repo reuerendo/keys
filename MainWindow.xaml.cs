@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
-        _layoutManager = new LayoutManager();
+        _layoutManager = new LayoutManager(_settingsManager); // Pass settings manager
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         
@@ -255,6 +255,15 @@ public sealed partial class MainWindow : Window
                 bool newAutoShowValue = _settingsManager.GetAutoShowKeyboard();
                 _autoShowManager.IsEnabled = newAutoShowValue;
                 Logger.Info($"AutoShow setting updated to: {newAutoShowValue}");
+            }
+            
+            // Update layouts if changed
+            if (dialog.RequiresLayoutUpdate)
+            {
+                _layoutManager.RefreshAvailableLayouts();
+                var rootElement = this.Content as FrameworkElement;
+                _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
+                Logger.Info("Keyboard layouts refreshed");
             }
             
             // Handle restart if scale changed

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -30,6 +32,7 @@ public class SettingsManager
     {
         public double KeyboardScale { get; set; } = 1.0; // Default 100%
         public bool AutoShowKeyboard { get; set; } = false; // Auto-show on text input focus
+        public List<string> EnabledLayouts { get; set; } = new List<string> { "EN", "RU" }; // Default layouts
     }
 
     private AppSettings _settings;
@@ -52,7 +55,14 @@ public class SettingsManager
             {
                 string json = File.ReadAllText(SettingsPath);
                 _settings = JsonSerializer.Deserialize(json, SettingsJsonContext.Default.AppSettings) ?? new AppSettings();
-                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}");
+                
+                // Ensure EnabledLayouts is not null and has at least one layout
+                if (_settings.EnabledLayouts == null || _settings.EnabledLayouts.Count == 0)
+                {
+                    _settings.EnabledLayouts = new List<string> { "EN", "RU" };
+                }
+                
+                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}");
             }
             else
             {
@@ -83,7 +93,7 @@ public class SettingsManager
             string json = JsonSerializer.Serialize(_settings, SettingsJsonContext.Default.AppSettings);
             File.WriteAllText(SettingsPath, json);
             
-            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}");
+            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}");
         }
         catch (Exception ex)
         {
@@ -96,7 +106,6 @@ public class SettingsManager
     /// </summary>
     public void SetKeyboardScale(double scale)
     {
-        // ИСПРАВЛЕНО: Пределы изменены с 0.5-1.5 на 0.8-1.2
         _settings.KeyboardScale = Math.Clamp(scale, 0.8, 1.2);
         SaveSettings();
     }
@@ -132,5 +141,40 @@ public class SettingsManager
     public bool GetAutoShowKeyboard()
     {
         return _settings.AutoShowKeyboard;
+    }
+
+    /// <summary>
+    /// Get enabled keyboard layouts
+    /// </summary>
+    public List<string> GetEnabledLayouts()
+    {
+        if (_settings.EnabledLayouts == null || _settings.EnabledLayouts.Count == 0)
+        {
+            return new List<string> { "EN", "RU" };
+        }
+        return new List<string>(_settings.EnabledLayouts);
+    }
+
+    /// <summary>
+    /// Set enabled keyboard layouts
+    /// </summary>
+    public void SetEnabledLayouts(List<string> layouts)
+    {
+        // Ensure at least one layout is enabled
+        if (layouts == null || layouts.Count == 0)
+        {
+            layouts = new List<string> { "EN" };
+        }
+
+        _settings.EnabledLayouts = new List<string>(layouts);
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Check if a specific layout is enabled
+    /// </summary>
+    public bool IsLayoutEnabled(string layoutCode)
+    {
+        return _settings.EnabledLayouts != null && _settings.EnabledLayouts.Contains(layoutCode);
     }
 }

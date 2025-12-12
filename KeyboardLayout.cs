@@ -5,6 +5,7 @@ namespace VirtualKeyboard;
 public class KeyboardLayout
 {
     public string Name { get; set; }
+    public string Code { get; set; } // Language code: EN, RU, PL
     public Dictionary<string, KeyDefinition> Keys { get; set; } = new();
 
     public class KeyDefinition
@@ -34,11 +35,9 @@ public class KeyboardLayout
         }
     }
 
-    public static KeyboardLayout CreateEnglishLayout()
+    // Helper method to add common number row (same for all layouts)
+    private static void AddNumberRow(KeyboardLayout layout)
     {
-        var layout = new KeyboardLayout { Name = "English" };
-
-        // Numbers row
         layout.Keys["1"] = new KeyDefinition("1", "!", "1", "!");
         layout.Keys["2"] = new KeyDefinition("2", "@", "2", "@");
         layout.Keys["3"] = new KeyDefinition("3", "#", "3", "#");
@@ -52,6 +51,18 @@ public class KeyboardLayout
         layout.Keys["-"] = new KeyDefinition("-", "_", "-", "_");
         layout.Keys["+"] = new KeyDefinition("+", "+", "+", "+");
         layout.Keys["="] = new KeyDefinition("=", "=", "=", "=");
+    }
+
+    public static KeyboardLayout CreateEnglishLayout()
+    {
+        var layout = new KeyboardLayout 
+        { 
+            Name = "English",
+            Code = "EN"
+        };
+
+        // Common number row
+        AddNumberRow(layout);
 
         // QWERTY row - letters
         layout.Keys["q"] = new KeyDefinition("q", "q", true);
@@ -111,22 +122,14 @@ public class KeyboardLayout
 
     public static KeyboardLayout CreateRussianLayout()
     {
-        var layout = new KeyboardLayout { Name = "Russian" };
+        var layout = new KeyboardLayout 
+        { 
+            Name = "Russian",
+            Code = "RU"
+        };
 
-        // Numbers and symbols - same as English
-        layout.Keys["1"] = new KeyDefinition("1", "!", "1", "!");
-        layout.Keys["2"] = new KeyDefinition("2", "\"", "2", "\"");
-        layout.Keys["3"] = new KeyDefinition("3", "№", "3", "№");
-        layout.Keys["4"] = new KeyDefinition("4", ";", "4", ";");
-        layout.Keys["5"] = new KeyDefinition("5", "%", "5", "%");
-        layout.Keys["6"] = new KeyDefinition("6", ":", "6", ":");
-        layout.Keys["7"] = new KeyDefinition("7", "?", "7", "?");
-        layout.Keys["8"] = new KeyDefinition("8", "*", "8", "*");
-        layout.Keys["9"] = new KeyDefinition("9", "(", "9", "(");
-        layout.Keys["0"] = new KeyDefinition("0", ")", "0", ")");
-        layout.Keys["-"] = new KeyDefinition("-", "_", "-", "_");
-        layout.Keys["+"] = new KeyDefinition("+", "+", "+", "+");
-        layout.Keys["="] = new KeyDefinition("=", "=", "=", "=");
+        // Common number row
+        AddNumberRow(layout);
 
         // Row 2 - ЙЦУКЕН
         layout.Keys["q"] = new KeyDefinition("й", "й", true);
@@ -178,24 +181,77 @@ public class KeyboardLayout
         return layout;
     }
 
+    public static KeyboardLayout CreatePolishLayout()
+    {
+        var layout = new KeyboardLayout 
+        { 
+            Name = "Polish",
+            Code = "PL"
+        };
+
+        // Common number row
+        AddNumberRow(layout);
+
+        // Row 2 - QWERTY 
+        layout.Keys["q"] = new KeyDefinition("q", "q", true);
+        layout.Keys["w"] = new KeyDefinition("w", "w", true);
+        layout.Keys["e"] = new KeyDefinition("e", "e", true);
+        layout.Keys["r"] = new KeyDefinition("r", "r", true);
+        layout.Keys["t"] = new KeyDefinition("t", "t", true);
+        layout.Keys["y"] = new KeyDefinition("y", "y", true);
+        layout.Keys["u"] = new KeyDefinition("u", "u", true);
+        layout.Keys["i"] = new KeyDefinition("i", "i", true);
+        layout.Keys["o"] = new KeyDefinition("o", "o", true);
+        layout.Keys["p"] = new KeyDefinition("p", "p", true);
+        layout.Keys["("] = new KeyDefinition("(", "(", "(", "(");
+        layout.Keys[")"] = new KeyDefinition(")", ")", ")", ")");
+        layout.Keys["/"] = new KeyDefinition("/", "?", "/", "?");
+        layout.Keys["*"] = new KeyDefinition("*", "*", "*", "*");
+
+        // Row 3 - ASDF with Polish characters
+        layout.Keys["a"] = new KeyDefinition("a", "a", true);
+        layout.Keys["s"] = new KeyDefinition("s", "s", true);
+        layout.Keys["d"] = new KeyDefinition("d", "d", true);
+        layout.Keys["f"] = new KeyDefinition("f", "f", true);
+        layout.Keys["g"] = new KeyDefinition("g", "g", true);
+        layout.Keys["h"] = new KeyDefinition("h", "h", true);
+        layout.Keys["j"] = new KeyDefinition("j", "j", true);
+        layout.Keys["k"] = new KeyDefinition("k", "k", true);
+        layout.Keys["l"] = new KeyDefinition("l", "l", true);
+        layout.Keys[":"] = new KeyDefinition(":", ":", ":", ":");
+        layout.Keys[";"] = new KeyDefinition(";", ";", ";", ";");
+
+        // Row 4 - YXCV with Polish characters
+        layout.Keys["z"] = new KeyDefinition("z", "z", true);
+        layout.Keys["x"] = new KeyDefinition("x", "x", true);
+        layout.Keys["c"] = new KeyDefinition("c", "c", true);
+        layout.Keys["v"] = new KeyDefinition("v", "v", true);
+        layout.Keys["b"] = new KeyDefinition("b", "b", true);
+        layout.Keys["n"] = new KeyDefinition("n", "n", true);
+        layout.Keys["m"] = new KeyDefinition("m", "m", true);
+        layout.Keys["<"] = new KeyDefinition("<", "<", "<", "<");
+        layout.Keys[">"] = new KeyDefinition(">", ">", ">", ">");
+        layout.Keys["!"] = new KeyDefinition("!", "!", "!", "!");
+        layout.Keys["?"] = new KeyDefinition("?", "?", "?", "?");
+        
+        // Bottom row
+        layout.Keys["\""] = new KeyDefinition("\"", "\"", "\"", "\"");
+        layout.Keys[","] = new KeyDefinition(",", ",", ",", ",");
+        layout.Keys["."] = new KeyDefinition(".", ".", ".", ".");
+
+        return layout;
+    }
+
     public static KeyboardLayout CreateSymbolLayout()
     {
-        var layout = new KeyboardLayout { Name = "Symbols" };
+        var layout = new KeyboardLayout 
+        { 
+            Name = "Symbols",
+            Code = "&.."
+        };
 
-        // Numbers row
-        layout.Keys["1"] = new KeyDefinition("1", "1", "1", "1");
-        layout.Keys["2"] = new KeyDefinition("2", "2", "2", "2");
-        layout.Keys["3"] = new KeyDefinition("3", "3", "3", "3");
-        layout.Keys["4"] = new KeyDefinition("4", "4", "4", "4");
-        layout.Keys["5"] = new KeyDefinition("5", "5", "5", "5");
-        layout.Keys["6"] = new KeyDefinition("6", "6", "6", "6");
-        layout.Keys["7"] = new KeyDefinition("7", "7", "7", "7");
-        layout.Keys["8"] = new KeyDefinition("8", "8", "8", "8");
-        layout.Keys["9"] = new KeyDefinition("9", "9", "9", "9");
-        layout.Keys["0"] = new KeyDefinition("0", "0", "0", "0");
-        layout.Keys["-"] = new KeyDefinition("-", "-", "-", "-");
-        layout.Keys["+"] = new KeyDefinition("+", "+", "+", "+");
-        layout.Keys["="] = new KeyDefinition("=", "=", "=", "=");
+        // Common number row
+        AddNumberRow(layout);
 
         // Row 2
         layout.Keys["q"] = new KeyDefinition("@", "@", "@", "@");
@@ -231,7 +287,7 @@ public class KeyboardLayout
         layout.Keys["x"] = new KeyDefinition("«", "«", "«", "«");
         layout.Keys["c"] = new KeyDefinition("»", "»", "»", "»");
         layout.Keys["v"] = new KeyDefinition("„", "„", "„", "„");
-        layout.Keys["b"] = new KeyDefinition("”", "”", "”", "”");
+        layout.Keys["b"] = new KeyDefinition(""", """, """, """);
         layout.Keys["n"] = new KeyDefinition("∅", "∅", "∅", "∅");
         layout.Keys["m"] = new KeyDefinition("§", "§", "§", "§");
         layout.Keys["<"] = new KeyDefinition(":", ":", ":", ":");
