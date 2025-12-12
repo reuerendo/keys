@@ -1,16 +1,19 @@
 using System;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
 
 namespace VirtualKeyboard
 {
     /// <summary>
-    /// Manages window styles and Win32 window properties
+    /// Manages window styles, Win32 window properties, subclassing, and title bar configuration
     /// </summary>
     public class WindowStyleManager
     {
         // Window Styles
         private const int GWL_STYLE = -16;
         private const int GWL_EXSTYLE = -20;
+        private const int GWL_WNDPROC = -4;
         
         private const long WS_MINIMIZEBOX = 0x00020000L;
         private const long WS_MAXIMIZEBOX = 0x00010000L;
@@ -19,6 +22,10 @@ namespace VirtualKeyboard
         private const long WS_EX_TOPMOST = 0x00000008L;
         private const long WS_EX_NOREDIRECTIONBITMAP = 0x00200000L;
 
+        // Window Messages
+        private const uint WM_NCLBUTTONDBLCLK = 0x00A3;
+        private const uint HTCAPTION = 0x0002;
+
         // P/Invoke
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
         private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
@@ -26,11 +33,25 @@ namespace VirtualKeyboard
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
         private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
-        private readonly IntPtr _hwnd;
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-        public WindowStyleManager(IntPtr windowHandle)
+        [DllImport("user32.dll")]
+        private static extern uint GetDoubleClickTime();
+
+        private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        private readonly IntPtr _hwnd;
+        private readonly Window _window;
+        private WndProcDelegate _wndProcDelegate;
+        private IntPtr _oldWndProc;
+        private uint _doubleClickTime;
+
+        public WindowStyleManager(IntPtr windowHandle, Window window)
         {
             _hwnd = windowHandle;
+            _window = window;
+            _doubleClickTime = GetDoubleClickTime();
         }
 
         /// <summary>
@@ -69,7 +90,6 @@ namespace VirtualKeyboard
                 IntPtr stylePtr = GetWindowLongPtr(_hwnd, GWL_STYLE);
                 long style = stylePtr.ToInt64();
 
-                // Remove minimize and maximize box styles
                 long newStyle = style;
                 newStyle &= ~WS_MINIMIZEBOX;
                 newStyle &= ~WS_MAXIMIZEBOX;
@@ -83,6 +103,114 @@ namespace VirtualKeyboard
             catch (Exception ex)
             {
                 Logger.Error("Failed to remove min/max buttons", ex);
+            }
+        }
+
+        /// <summary>
+        /// Subclass window to intercept double-click messages
+        /// </summary>
+        public void SubclassWindow()
+        {
+            try
+            {
+                _wndProcDelegate = new WndProcDelegate(WndProc);
+                IntPtr newWndProc = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
+                _oldWndProc = SetWindowLongPtr(_hwnd, GWL_WNDPROC, newWndProc);
+                
+                if (_oldWndProc == IntPtr.Zero)
+                {
+                    Logger.Warning("Failed to subclass window");
+                }
+                else
+                {
+                    Logger.Info($"Window subclassed successfully to intercept double-click messages. DoubleClickTime: {_doubleClickTime}ms");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to subclass window", ex);
+            }
+        }
+
+        /// <summary>
+        /// Restore original window procedure
+        /// </summary>
+        public void RestoreWindowProc()
+        {
+            if (_oldWndProc != IntPtr.Zero)
+            {
+                SetWindowLongPtr(_hwnd, GWL_WNDPROC, _oldWndProc);
+                _oldWndProc = IntPtr.Zero;
+                Logger.Info("Window procedure restored");
+            }
+        }
+
+        /// <summary>
+        /// Custom window procedure to block double-click on title bar
+        /// </summary>
+        private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            if (msg == WM_NCLBUTTONDBLCLK && wParam.ToInt32() == HTCAPTION)
+            {
+                Logger.Info("Blocked double-click on title bar (would cause maximize)");
+                return IntPtr.Zero;
+            }
+
+            if (_oldWndProc != IntPtr.Zero)
+            {
+                return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+            }
+
+            return IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// Configure custom title bar with close button visible
+        /// </summary>
+        public void ConfigureTitleBar()
+        {
+            try
+            {
+                if (!AppWindowTitleBar.IsCustomizationSupported())
+                {
+                    Logger.Warning("Title bar customization not supported");
+                    return;
+                }
+
+                var titleBar = _window.AppWindow.TitleBar;
+                titleBar.ExtendsContentIntoTitleBar = true;
+                
+                // Set title bar button colors - close button will be visible with default color
+                titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+                titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+                
+                Logger.Info("Custom title bar configured - close button visible");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to configure title bar", ex);
+            }
+        }
+
+        /// <summary>
+        /// Configure window presenter (always on top, non-resizable)
+        /// </summary>
+        public void ConfigurePresenter()
+        {
+            try
+            {
+                if (_window.AppWindow.Presenter is OverlappedPresenter presenter)
+                {
+                    presenter.IsAlwaysOnTop = true;
+                    presenter.IsResizable = false;
+                    presenter.IsMaximizable = false;
+                    presenter.IsMinimizable = false;
+                    Logger.Info("Window presenter configured");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Failed to configure presenter", ex);
             }
         }
     }

@@ -1,11 +1,13 @@
 using System;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages keyboard window positioning on screen
+/// Manages keyboard window positioning and sizing on screen
 /// </summary>
 public class WindowPositionManager
 {
@@ -16,6 +18,10 @@ public class WindowPositionManager
     
     // Offset from taskbar in pixels
     private const int TASKBAR_OFFSET = 5;
+
+    // Base dimensions
+    private const int BASE_WIDTH = 997;
+    private const int BASE_HEIGHT = 342;
 
     // Structures
     [StructLayout(LayoutKind.Sequential)]
@@ -41,6 +47,15 @@ public class WindowPositionManager
         public IntPtr lParam;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
     // P/Invoke
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -63,17 +78,8 @@ public class WindowPositionManager
     private const uint MONITOR_DEFAULTTONEAREST = 2;
     private const uint ABM_GETTASKBARPOS = 5;
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MONITORINFO
-    {
-        public int cbSize;
-        public RECT rcMonitor;
-        public RECT rcWork;
-        public uint dwFlags;
-    }
-
-    private IntPtr _hwnd;
-    private Window _window;
+    private readonly IntPtr _hwnd;
+    private readonly Window _window;
 
     public WindowPositionManager(Window window, IntPtr hwnd)
     {
@@ -81,7 +87,76 @@ public class WindowPositionManager
         _hwnd = hwnd;
     }
 
-	/// <summary>
+    /// <summary>
+    /// Configure window size based on DPI and user scale settings
+    /// </summary>
+    public void ConfigureWindowSize(double userScale)
+    {
+        try
+        {
+            uint dpi = GetDpiForWindow(_hwnd);
+            float dpiScale = dpi / 96f;
+
+            int physicalWidth = (int)(BASE_WIDTH * dpiScale * userScale);
+            int physicalHeight = (int)(BASE_HEIGHT * dpiScale * userScale);
+
+            Logger.Info($"Window size: {physicalWidth}x{physicalHeight} (DPI: {dpiScale:F2}, User: {userScale:P0})");
+
+            _window.AppWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
+
+            // Apply scaling to root element
+            if (_window.Content is FrameworkElement rootElement)
+            {
+                rootElement.Width = BASE_WIDTH;
+                rootElement.Height = BASE_HEIGHT;
+                rootElement.HorizontalAlignment = HorizontalAlignment.Left;
+                rootElement.VerticalAlignment = VerticalAlignment.Top;
+
+                if (rootElement is Grid rootGrid && rootGrid.RenderTransform is ScaleTransform scaleTransform)
+                {
+                    scaleTransform.ScaleX = userScale;
+                    scaleTransform.ScaleY = userScale;
+                    Logger.Info($"Applied ScaleTransform to existing transform: {userScale}x");
+                }
+                else
+                {
+                    var transform = new ScaleTransform
+                    {
+                        ScaleX = userScale,
+                        ScaleY = userScale
+                    };
+                    rootElement.RenderTransform = transform;
+                    Logger.Info($"Created and applied new ScaleTransform: {userScale}x");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to configure window size", ex);
+        }
+    }
+
+    /// <summary>
+    /// Get rasterization scale for converting to physical coordinates
+    /// </summary>
+    public double GetRasterizationScale()
+    {
+        try
+        {
+            if (_window.Content is FrameworkElement rootElement && 
+                rootElement.XamlRoot?.RasterizationScale > 0)
+            {
+                return rootElement.XamlRoot.RasterizationScale;
+            }
+        }
+        catch { }
+
+        // Fallback: use DPI
+        uint dpi = GetDpiForWindow(_hwnd);
+        return dpi / 96.0;
+    }
+
+    /// <summary>
     /// Positions window at bottom-center of screen, above taskbar
     /// </summary>
     public void PositionWindow(bool showWindow = false)
@@ -131,7 +206,7 @@ public class WindowPositionManager
                 }
                 else if (taskbarData.uEdge == 0 || taskbarData.uEdge == 2) // ABE_LEFT or ABE_RIGHT
                 {
-                    taskbarHeight = 0; //
+                    taskbarHeight = 0;
                 }
             }
             else
@@ -153,7 +228,6 @@ public class WindowPositionManager
             }
             else
             {
-                // Если таскбар сверху или сбоку, просто прижимаем к низу рабочей области
                 posY = workArea.Bottom - windowHeight - scaledOffset;
             }
 
@@ -171,8 +245,8 @@ public class WindowPositionManager
                 new IntPtr(HWND_TOPMOST),
                 posX,
                 posY,
-                0, // Ширину не меняем
-                0, // Высоту не меняем
+                0,
+                0,
                 uFlags
             );
 
@@ -225,7 +299,7 @@ public class WindowPositionManager
                 windowRect.Top,
                 0,
                 0,
-                SWP_NOACTIVATE | SWP_NOZORDER | 0x0001 // SWP_NOSIZE
+                SWP_NOACTIVATE | SWP_NOZORDER | 0x0001
             );
         }
         catch (Exception ex)
