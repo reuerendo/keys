@@ -573,10 +573,6 @@ public class LongPressPopup
                     new LongPressOption("і", "і", true),
 					new LongPressOption("ї", "ї", true)
                 },
-                ["m"] = new List<LongPressOption>
-                {
-                    new LongPressOption("ъ", "ъ", true)
-                },
                 ["\""] = new List<LongPressOption>
                 {
                     new LongPressOption("«", "«"),

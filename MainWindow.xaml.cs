@@ -53,7 +53,8 @@ public sealed partial class MainWindow : Window
     private DispatcherTimer _backspaceRepeatTimer;
     private bool _isBackspacePressed = false;
     private const int BACKSPACE_INITIAL_DELAY_MS = 500;
-    private const int BACKSPACE_REPEAT_INTERVAL_MS = 1;
+    private const int BACKSPACE_REPEAT_INTERVAL_MS = 50;
+	private bool _backspaceInitialDelayPassed = false;
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
@@ -101,24 +102,32 @@ public sealed partial class MainWindow : Window
         this.Closed += MainWindow_Closed;
     }
 
-    private void InitializeBackspaceRepeatTimer()
-    {
-        _backspaceRepeatTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS)
-        };
-        _backspaceRepeatTimer.Tick += BackspaceRepeatTimer_Tick;
-    }
+	private void InitializeBackspaceRepeatTimer()
+	{
+		_backspaceRepeatTimer = new DispatcherTimer
+		{
+			Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS)
+		};
+		_backspaceRepeatTimer.Tick += BackspaceRepeatTimer_Tick;
+	}
 
-    private void BackspaceRepeatTimer_Tick(object sender, object e)
-    {
-        if (_isBackspacePressed)
-        {
-            // Send backspace key
-            byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
-            _inputService.SendVirtualKey(backspaceVk);
-        }
-    }
+	private void BackspaceRepeatTimer_Tick(object sender, object e)
+	{
+		// After initial delay, switch to fast repeat interval
+		if (!_backspaceInitialDelayPassed)
+		{
+			_backspaceInitialDelayPassed = true;
+			_backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS);
+			Logger.Debug($"Switched to fast repeat interval: {BACKSPACE_REPEAT_INTERVAL_MS}ms");
+		}
+		
+		if (_isBackspacePressed)
+		{
+			// Send backspace key
+			byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
+			_inputService.SendVirtualKey(backspaceVk);
+		}
+	}
 
 	private void MainWindow_Loaded(object sender, RoutedEventArgs e)
 	{
@@ -167,20 +176,21 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void BackspaceButton_PointerPressed(object sender, PointerRoutedEventArgs e)
-    {
-        _isBackspacePressed = true;
-        
-        // Send first backspace immediately
-        byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
-        _inputService.SendVirtualKey(backspaceVk);
-        
-        // Start repeat timer after initial delay
-        _backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_INITIAL_DELAY_MS);
-        _backspaceRepeatTimer.Start();
-        
-        Logger.Debug("Backspace pressed - starting repeat timer");
-    }
+	private void BackspaceButton_PointerPressed(object sender, PointerRoutedEventArgs e)
+	{
+		_isBackspacePressed = true;
+		_backspaceInitialDelayPassed = false; // Reset flag
+		
+		// Send first backspace immediately
+		byte backspaceVk = _inputService.GetVirtualKeyCode("Backspace");
+		_inputService.SendVirtualKey(backspaceVk);
+		
+		// Start timer with initial delay
+		_backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_INITIAL_DELAY_MS);
+		_backspaceRepeatTimer.Start();
+		
+		Logger.Debug($"Backspace pressed - initial delay: {BACKSPACE_INITIAL_DELAY_MS}ms");
+	}
 
     private void BackspaceButton_PointerReleased(object sender, PointerRoutedEventArgs e)
     {
@@ -197,14 +207,14 @@ public sealed partial class MainWindow : Window
         StopBackspaceRepeat();
     }
 
-    private void StopBackspaceRepeat()
-    {
-        _isBackspacePressed = false;
-        _backspaceRepeatTimer.Stop();
-        // Reset to normal repeat interval for next press
-        _backspaceRepeatTimer.Interval = TimeSpan.FromMilliseconds(BACKSPACE_REPEAT_INTERVAL_MS);
-        Logger.Debug("Backspace released - stopping repeat timer");
-    }
+	private void StopBackspaceRepeat()
+	{
+		_isBackspacePressed = false;
+		_backspaceInitialDelayPassed = false; // Reset flag
+		_backspaceRepeatTimer.Stop();
+		
+		Logger.Debug("Backspace released - stopping repeat");
+	}
 
     private void SetupLongPressHandlers(FrameworkElement element)
     {
