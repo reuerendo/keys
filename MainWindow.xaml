@@ -13,13 +13,13 @@
         </Grid.RenderTransform>
         
         <Grid.RowDefinitions>
-            <RowDefinition Height="36"/>
+            <RowDefinition Height="42"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
         <!-- Custom Toolbar -->
         <Border Grid.Row="0" 
-                Height="36">
+                Height="42">
             
             <Grid>
                 <!-- Drag region for moving window -->
