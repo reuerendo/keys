@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages window visibility, show/hide operations, and focus restoration
+/// Manages window visibility, show/hide operations, focus restoration, and lifecycle cleanup
 /// </summary>
 public class WindowVisibilityManager
 {
@@ -29,6 +29,8 @@ public class WindowVisibilityManager
     private readonly FocusTracker _focusTracker;
     private readonly AutoShowManager _autoShowManager;
     private readonly FrameworkElement _rootElement;
+    private readonly BackspaceRepeatHandler _backspaceHandler;
+    private readonly TrayIcon _trayIcon;
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -38,7 +40,9 @@ public class WindowVisibilityManager
         LayoutManager layoutManager,
         FocusTracker focusTracker,
         AutoShowManager autoShowManager,
-        FrameworkElement rootElement)
+        FrameworkElement rootElement,
+        BackspaceRepeatHandler backspaceHandler = null,
+        TrayIcon trayIcon = null)
     {
         _windowHandle = windowHandle;
         _window = window;
@@ -48,6 +52,8 @@ public class WindowVisibilityManager
         _focusTracker = focusTracker;
         _autoShowManager = autoShowManager;
         _rootElement = rootElement;
+        _backspaceHandler = backspaceHandler;
+        _trayIcon = trayIcon;
     }
 
     /// <summary>
@@ -143,11 +149,37 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Reset all modifier keys before hiding
+    /// Cleanup resources when window is closing
+    /// </summary>
+    public void Cleanup()
+    {
+        try
+        {
+            Logger.Info("WindowVisibilityManager cleanup started");
+            
+            // Reset all modifiers before closing
+            ResetAllModifiers();
+            
+            // Dispose managed resources
+            _backspaceHandler?.Dispose();
+            _autoShowManager?.Dispose();
+            _focusTracker?.Dispose();
+            _trayIcon?.Dispose();
+            
+            Logger.Info("WindowVisibilityManager cleanup completed");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error during WindowVisibilityManager cleanup", ex);
+        }
+    }
+
+    /// <summary>
+    /// Reset all modifier keys before hiding or closing
     /// </summary>
     private void ResetAllModifiers()
     {
-        Logger.Info("Resetting all modifiers before hiding window");
+        Logger.Info("Resetting all modifiers");
         
         if (_stateManager.IsShiftActive)
         {
