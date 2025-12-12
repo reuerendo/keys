@@ -13,18 +13,82 @@
         </Grid.RenderTransform>
         
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="36"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
-		
-        <ScrollViewer>
+
+        <!-- Custom Toolbar -->
+        <Border Grid.Row="0" 
+                Height="36">
+            
+            <Grid>
+                <!-- Drag region for moving window -->
+                <Border x:Name="DragRegion" 
+                        Background="Transparent"
+                        HorizontalAlignment="Stretch"/>
+                
+                <!-- Toolbar buttons -->
+				<StackPanel Orientation="Horizontal" 
+                            Margin="12,0,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Spacing="6">
+                    
+                    <Button x:Name="CopyButton"
+                            Click="CopyButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Копировать (Ctrl+C)"
+                            Background="White">
+                        <FontIcon Glyph="&#xE8C8;" FontSize="12"/>
+                    </Button>
+                    
+                    <Button x:Name="CutButton"
+                            Click="CutButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Вырезать (Ctrl+X)"
+                            Background="White">
+                        <FontIcon Glyph="&#xE8C6;" FontSize="12"/>
+                    </Button>
+                    
+                    <Button x:Name="PasteButton"
+                            Click="PasteButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Вставить (Ctrl+V)"
+                            Background="White">
+                        <FontIcon Glyph="&#xE77F;" FontSize="12"/>
+                    </Button>
+                    
+                    <Button x:Name="DeleteButton"
+                            Click="DeleteButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Удалить"
+                            Background="White">
+                        <FontIcon Glyph="&#xE74D;" FontSize="12"/>
+                    </Button>
+                    
+                    <Button x:Name="SelectAllButton"
+                            Click="SelectAllButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Выделить всё (Ctrl+A)"
+                            Background="White">
+                        <FontIcon Glyph="&#xE8B3;" FontSize="12"/>
+                    </Button>
+                    
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Keyboard Layout -->
+        <ScrollViewer Grid.Row="1">
             <StackPanel Margin="12,6,12,12" Spacing="6">
                 
                 <!-- Row 1: Numbers and special chars -->
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
                     <Button Content="1" Tag="1" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
                     <Button Content="2" Tag="2" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
@@ -43,7 +107,7 @@
                 </StackPanel>
 
                 <!-- Row 2: QWERTY row -->
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <Button Content="Tab" Tag="Tab" Click="KeyButton_Click" Width="120" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="q" Tag="q" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="w" Tag="w" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
@@ -62,7 +126,7 @@
                 </StackPanel>
 
                 <!-- Row 3: ASDF row -->
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <Button Content="Caps" Tag="Caps" Click="KeyButton_Click" Width="147" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="a" Tag="a" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="s" Tag="s" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
@@ -79,7 +143,7 @@
                 </StackPanel>
 
                 <!-- Row 4: ZXCV row -->
-                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                     <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" Width="180" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="z" Tag="z" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="x" Tag="x" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
@@ -97,8 +161,8 @@
                 </StackPanel>
 
                 <!-- Row 5: Bottom row -->
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="6">
-					<Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>

@@ -12,6 +12,10 @@ public class KeyboardInputService
     private const int INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_UNICODE = 0x0004;
+    
+    // Virtual Key Codes
+    private const byte VK_CONTROL = 0x11;
+    private const byte VK_DELETE = 0x2E;
 
     // Win32 Structs (Correctly Aligned for x64)
     [StructLayout(LayoutKind.Explicit, Size = 40)]
@@ -194,6 +198,35 @@ public class KeyboardInputService
         {
             Logger.Info($"Success. Sent Modifier Up 0x{vk:X}");
         }
+    }
+
+    /// <summary>
+    /// Send Ctrl+Key combination
+    /// </summary>
+    public void SendCtrlKey(char key)
+    {
+        // Press Ctrl
+        SendModifierKeyDown(VK_CONTROL);
+        System.Threading.Thread.Sleep(10);
+        
+        // Press the key
+        byte vk = (byte)char.ToUpper(key);
+        SendVirtualKey(vk);
+        System.Threading.Thread.Sleep(10);
+        
+        // Release Ctrl
+        SendModifierKeyUp(VK_CONTROL);
+        
+        Logger.Info($"Sent Ctrl+{key}");
+    }
+
+    /// <summary>
+    /// Send a single virtual key (e.g., Delete)
+    /// </summary>
+    public void SendKey(byte virtualKey)
+    {
+        SendVirtualKey(virtualKey);
+        Logger.Info($"Sent key: 0x{virtualKey:X}");
     }
 
     /// <summary>

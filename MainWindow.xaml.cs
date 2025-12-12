@@ -4,6 +4,9 @@ using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Input;
+using System.Collections.Generic;
+using WinRT;
 
 namespace VirtualKeyboard;
 
@@ -13,6 +16,34 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_NCLBUTTONDOWN = 0x00A1;
+    private const uint WM_NCLBUTTONDBLCLK = 0x00A3;
+    private const uint HTCAPTION = 0x0002;
+    private const int GWL_WNDPROC = -4;
+
+    // Делегат для window procedure
+    private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    private WndProcDelegate _wndProcDelegate;
+    private IntPtr _oldWndProc;
 
     #endregion
 
@@ -33,6 +64,9 @@ public sealed partial class MainWindow : Window
     private WindowVisibilityManager _visibilityManager;
     private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
+    
+    // Для управления non-client regions
+    private InputNonClientPointerSource _nonClientPointerSource;
 
     #endregion
 
@@ -40,6 +74,10 @@ public sealed partial class MainWindow : Window
 
     private bool _isClosing = false;
     private bool _isInitialPositionSet = false;
+    
+    // Track last click time to prevent double-click maximize
+    private DateTime _lastDragRegionClickTime = DateTime.MinValue;
+    private uint _doubleClickTime;
 
     #endregion
 
@@ -54,6 +92,13 @@ public sealed partial class MainWindow : Window
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
         
+        // Get system double-click time
+        _doubleClickTime = GetDoubleClickTime();
+        Logger.Info($"System double-click time: {_doubleClickTime}ms");
+        
+        // Subclass window to intercept double-click messages
+        SubclassWindow();
+        
         // Initialize core services
         _focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
@@ -67,6 +112,9 @@ public sealed partial class MainWindow : Window
         ConfigureWindowSize();
         _styleManager.ApplyNoActivateStyle();
         
+        // Initialize non-client pointer source для управления интерактивными областями
+        InitializeNonClientPointerSource();
+        
         // Initialize tray icon
         InitializeTrayIcon();
         
@@ -74,6 +122,7 @@ public sealed partial class MainWindow : Window
         if (this.Content is FrameworkElement rootElement)
         {
             rootElement.Loaded += MainWindow_Loaded;
+            rootElement.SizeChanged += RootElement_SizeChanged;
         }
         
         this.Activated += MainWindow_Activated;
@@ -83,7 +132,80 @@ public sealed partial class MainWindow : Window
         Logger.Info("=== MainWindow Constructor Completed ===");
     }
 
+    #region Window Subclassing
+
+    private void SubclassWindow()
+    {
+        try
+        {
+            // Создаем делегат для нашей window procedure
+            _wndProcDelegate = new WndProcDelegate(WndProc);
+            
+            // Сохраняем указатель на делегат, чтобы не был собран GC
+            IntPtr newWndProc = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
+            
+            // Заменяем window procedure и сохраняем старую
+            _oldWndProc = SetWindowLongPtr(_thisWindowHandle, GWL_WNDPROC, newWndProc);
+            
+            if (_oldWndProc == IntPtr.Zero)
+            {
+                Logger.Warning("Failed to subclass window");
+            }
+            else
+            {
+                Logger.Info("Window subclassed successfully to intercept double-click messages");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to subclass window", ex);
+        }
+    }
+
+    private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        // Перехватываем двойной клик на non-client area (title bar)
+        if (msg == WM_NCLBUTTONDBLCLK)
+        {
+            // Проверяем, что двойной клик был на Caption (title bar)
+            if (wParam.ToInt32() == HTCAPTION)
+            {
+                Logger.Info("Blocked double-click on title bar (would cause maximize)");
+                // Блокируем сообщение - не передаем его дальше
+                return IntPtr.Zero;
+            }
+        }
+
+        // Все остальные сообщения передаем старой window procedure
+        if (_oldWndProc != IntPtr.Zero)
+        {
+            return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    #endregion
+
     #region Initialization
+
+    private void InitializeNonClientPointerSource()
+    {
+        try
+        {
+            // Получаем WindowId из handle
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_thisWindowHandle);
+            
+            // Получаем InputNonClientPointerSource для управления non-client областями
+            _nonClientPointerSource = InputNonClientPointerSource.GetForWindowId(windowId);
+            
+            Logger.Info("InputNonClientPointerSource initialized");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to initialize InputNonClientPointerSource", ex);
+        }
+    }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
@@ -92,7 +214,7 @@ public sealed partial class MainWindow : Window
         // Initialize long press popup
         _longPressPopup = new LongPressPopup(rootElement, _stateManager);
         
-        // Set initial layout for long press popup (ИСПРАВЛЕНИЕ: инициализация раскладки для long press)
+        // Set initial layout for long press popup
         _longPressPopup.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
         
         // Initialize specialized handlers
@@ -119,7 +241,7 @@ public sealed partial class MainWindow : Window
         _stateManager.InitializeButtonReferences(rootElement);
         _layoutManager.InitializeLangButton(rootElement);
         
-        // Update key labels to match current layout (ИСПРАВЛЕНИЕ: обновление меток при загрузке)
+        // Update key labels to match current layout
         _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
         
         // Initialize auto-show manager
@@ -127,7 +249,141 @@ public sealed partial class MainWindow : Window
         _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
         _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
+        // ВАЖНО: Настраиваем интерактивные области после загрузки UI
+        UpdateInteractiveRegions();
+        
         Logger.Info("MainWindow fully initialized");
+    }
+
+    private void RootElement_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Обновляем интерактивные области при изменении размера
+        UpdateInteractiveRegions();
+    }
+
+    /// <summary>
+    /// Обновляет интерактивные области для кнопок в toolbar
+    /// </summary>
+    private void UpdateInteractiveRegions()
+    {
+        if (_nonClientPointerSource == null)
+            return;
+
+        try
+        {
+            var rootElement = this.Content as FrameworkElement;
+            if (rootElement == null)
+                return;
+
+            // Получаем масштаб для конвертации в физические координаты
+            double scale = GetRasterizationScale();
+
+            // Список прямоугольников для интерактивных областей (кнопки)
+            var interactiveRects = new List<Windows.Graphics.RectInt32>();
+
+            // Получаем кнопки toolbar
+            var toolbarButtons = new[]
+            {
+                rootElement.FindName("CopyButton") as Button,
+                rootElement.FindName("CutButton") as Button,
+                rootElement.FindName("PasteButton") as Button,
+                rootElement.FindName("DeleteButton") as Button,
+                rootElement.FindName("SelectAllButton") as Button
+            };
+
+            // Для каждой кнопки создаем интерактивную область
+            foreach (var button in toolbarButtons)
+            {
+                if (button != null && button.ActualWidth > 0 && button.ActualHeight > 0)
+                {
+                    var rect = GetElementRect(button, rootElement, scale);
+                    if (rect.HasValue)
+                    {
+                        interactiveRects.Add(rect.Value);
+                        Logger.Info($"Added interactive region for {button.Name}: X={rect.Value.X}, Y={rect.Value.Y}, W={rect.Value.Width}, H={rect.Value.Height}");
+                    }
+                }
+            }
+
+            // Устанавливаем области как Passthrough (клики проходят к UI элементам)
+            if (interactiveRects.Count > 0)
+            {
+                _nonClientPointerSource.SetRegionRects(
+                    NonClientRegionKind.Passthrough,
+                    interactiveRects.ToArray()
+                );
+                
+                Logger.Info($"Set {interactiveRects.Count} interactive regions successfully");
+            }
+
+            // Теперь настраиваем область перетаскивания (DragRegion)
+            var dragRegion = rootElement.FindName("DragRegion") as Border;
+            if (dragRegion != null && dragRegion.ActualWidth > 0 && dragRegion.ActualHeight > 0)
+            {
+                var dragRect = GetElementRect(dragRegion, rootElement, scale);
+                if (dragRect.HasValue)
+                {
+                    _nonClientPointerSource.SetRegionRects(
+                        NonClientRegionKind.Caption,
+                        new[] { dragRect.Value }
+                    );
+                    
+                    Logger.Info($"Set drag region: X={dragRect.Value.X}, Y={dragRect.Value.Y}, W={dragRect.Value.Width}, H={dragRect.Value.Height}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to update interactive regions", ex);
+        }
+    }
+
+    /// <summary>
+    /// Получает прямоугольник элемента в физических координатах
+    /// </summary>
+    private Windows.Graphics.RectInt32? GetElementRect(FrameworkElement element, FrameworkElement root, double scale)
+    {
+        try
+        {
+            var transform = element.TransformToVisual(root);
+            var bounds = transform.TransformBounds(
+                new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight)
+            );
+
+            // Конвертируем в физические координаты (non-DPI aware)
+            return new Windows.Graphics.RectInt32
+            {
+                X = (int)Math.Round(bounds.X * scale),
+                Y = (int)Math.Round(bounds.Y * scale),
+                Width = (int)Math.Round(bounds.Width * scale),
+                Height = (int)Math.Round(bounds.Height * scale)
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to get element rect for {element?.Name}", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Получает масштаб растеризации для конвертации в физические координаты
+    /// </summary>
+    private double GetRasterizationScale()
+    {
+        try
+        {
+            var rootElement = this.Content as FrameworkElement;
+            if (rootElement?.XamlRoot?.RasterizationScale > 0)
+            {
+                return rootElement.XamlRoot.RasterizationScale;
+            }
+        }
+        catch { }
+
+        // Fallback: используем DPI
+        uint dpi = GetDpiForWindow(_thisWindowHandle);
+        return dpi / 96.0;
     }
 
     private void ConfigureWindowSize()
@@ -137,7 +393,7 @@ public sealed partial class MainWindow : Window
         double userScale = _settingsManager.Settings.KeyboardScale;
 
         int baseWidth = 997;
-        int baseHeight = 330;
+        int baseHeight = 342; // Increased from 330 to accommodate toolbar
         int physicalWidth = (int)(baseWidth * dpiScale * userScale);
         int physicalHeight = (int)(baseHeight * dpiScale * userScale);
 
@@ -177,6 +433,32 @@ public sealed partial class MainWindow : Window
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
+        }
+        
+        // Configure custom title bar
+        ConfigureTitleBar();
+    }
+
+    private void ConfigureTitleBar()
+    {
+        // Hide the default title bar
+        if (AppWindowTitleBar.IsCustomizationSupported())
+        {
+            var titleBar = this.AppWindow.TitleBar;
+            titleBar.ExtendsContentIntoTitleBar = true;
+            
+            // Set title bar button colors - close button will be visible with default color
+            titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
+            titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
+            
+            // Keep default foreground color for visibility
+            // Setting to null uses system default (black icon on light background)
+            
+            Logger.Info("Custom title bar configured - close button visible");
+        }
+        else
+        {
+            Logger.Warning("Title bar customization not supported");
         }
     }
 
@@ -224,6 +506,54 @@ public sealed partial class MainWindow : Window
     {
         Logger.Info("Auto-show triggered by text input focus");
         _visibilityManager?.Show(preserveFocus: true);
+    }
+
+    #endregion
+
+    #region Window Drag Handler
+
+    private void DragRegion_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        // Этот обработчик больше не нужен для перетаскивания,
+        // но может использоваться для других целей (например, логирования)
+        if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
+        {
+            Logger.Info("Drag region clicked (dragging handled by system via Caption region)");
+        }
+    }
+
+    #endregion
+
+    #region Clipboard Operations
+
+    private void CopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Copy requested");
+        _inputService.SendCtrlKey('C');
+    }
+
+    private void CutButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Cut requested");
+        _inputService.SendCtrlKey('X');
+    }
+
+    private void PasteButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Paste requested");
+        _inputService.SendCtrlKey('V');
+    }
+
+    private void DeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Delete requested");
+        _inputService.SendKey(0x2E); // VK_DELETE
+    }
+
+    private void SelectAllButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Info("Select All requested");
+        _inputService.SendCtrlKey('A');
     }
 
     #endregion
@@ -345,6 +675,13 @@ public sealed partial class MainWindow : Window
             _focusTracker?.Dispose();
             _trayIcon?.Dispose();
             
+            // Restore original window procedure if it was subclassed
+            if (_oldWndProc != IntPtr.Zero)
+            {
+                SetWindowLongPtr(_thisWindowHandle, GWL_WNDPROC, _oldWndProc);
+                Logger.Info("Window procedure restored");
+            }
+            
             Logger.Info("Application exiting");
             Application.Current.Exit();
         }
@@ -367,6 +704,12 @@ public sealed partial class MainWindow : Window
             _autoShowManager?.Dispose();
             _focusTracker?.Dispose();
             _trayIcon?.Dispose();
+            
+            // Restore original window procedure
+            if (_oldWndProc != IntPtr.Zero)
+            {
+                SetWindowLongPtr(_thisWindowHandle, GWL_WNDPROC, _oldWndProc);
+            }
         }
     }
 
