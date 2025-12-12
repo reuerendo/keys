@@ -4,6 +4,8 @@ using Microsoft.UI.Windowing;
 using System;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Input;
+using System.Collections.Generic;
 
 namespace VirtualKeyboard;
 
@@ -45,6 +47,9 @@ public sealed partial class MainWindow : Window
     private WindowVisibilityManager _visibilityManager;
     private LongPressPopup _longPressPopup;
     private TrayIcon _trayIcon;
+    
+    // Для управления non-client regions
+    private InputNonClientPointerSource _nonClientPointerSource;
 
     #endregion
 
@@ -87,6 +92,9 @@ public sealed partial class MainWindow : Window
         ConfigureWindowSize();
         _styleManager.ApplyNoActivateStyle();
         
+        // Initialize non-client pointer source для управления интерактивными областями
+        InitializeNonClientPointerSource();
+        
         // Initialize tray icon
         InitializeTrayIcon();
         
@@ -94,6 +102,7 @@ public sealed partial class MainWindow : Window
         if (this.Content is FrameworkElement rootElement)
         {
             rootElement.Loaded += MainWindow_Loaded;
+            rootElement.SizeChanged += RootElement_SizeChanged;
         }
         
         this.Activated += MainWindow_Activated;
@@ -104,6 +113,24 @@ public sealed partial class MainWindow : Window
     }
 
     #region Initialization
+
+    private void InitializeNonClientPointerSource()
+    {
+        try
+        {
+            // Получаем WindowId из handle
+            var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_thisWindowHandle);
+            
+            // Получаем InputNonClientPointerSource для управления non-client областями
+            _nonClientPointerSource = InputNonClientPointerSource.GetForWindowId(windowId);
+            
+            Logger.Info("InputNonClientPointerSource initialized");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to initialize InputNonClientPointerSource", ex);
+        }
+    }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
@@ -147,13 +174,141 @@ public sealed partial class MainWindow : Window
         _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
         _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
-        // Setup drag region for moving window
-        if (rootElement.FindName("DragRegion") is UIElement dragRegion)
-        {
-            dragRegion.PointerPressed += DragRegion_PointerPressed;
-        }
+        // ВАЖНО: Настраиваем интерактивные области после загрузки UI
+        UpdateInteractiveRegions();
         
         Logger.Info("MainWindow fully initialized");
+    }
+
+    private void RootElement_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Обновляем интерактивные области при изменении размера
+        UpdateInteractiveRegions();
+    }
+
+    /// <summary>
+    /// Обновляет интерактивные области для кнопок в toolbar
+    /// </summary>
+    private void UpdateInteractiveRegions()
+    {
+        if (_nonClientPointerSource == null)
+            return;
+
+        try
+        {
+            var rootElement = this.Content as FrameworkElement;
+            if (rootElement == null)
+                return;
+
+            // Получаем масштаб для конвертации в физические координаты
+            double scale = GetRasterizationScale();
+
+            // Список прямоугольников для интерактивных областей (кнопки)
+            var interactiveRects = new List<Windows.Graphics.RectInt32>();
+
+            // Получаем кнопки toolbar
+            var toolbarButtons = new[]
+            {
+                rootElement.FindName("CopyButton") as Button,
+                rootElement.FindName("CutButton") as Button,
+                rootElement.FindName("PasteButton") as Button,
+                rootElement.FindName("DeleteButton") as Button,
+                rootElement.FindName("SelectAllButton") as Button
+            };
+
+            // Для каждой кнопки создаем интерактивную область
+            foreach (var button in toolbarButtons)
+            {
+                if (button != null && button.ActualWidth > 0 && button.ActualHeight > 0)
+                {
+                    var rect = GetElementRect(button, rootElement, scale);
+                    if (rect.HasValue)
+                    {
+                        interactiveRects.Add(rect.Value);
+                        Logger.Info($"Added interactive region for {button.Name}: X={rect.Value.X}, Y={rect.Value.Y}, W={rect.Value.Width}, H={rect.Value.Height}");
+                    }
+                }
+            }
+
+            // Устанавливаем области как Passthrough (клики проходят к UI элементам)
+            if (interactiveRects.Count > 0)
+            {
+                _nonClientPointerSource.SetRegionRects(
+                    NonClientRegionKind.Passthrough,
+                    interactiveRects.ToArray()
+                );
+                
+                Logger.Info($"Set {interactiveRects.Count} interactive regions successfully");
+            }
+
+            // Теперь настраиваем область перетаскивания (DragRegion)
+            var dragRegion = rootElement.FindName("DragRegion") as Border;
+            if (dragRegion != null && dragRegion.ActualWidth > 0 && dragRegion.ActualHeight > 0)
+            {
+                var dragRect = GetElementRect(dragRegion, rootElement, scale);
+                if (dragRect.HasValue)
+                {
+                    _nonClientPointerSource.SetRegionRects(
+                        NonClientRegionKind.Caption,
+                        new[] { dragRect.Value }
+                    );
+                    
+                    Logger.Info($"Set drag region: X={dragRect.Value.X}, Y={dragRect.Value.Y}, W={dragRect.Value.Width}, H={dragRect.Value.Height}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to update interactive regions", ex);
+        }
+    }
+
+    /// <summary>
+    /// Получает прямоугольник элемента в физических координатах
+    /// </summary>
+    private Windows.Graphics.RectInt32? GetElementRect(FrameworkElement element, FrameworkElement root, double scale)
+    {
+        try
+        {
+            var transform = element.TransformToVisual(root);
+            var bounds = transform.TransformBounds(
+                new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight)
+            );
+
+            // Конвертируем в физические координаты (non-DPI aware)
+            return new Windows.Graphics.RectInt32
+            {
+                X = (int)Math.Round(bounds.X * scale),
+                Y = (int)Math.Round(bounds.Y * scale),
+                Width = (int)Math.Round(bounds.Width * scale),
+                Height = (int)Math.Round(bounds.Height * scale)
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Failed to get element rect for {element?.Name}", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Получает масштаб растеризации для конвертации в физические координаты
+    /// </summary>
+    private double GetRasterizationScale()
+    {
+        try
+        {
+            var rootElement = this.Content as FrameworkElement;
+            if (rootElement?.XamlRoot?.RasterizationScale > 0)
+            {
+                return rootElement.XamlRoot.RasterizationScale;
+            }
+        }
+        catch { }
+
+        // Fallback: используем DPI
+        uint dpi = GetDpiForWindow(_thisWindowHandle);
+        return dpi / 96.0;
     }
 
     private void ConfigureWindowSize()
@@ -280,31 +435,28 @@ public sealed partial class MainWindow : Window
 
     #endregion
 
-    #region Window Drag Handler
+    #region Window Drag Handler - БОЛЬШЕ НЕ НУЖЕН
 
+    // Этот обработчик больше не нужен, так как перетаскивание 
+    // теперь управляется через InputNonClientPointerSource
+    // Но оставляем его для обратной совместимости
     private void DragRegion_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
+        // Обработка двойного клика все еще может быть полезна
         if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
         {
-            // Check if this is a double-click
             DateTime now = DateTime.Now;
             double timeSinceLastClick = (now - _lastDragRegionClickTime).TotalMilliseconds;
             
             if (timeSinceLastClick < _doubleClickTime)
             {
-                // This is a double-click - don't initiate drag to prevent maximize
                 Logger.Info($"Double-click detected on drag region ({timeSinceLastClick:F0}ms) - blocked to prevent maximize");
                 e.Handled = true;
-                _lastDragRegionClickTime = DateTime.MinValue; // Reset to prevent triple-click issues
+                _lastDragRegionClickTime = DateTime.MinValue;
                 return;
             }
             
-            // Update last click time
             _lastDragRegionClickTime = now;
-            
-            // Use Win32 API to enable window dragging
-            ReleaseCapture();
-            SendMessage(_thisWindowHandle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
         }
     }
 

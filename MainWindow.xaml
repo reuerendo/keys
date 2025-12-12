@@ -19,7 +19,7 @@
 
         <!-- Custom Toolbar -->
         <Border Grid.Row="0" 
-                Height="42">
+                Height="36">
             
             <Grid>
                 <!-- Drag region for moving window -->
@@ -28,7 +28,7 @@
                         HorizontalAlignment="Stretch"/>
                 
                 <!-- Toolbar buttons -->
-<StackPanel Orientation="Horizontal" 
+				<StackPanel Orientation="Horizontal" 
                             Margin="12,0,0,0"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
