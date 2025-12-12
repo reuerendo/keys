@@ -172,8 +172,7 @@ public class LongPressPopup
                 Tag = valueChar,
                 Width = 48,
                 Height = 48,
-                FontSize = 14,
-				FontWeight = FontWeights.Medium
+                FontSize = 14
             };
 
             btn.Click += PopupButton_Click;
