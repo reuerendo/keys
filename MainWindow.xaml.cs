@@ -92,6 +92,9 @@ public sealed partial class MainWindow : Window
         // Initialize long press popup
         _longPressPopup = new LongPressPopup(rootElement, _stateManager);
         
+        // Set initial layout for long press popup (ИСПРАВЛЕНИЕ: инициализация раскладки для long press)
+        _longPressPopup.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+        
         // Initialize specialized handlers
         _backspaceHandler = new BackspaceRepeatHandler(_inputService);
         _eventCoordinator = new KeyboardEventCoordinator(_inputService, _stateManager, _layoutManager, _longPressPopup);
