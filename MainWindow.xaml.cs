@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
-        _layoutManager = new LayoutManager(_settingsManager); // Pass settings manager
+        _layoutManager = new LayoutManager(_settingsManager);
         _styleManager = new WindowStyleManager(_thisWindowHandle);
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         
@@ -115,6 +115,9 @@ public sealed partial class MainWindow : Window
         // Initialize button references
         _stateManager.InitializeButtonReferences(rootElement);
         _layoutManager.InitializeLangButton(rootElement);
+        
+        // Update key labels to match current layout (ИСПРАВЛЕНИЕ: обновление меток при загрузке)
+        _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
         
         // Initialize auto-show manager
         _autoShowManager = new AutoShowManager(_thisWindowHandle);
@@ -261,8 +264,6 @@ public sealed partial class MainWindow : Window
             if (dialog.RequiresLayoutUpdate)
             {
                 _layoutManager.RefreshAvailableLayouts();
-                // SetDefaultLayout is called inside RefreshAvailableLayouts via constructor logic
-                // But we need to explicitly call it after refresh
                 var rootElement = this.Content as FrameworkElement;
                 _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
                 Logger.Info("Keyboard layouts refreshed and default layout applied");
