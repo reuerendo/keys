@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Input;
 using System.Collections.Generic;
+using WinRT;
 
 namespace VirtualKeyboard;
 
@@ -25,8 +26,24 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern uint GetDoubleClickTime();
 
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
     private const uint WM_NCLBUTTONDOWN = 0x00A1;
+    private const uint WM_NCLBUTTONDBLCLK = 0x00A3;
     private const uint HTCAPTION = 0x0002;
+    private const int GWL_WNDPROC = -4;
+
+    // Делегат для window procedure
+    private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    private WndProcDelegate _wndProcDelegate;
+    private IntPtr _oldWndProc;
 
     #endregion
 
@@ -79,6 +96,9 @@ public sealed partial class MainWindow : Window
         _doubleClickTime = GetDoubleClickTime();
         Logger.Info($"System double-click time: {_doubleClickTime}ms");
         
+        // Subclass window to intercept double-click messages
+        SubclassWindow();
+        
         // Initialize core services
         _focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
@@ -111,6 +131,61 @@ public sealed partial class MainWindow : Window
         Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
         Logger.Info("=== MainWindow Constructor Completed ===");
     }
+
+    #region Window Subclassing
+
+    private void SubclassWindow()
+    {
+        try
+        {
+            // Создаем делегат для нашей window procedure
+            _wndProcDelegate = new WndProcDelegate(WndProc);
+            
+            // Сохраняем указатель на делегат, чтобы не был собран GC
+            IntPtr newWndProc = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
+            
+            // Заменяем window procedure и сохраняем старую
+            _oldWndProc = SetWindowLongPtr(_thisWindowHandle, GWL_WNDPROC, newWndProc);
+            
+            if (_oldWndProc == IntPtr.Zero)
+            {
+                Logger.Warning("Failed to subclass window");
+            }
+            else
+            {
+                Logger.Info("Window subclassed successfully to intercept double-click messages");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to subclass window", ex);
+        }
+    }
+
+    private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
+        // Перехватываем двойной клик на non-client area (title bar)
+        if (msg == WM_NCLBUTTONDBLCLK)
+        {
+            // Проверяем, что двойной клик был на Caption (title bar)
+            if (wParam.ToInt32() == HTCAPTION)
+            {
+                Logger.Info("Blocked double-click on title bar (would cause maximize)");
+                // Блокируем сообщение - не передаем его дальше
+                return IntPtr.Zero;
+            }
+        }
+
+        // Все остальные сообщения передаем старой window procedure
+        if (_oldWndProc != IntPtr.Zero)
+        {
+            return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+        }
+
+        return IntPtr.Zero;
+    }
+
+    #endregion
 
     #region Initialization
 
@@ -435,28 +510,15 @@ public sealed partial class MainWindow : Window
 
     #endregion
 
-    #region Window Drag Handler - БОЛЬШЕ НЕ НУЖЕН
+    #region Window Drag Handler
 
-    // Этот обработчик больше не нужен, так как перетаскивание 
-    // теперь управляется через InputNonClientPointerSource
-    // Но оставляем его для обратной совместимости
     private void DragRegion_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
-        // Обработка двойного клика все еще может быть полезна
+        // Этот обработчик больше не нужен для перетаскивания,
+        // но может использоваться для других целей (например, логирования)
         if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
         {
-            DateTime now = DateTime.Now;
-            double timeSinceLastClick = (now - _lastDragRegionClickTime).TotalMilliseconds;
-            
-            if (timeSinceLastClick < _doubleClickTime)
-            {
-                Logger.Info($"Double-click detected on drag region ({timeSinceLastClick:F0}ms) - blocked to prevent maximize");
-                e.Handled = true;
-                _lastDragRegionClickTime = DateTime.MinValue;
-                return;
-            }
-            
-            _lastDragRegionClickTime = now;
+            Logger.Info("Drag region clicked (dragging handled by system via Caption region)");
         }
     }
 
@@ -613,6 +675,13 @@ public sealed partial class MainWindow : Window
             _focusTracker?.Dispose();
             _trayIcon?.Dispose();
             
+            // Restore original window procedure if it was subclassed
+            if (_oldWndProc != IntPtr.Zero)
+            {
+                SetWindowLongPtr(_thisWindowHandle, GWL_WNDPROC, _oldWndProc);
+                Logger.Info("Window procedure restored");
+            }
+            
             Logger.Info("Application exiting");
             Application.Current.Exit();
         }
@@ -635,6 +704,12 @@ public sealed partial class MainWindow : Window
             _autoShowManager?.Dispose();
             _focusTracker?.Dispose();
             _trayIcon?.Dispose();
+            
+            // Restore original window procedure
+            if (_oldWndProc != IntPtr.Zero)
+            {
+                SetWindowLongPtr(_thisWindowHandle, GWL_WNDPROC, _oldWndProc);
+            }
         }
     }
 
