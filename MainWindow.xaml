@@ -22,14 +22,15 @@
                 Height="42">
             
             <Grid>
-                <!-- Drag region for moving window -->
+                <!-- Drag region for moving window (behind buttons) -->
                 <Border x:Name="DragRegion" 
                         Background="Transparent"
-                        HorizontalAlignment="Stretch"/>
+                        HorizontalAlignment="Stretch"
+                        Margin="0,0,0,0"/>
                 
                 <!-- Toolbar buttons -->
                 <StackPanel Orientation="Horizontal" 
-							Margin="12,8,0,0"
+                            Margin="12,0,0,0"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
                             Spacing="6">
@@ -39,7 +40,7 @@
                             Width="36" Height="30"
                             ToolTipService.ToolTip="Копировать (Ctrl+C)"
                             Background="White">
-                        <FontIcon Glyph="&#xE8C8;" FontSize="12"/>
+                        <FontIcon Glyph="&#xE8C8;" FontSize="12" IsHitTestVisible="False"/>
                     </Button>
                     
                     <Button x:Name="CutButton"
@@ -47,7 +48,7 @@
                             Width="36" Height="30"
                             ToolTipService.ToolTip="Вырезать (Ctrl+X)"
                             Background="White">
-                        <FontIcon Glyph="&#xE8C6;" FontSize="12"/>
+                        <FontIcon Glyph="&#xE8C6;" FontSize="12" IsHitTestVisible="False"/>
                     </Button>
                     
                     <Button x:Name="PasteButton"
@@ -55,7 +56,7 @@
                             Width="36" Height="30"
                             ToolTipService.ToolTip="Вставить (Ctrl+V)"
                             Background="White">
-                        <FontIcon Glyph="&#xE77F;" FontSize="12"/>
+                        <FontIcon Glyph="&#xE77F;" FontSize="12" IsHitTestVisible="False"/>
                     </Button>
                     
                     <Button x:Name="DeleteButton"
@@ -63,7 +64,7 @@
                             Width="36" Height="30"
                             ToolTipService.ToolTip="Удалить"
                             Background="White">
-                        <FontIcon Glyph="&#xE74D;" FontSize="12"/>
+                        <FontIcon Glyph="&#xE74D;" FontSize="12" IsHitTestVisible="False"/>
                     </Button>
                     
                     <Button x:Name="SelectAllButton"
@@ -71,7 +72,7 @@
                             Width="36" Height="30"
                             ToolTipService.ToolTip="Выделить всё (Ctrl+A)"
                             Background="White">
-                        <FontIcon Glyph="&#xE8B3;" FontSize="12"/>
+                        <FontIcon Glyph="&#xE8B3;" FontSize="12" IsHitTestVisible="False"/>
                     </Button>
                     
                 </StackPanel>

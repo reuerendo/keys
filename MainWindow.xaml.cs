@@ -140,6 +140,7 @@ public sealed partial class MainWindow : Window
         if (rootElement.FindName("DragRegion") is UIElement dragRegion)
         {
             dragRegion.PointerPressed += DragRegion_PointerPressed;
+            dragRegion.DoubleTapped += DragRegion_DoubleTapped;
         }
         
         Logger.Info("MainWindow fully initialized");
@@ -152,7 +153,7 @@ public sealed partial class MainWindow : Window
         double userScale = _settingsManager.Settings.KeyboardScale;
 
         int baseWidth = 997;
-        int baseHeight = 336; // Increased from 330 to accommodate toolbar
+        int baseHeight = 342; // Increased from 330 to accommodate toolbar
         int physicalWidth = (int)(baseWidth * dpiScale * userScale);
         int physicalHeight = (int)(baseHeight * dpiScale * userScale);
 
@@ -206,12 +207,16 @@ public sealed partial class MainWindow : Window
             var titleBar = this.AppWindow.TitleBar;
             titleBar.ExtendsContentIntoTitleBar = true;
             
-            // Make title bar buttons invisible
+            // Set default colors for title bar buttons (close button will be visible)
             titleBar.ButtonBackgroundColor = Microsoft.UI.Colors.Transparent;
             titleBar.ButtonInactiveBackgroundColor = Microsoft.UI.Colors.Transparent;
-            titleBar.ButtonForegroundColor = Microsoft.UI.Colors.Transparent;
             
-            Logger.Info("Custom title bar configured");
+            // Keep default foreground color (black) for close button to be visible
+            // These will use system default colors
+            titleBar.ButtonForegroundColor = null;
+            titleBar.ButtonInactiveForegroundColor = null;
+            
+            Logger.Info("Custom title bar configured - close button visible");
         }
         else
         {
@@ -277,6 +282,14 @@ public sealed partial class MainWindow : Window
             ReleaseCapture();
             SendMessage(_thisWindowHandle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
         }
+    }
+
+    // Prevent double-click from maximizing window
+    private void DragRegion_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs e)
+    {
+        // Mark event as handled to prevent window maximization
+        e.Handled = true;
+        Logger.Info("Double-click on drag region blocked");
     }
 
     #endregion
