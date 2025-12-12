@@ -152,7 +152,7 @@ public sealed partial class MainWindow : Window
         double userScale = _settingsManager.Settings.KeyboardScale;
 
         int baseWidth = 997;
-        int baseHeight = 330; // Increased from 330 to accommodate toolbar
+        int baseHeight = 336; // Increased from 330 to accommodate toolbar
         int physicalWidth = (int)(baseWidth * dpiScale * userScale);
         int physicalHeight = (int)(baseHeight * dpiScale * userScale);
 
