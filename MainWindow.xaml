@@ -13,7 +13,7 @@
         </Grid.RenderTransform>
         
         <Grid.RowDefinitions>
-            <RowDefinition Height="40"/>
+            <RowDefinition Height="36"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -29,53 +29,54 @@
                 
                 <!-- Toolbar buttons -->
                 <StackPanel Orientation="Horizontal" 
+							Margin="0,0,0,12"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
-                            Spacing="8">
+                            Spacing="6">
                     
                     <Button x:Name="CopyButton"
                             Click="CopyButton_Click"
                             Width="30" Height="30"
                             ToolTipService.ToolTip="Копировать (Ctrl+C)"
-                            Background="#3E3E42"
+                            Background="White"
                             BorderThickness="0">
-                        <FontIcon Glyph="&#xE8C8;" FontSize="14" Foreground="White"/>
+                        <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
                     </Button>
                     
                     <Button x:Name="CutButton"
                             Click="CutButton_Click"
                             Width="30" Height="30"
                             ToolTipService.ToolTip="Вырезать (Ctrl+X)"
-                            Background="#3E3E42"
+                            Background="White"
                             BorderThickness="0">
-                        <FontIcon Glyph="&#xE8C6;" FontSize="14" Foreground="White"/>
+                        <FontIcon Glyph="&#xE8C6;" FontSize="14"/>
                     </Button>
                     
                     <Button x:Name="PasteButton"
                             Click="PasteButton_Click"
                             Width="30" Height="30"
                             ToolTipService.ToolTip="Вставить (Ctrl+V)"
-                            Background="#3E3E42"
+                            Background="White"
                             BorderThickness="0">
-                        <FontIcon Glyph="&#xE77F;" FontSize="14" Foreground="White"/>
+                        <FontIcon Glyph="&#xE77F;" FontSize="14"/>
                     </Button>
                     
                     <Button x:Name="DeleteButton"
                             Click="DeleteButton_Click"
                             Width="30" Height="30"
                             ToolTipService.ToolTip="Удалить"
-                            Background="#3E3E42"
+                            Background="White"
                             BorderThickness="0">
-                        <FontIcon Glyph="&#xE74D;" FontSize="14" Foreground="White"/>
+                        <FontIcon Glyph="&#xE74D;" FontSize="14"/>
                     </Button>
                     
                     <Button x:Name="SelectAllButton"
                             Click="SelectAllButton_Click"
                             Width="30" Height="30"
                             ToolTipService.ToolTip="Выделить всё (Ctrl+A)"
-                            Background="#3E3E42"
+                            Background="White"
                             BorderThickness="0">
-                        <FontIcon Glyph="&#xE8B3;" FontSize="14" Foreground="White"/>
+                        <FontIcon Glyph="&#xE8B3;" FontSize="14"/>
                     </Button>
                     
                 </StackPanel>
