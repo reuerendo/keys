@@ -84,7 +84,7 @@
 
         <!-- Keyboard Layout -->
         <ScrollViewer Grid.Row="1">
-            <StackPanel Margin="12,6,12,12" Spacing="6">
+            <StackPanel Margin="12,4,12,12" Spacing="6">
                 
                 <!-- Row 1: Numbers and special chars -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
