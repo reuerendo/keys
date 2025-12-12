@@ -28,7 +28,7 @@
                         HorizontalAlignment="Stretch"/>
                 
                 <!-- Toolbar buttons -->
-                <StackPanel Orientation="Horizontal" 
+<StackPanel Orientation="Horizontal" 
                             Margin="12,0,0,0"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
@@ -40,7 +40,7 @@
                             Padding="0"
                             ToolTipService.ToolTip="Копировать (Ctrl+C)"
                             Background="White">
-                        <FontIcon Glyph="&#xE8C8;" FontSize="12" IsHitTestVisible="False"/>
+                        <FontIcon Glyph="&#xE8C8;" FontSize="12"/>
                     </Button>
                     
                     <Button x:Name="CutButton"
@@ -49,7 +49,7 @@
                             Padding="0"
                             ToolTipService.ToolTip="Вырезать (Ctrl+X)"
                             Background="White">
-                        <FontIcon Glyph="&#xE8C6;" FontSize="12" IsHitTestVisible="False"/>
+                        <FontIcon Glyph="&#xE8C6;" FontSize="12"/>
                     </Button>
                     
                     <Button x:Name="PasteButton"
@@ -58,7 +58,7 @@
                             Padding="0"
                             ToolTipService.ToolTip="Вставить (Ctrl+V)"
                             Background="White">
-                        <FontIcon Glyph="&#xE77F;" FontSize="12" IsHitTestVisible="False"/>
+                        <FontIcon Glyph="&#xE77F;" FontSize="12"/>
                     </Button>
                     
                     <Button x:Name="DeleteButton"
@@ -67,7 +67,7 @@
                             Padding="0"
                             ToolTipService.ToolTip="Удалить"
                             Background="White">
-                        <FontIcon Glyph="&#xE74D;" FontSize="12" IsHitTestVisible="False"/>
+                        <FontIcon Glyph="&#xE74D;" FontSize="12"/>
                     </Button>
                     
                     <Button x:Name="SelectAllButton"
@@ -76,7 +76,7 @@
                             Padding="0"
                             ToolTipService.ToolTip="Выделить всё (Ctrl+A)"
                             Background="White">
-                        <FontIcon Glyph="&#xE8B3;" FontSize="12" IsHitTestVisible="False"/>
+                        <FontIcon Glyph="&#xE8B3;" FontSize="12"/>
                     </Button>
                     
                 </StackPanel>
