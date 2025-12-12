@@ -257,13 +257,15 @@ public sealed partial class MainWindow : Window
                 Logger.Info($"AutoShow setting updated to: {newAutoShowValue}");
             }
             
-            // Update layouts if changed
+            // Update layouts if changed (this includes default layout changes)
             if (dialog.RequiresLayoutUpdate)
             {
                 _layoutManager.RefreshAvailableLayouts();
+                // SetDefaultLayout is called inside RefreshAvailableLayouts via constructor logic
+                // But we need to explicitly call it after refresh
                 var rootElement = this.Content as FrameworkElement;
                 _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
-                Logger.Info("Keyboard layouts refreshed");
+                Logger.Info("Keyboard layouts refreshed and default layout applied");
             }
             
             // Handle restart if scale changed

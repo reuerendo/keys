@@ -33,6 +33,7 @@ public class SettingsManager
         public double KeyboardScale { get; set; } = 1.0; // Default 100%
         public bool AutoShowKeyboard { get; set; } = false; // Auto-show on text input focus
         public List<string> EnabledLayouts { get; set; } = new List<string> { "EN", "RU" }; // Default layouts
+        public string DefaultLayout { get; set; } = "EN"; // Default layout on startup
     }
 
     private AppSettings _settings;
@@ -62,7 +63,13 @@ public class SettingsManager
                     _settings.EnabledLayouts = new List<string> { "EN", "RU" };
                 }
                 
-                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}");
+                // Ensure DefaultLayout is set and is in enabled layouts
+                if (string.IsNullOrEmpty(_settings.DefaultLayout) || !_settings.EnabledLayouts.Contains(_settings.DefaultLayout))
+                {
+                    _settings.DefaultLayout = _settings.EnabledLayouts[0];
+                }
+                
+                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}, Default: {_settings.DefaultLayout}");
             }
             else
             {
@@ -93,7 +100,7 @@ public class SettingsManager
             string json = JsonSerializer.Serialize(_settings, SettingsJsonContext.Default.AppSettings);
             File.WriteAllText(SettingsPath, json);
             
-            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}");
+            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, AutoShow: {_settings.AutoShowKeyboard}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}, Default: {_settings.DefaultLayout}");
         }
         catch (Exception ex)
         {
@@ -167,6 +174,13 @@ public class SettingsManager
         }
 
         _settings.EnabledLayouts = new List<string>(layouts);
+        
+        // Ensure default layout is still valid
+        if (!layouts.Contains(_settings.DefaultLayout))
+        {
+            _settings.DefaultLayout = layouts[0];
+        }
+        
         SaveSettings();
     }
 
@@ -176,5 +190,30 @@ public class SettingsManager
     public bool IsLayoutEnabled(string layoutCode)
     {
         return _settings.EnabledLayouts != null && _settings.EnabledLayouts.Contains(layoutCode);
+    }
+
+    /// <summary>
+    /// Get default layout code
+    /// </summary>
+    public string GetDefaultLayout()
+    {
+        if (string.IsNullOrEmpty(_settings.DefaultLayout) || !_settings.EnabledLayouts.Contains(_settings.DefaultLayout))
+        {
+            return _settings.EnabledLayouts[0];
+        }
+        return _settings.DefaultLayout;
+    }
+
+    /// <summary>
+    /// Set default layout code
+    /// </summary>
+    public void SetDefaultLayout(string layoutCode)
+    {
+        // Only set if layout is enabled
+        if (_settings.EnabledLayouts.Contains(layoutCode))
+        {
+            _settings.DefaultLayout = layoutCode;
+            SaveSettings();
+        }
     }
 }

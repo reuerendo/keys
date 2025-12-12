@@ -36,6 +36,30 @@ public class LayoutManager
         _symbolLayout = KeyboardLayout.CreateSymbolLayout();
         
         RefreshAvailableLayouts();
+        SetDefaultLayout();
+    }
+
+    /// <summary>
+    /// Set current layout to default layout from settings
+    /// </summary>
+    public void SetDefaultLayout()
+    {
+        string defaultLayoutCode = _settingsManager.GetDefaultLayout();
+        
+        // Find the index of the default layout
+        for (int i = 0; i < _availableLayouts.Count; i++)
+        {
+            if (_availableLayouts[i].Code == defaultLayoutCode)
+            {
+                _currentLayoutIndex = i;
+                Logger.Info($"Default layout set to: {_availableLayouts[i].Name} ({defaultLayoutCode})");
+                return;
+            }
+        }
+        
+        // If default layout not found in available layouts, use first one
+        _currentLayoutIndex = 0;
+        Logger.Warning($"Default layout {defaultLayoutCode} not found in available layouts, using {_availableLayouts[0].Name}");
     }
 
     /// <summary>
@@ -67,6 +91,9 @@ public class LayoutManager
         }
 
         Logger.Info($"Available layouts refreshed: {string.Join(", ", _availableLayouts.Select(l => l.Code))}");
+        
+        // Reapply default layout after refresh
+        SetDefaultLayout();
     }
 
     /// <summary>
