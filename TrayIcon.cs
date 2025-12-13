@@ -234,13 +234,11 @@ public class TrayIcon : IDisposable
     /// Handle right click on tray icon - show context menu
     /// Context menu needs focus restoration as it's blocking/synchronous
     /// </summary>
-    private void OnRightClick()
-    {
-        Logger.Debug("Tray icon right click - showing context menu");
-        FocusRestorer.CaptureCurrentFocus();
-        ShowContextMenu();
-        FocusRestorer.RestoreFocus();
-    }
+	private void OnRightClick()
+	{
+		Logger.Debug("Tray icon right click - showing context menu");
+		ShowContextMenu();
+	}
 
     /// <summary>
     /// Show context menu at cursor position
