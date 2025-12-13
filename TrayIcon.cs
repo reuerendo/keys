@@ -175,6 +175,12 @@ public class TrayIcon : IDisposable
             {
                 _isIconAdded = true;
                 Shell_NotifyIcon(NIM_MODIFY, ref _notifyIconData);
+                Logger.Info("✅ Tray icon shown");
+            }
+            else
+            {
+                int error = Marshal.GetLastWin32Error();
+                Logger.Error($"❌ Failed to show tray icon. Error: {error}");
             }
         }
     }
@@ -188,6 +194,7 @@ public class TrayIcon : IDisposable
         {
             Shell_NotifyIcon(NIM_DELETE, ref _notifyIconData);
             _isIconAdded = false;
+            Logger.Info("Tray icon hidden");
         }
     }
 
@@ -222,7 +229,6 @@ public class TrayIcon : IDisposable
 
     /// <summary>
     /// Handle left click on tray icon - toggle visibility
-    /// Focus restoration is handled by WindowVisibilityManager
     /// </summary>
     private void OnLeftClick()
     {
@@ -232,13 +238,12 @@ public class TrayIcon : IDisposable
 
     /// <summary>
     /// Handle right click on tray icon - show context menu
-    /// Context menu needs focus restoration as it's blocking/synchronous
     /// </summary>
-	private void OnRightClick()
-	{
-		Logger.Debug("Tray icon right click - showing context menu");
-		ShowContextMenu();
-	}
+    private void OnRightClick()
+    {
+        Logger.Debug("Tray icon right click - showing context menu");
+        ShowContextMenu();
+    }
 
     /// <summary>
     /// Show context menu at cursor position
@@ -294,6 +299,7 @@ public class TrayIcon : IDisposable
             _hIcon = IntPtr.Zero;
         }
         _messageWindow?.Dispose();
+        Logger.Info("TrayIcon disposed");
     }
 
     #region TrayIconMessageWindow
@@ -363,10 +369,26 @@ public class TrayIcon : IDisposable
                 lpszClassName = WINDOW_CLASS_NAME
             };
 
-            RegisterClassEx(ref wndClass);
+            ushort classAtom = RegisterClassEx(ref wndClass);
+            
+            if (classAtom == 0)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Logger.Error($"Failed to register window class. Error: {error}");
+            }
 
             _hwnd = CreateWindowEx(0, WINDOW_CLASS_NAME, "TrayIconWindow", 0, 0, 0, 0, 0,
                 new IntPtr(-3), IntPtr.Zero, hInstance, IntPtr.Zero);
+                
+            if (_hwnd == IntPtr.Zero)
+            {
+                int error = Marshal.GetLastWin32Error();
+                Logger.Error($"Failed to create message window. Error: {error}");
+            }
+            else
+            {
+                Logger.Debug($"Tray message window created: 0x{_hwnd:X}");
+            }
         }
 
         private IntPtr WindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -387,138 +409,10 @@ public class TrayIcon : IDisposable
             {
                 DestroyWindow(_hwnd);
                 _hwnd = IntPtr.Zero;
+                Logger.Debug("Tray message window destroyed");
             }
         }
     }
 
     #endregion
 }
-
-#region FocusRestorer
-
-/// <summary>
-/// Helper class to capture and restore focus when showing context menus
-/// Used ONLY for synchronous/blocking operations like context menus
-/// For keyboard show/hide, use WindowVisibilityManager's focus restoration
-/// </summary>
-public static class FocusRestorer
-{
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-
-    [DllImport("user32.dll")]
-    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetFocus();
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetFocus(IntPtr hWnd);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetCurrentThreadId();
-
-    private static IntPtr _prevFocus = IntPtr.Zero;
-    private static IntPtr _prevForeground = IntPtr.Zero;
-
-    /// <summary>
-    /// Capture current focus state before showing blocking UI (context menu)
-    /// </summary>
-    public static void CaptureCurrentFocus()
-    {
-        try
-        {
-            _prevForeground = GetForegroundWindow();
-            Logger.Debug($"Captured foreground window: 0x{_prevForeground:X}");
-
-            if (_prevForeground == IntPtr.Zero)
-            {
-                _prevFocus = IntPtr.Zero;
-                return;
-            }
-
-            uint thisThread = GetCurrentThreadId();
-            uint fgThread = GetWindowThreadProcessId(_prevForeground, out _);
-
-            bool attached = false;
-            try
-            {
-                if (thisThread != fgThread)
-                {
-                    attached = AttachThreadInput(thisThread, fgThread, true);
-                }
-
-                if (attached || thisThread == fgThread)
-                {
-                    _prevFocus = GetFocus();
-                    Logger.Debug($"Captured focused control: 0x{_prevFocus:X}");
-                }
-            }
-            finally
-            {
-                if (attached)
-                {
-                    AttachThreadInput(thisThread, fgThread, false);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error capturing focus", ex);
-            _prevFocus = IntPtr.Zero;
-            _prevForeground = IntPtr.Zero;
-        }
-    }
-
-    /// <summary>
-    /// Restore previously captured focus after blocking UI closes
-    /// </summary>
-    public static void RestoreFocus()
-    {
-        try
-        {
-            if (_prevForeground == IntPtr.Zero)
-            {
-                Logger.Debug("No previous foreground to restore");
-                return;
-            }
-
-            uint thisThread = GetCurrentThreadId();
-            uint fgThread = GetWindowThreadProcessId(_prevForeground, out _);
-
-            bool attached = false;
-            try
-            {
-                if (thisThread != fgThread)
-                {
-                    attached = AttachThreadInput(thisThread, fgThread, true);
-                }
-
-                if ((attached || thisThread == fgThread) && _prevFocus != IntPtr.Zero)
-                {
-                    SetFocus(_prevFocus);
-                    Logger.Debug($"Restored focus to control: 0x{_prevFocus:X}");
-                }
-            }
-            finally
-            {
-                if (attached)
-                {
-                    AttachThreadInput(thisThread, fgThread, false);
-                }
-            }
-
-            _prevFocus = IntPtr.Zero;
-            _prevForeground = IntPtr.Zero;
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error restoring focus", ex);
-        }
-    }
-}
-
-#endregion
