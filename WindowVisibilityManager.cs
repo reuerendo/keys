@@ -122,17 +122,11 @@ public class WindowVisibilityManager
     {
         Logger.Info("ShowWithFocusPreservation started");
 
-        // Check if inline edit is active before showing keyboard
-        if (InlineEditDetector.IsInlineEditActive(out IntPtr editControl))
-        {
-            Logger.Info("Inline edit control detected - aborting show to preserve edit state");
-            return;
-        }
-
         // CRITICAL: Use tracked window, not GetForegroundWindow()
         // When clicking tray icon, foreground is already the tray message window
         IntPtr trackedWindow = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
         IntPtr focusedControl = IntPtr.Zero;
+        bool isInlineEdit = false;
 
         Logger.Info($"Tracked window from FocusTracker: 0x{trackedWindow:X}");
 
@@ -140,11 +134,24 @@ public class WindowVisibilityManager
         if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
         {
             focusedControl = CaptureFocusedControl(trackedWindow);
+            
+            // Check if captured control is inline edit (non-invasive check)
+            if (focusedControl != IntPtr.Zero)
+            {
+                isInlineEdit = InlineEditDetector.IsInlineEditControl(focusedControl);
+            }
         }
 
         // Show the keyboard window
         _positionManager?.PositionWindow(showWindow: true);
         Logger.Info("Keyboard window positioned and shown");
+
+        // If inline edit is active, don't restore focus - leave it on the edit control
+        if (isInlineEdit)
+        {
+            Logger.Info("Inline edit detected - skipping focus restoration to preserve edit state");
+            return;
+        }
 
         // Small delay to let keyboard window render and stabilize
         await Task.Delay(15);
