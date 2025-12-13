@@ -233,7 +233,8 @@ public class WindowPositionManager
 
             Logger.Info($"Positioning window at X={posX}, Y={posY} (DPI: {dpi}, Scale: {scalingFactor})");
 
-            uint uFlags = SWP_NOACTIVATE | 0x0001;
+            // ✅ Use NOZORDER to avoid changing Z-order (already topmost via Presenter)
+            uint uFlags = SWP_NOACTIVATE | SWP_NOZORDER | 0x0001; // 0x0001 = SWP_NOSIZE
 
             if (showWindow)
             {
@@ -242,7 +243,7 @@ public class WindowPositionManager
 
             bool success = SetWindowPos(
                 _hwnd,
-                new IntPtr(HWND_TOPMOST),
+                IntPtr.Zero,  // ✅ Don't change Z-order
                 posX,
                 posY,
                 0,

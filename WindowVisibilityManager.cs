@@ -19,7 +19,6 @@ public class WindowVisibilityManager
     private const int SWP_NOMOVE = 0x0002;
     private const int SWP_NOSIZE = 0x0001;
     private const int SWP_SHOWWINDOW = 0x0040;
-    private const int HWND_TOPMOST = -1;
 
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_NOACTIVATE = 0x08000000L;
@@ -59,6 +58,9 @@ public class WindowVisibilityManager
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     #endregion
 
     private readonly IntPtr _windowHandle;
@@ -70,6 +72,8 @@ public class WindowVisibilityManager
     private readonly FrameworkElement _rootElement;
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
+
+    private bool _isPositioned = false;
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -102,6 +106,14 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
+    /// Mark that initial positioning is complete
+    /// </summary>
+    public void MarkAsPositioned()
+    {
+        _isPositioned = true;
+    }
+
+    /// <summary>
     /// Show the window WITHOUT activating it (never steals focus)
     /// </summary>
     public void Show(bool preserveFocus = false)
@@ -117,8 +129,12 @@ public class WindowVisibilityManager
             // ✅ CRITICAL: Ensure WS_EX_NOACTIVATE is set
             EnsureNoActivateStyle();
             
-            // Position window first (if needed)
-            _positionManager?.PositionWindow(showWindow: false);
+            // Position window only on first show
+            if (!_isPositioned)
+            {
+                _positionManager?.PositionWindow(showWindow: false);
+                _isPositioned = true;
+            }
             
             // Show window using non-activating method
             ShowWindowNonActivating();
@@ -142,18 +158,44 @@ public class WindowVisibilityManager
     {
         Logger.Info("▶ ShowWindowNonActivating: Starting");
         
-        // Method 1: SetWindowPos with SWP_NOACTIVATE + SWP_SHOWWINDOW
-        // This is the most reliable way to show window without activation
+        // 1. Save current foreground window
+        IntPtr currentForeground = GetForegroundWindow();
+        Logger.Info($"  Current foreground: 0x{currentForeground:X}");
+        
+        // 2. Show window WITHOUT changing Z-order (already topmost via Presenter)
         bool result = SetWindowPos(
             _windowHandle,
-            new IntPtr(HWND_TOPMOST),
+            IntPtr.Zero,  // ✅ Don't change Z-order
             0, 0, 0, 0,
-            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW
         );
         
         if (result)
         {
             Logger.Info("✅ SetWindowPos succeeded - window shown without activation");
+            
+            // 3. Verify foreground hasn't changed
+            System.Threading.Thread.Sleep(10); // Small delay for Windows to process
+            IntPtr afterShow = GetForegroundWindow();
+            
+            if (afterShow != currentForeground && currentForeground != IntPtr.Zero)
+            {
+                Logger.Warning($"⚠ Foreground changed: 0x{currentForeground:X} -> 0x{afterShow:X}");
+                Logger.Info("  Restoring original foreground...");
+                
+                if (SetForegroundWindow(currentForeground))
+                {
+                    Logger.Info("  ✅ Foreground restored");
+                }
+                else
+                {
+                    Logger.Warning("  ⚠ Failed to restore foreground");
+                }
+            }
+            else
+            {
+                Logger.Info("  ✅ Foreground unchanged");
+            }
         }
         else
         {
@@ -163,9 +205,17 @@ public class WindowVisibilityManager
             // Fallback: ShowWindow with SW_SHOWNA
             ShowWindow(_windowHandle, SW_SHOWNA);
             Logger.Info("✅ ShowWindow(SW_SHOWNA) used as fallback");
+            
+            // Check foreground again after fallback
+            System.Threading.Thread.Sleep(10);
+            IntPtr afterFallback = GetForegroundWindow();
+            if (afterFallback != currentForeground && currentForeground != IntPtr.Zero)
+            {
+                Logger.Warning("⚠ Foreground changed after fallback, restoring...");
+                SetForegroundWindow(currentForeground);
+            }
         }
         
-        // ❌ NEVER call _window.Activate() - this would steal focus!
         Logger.Info("▶ ShowWindowNonActivating: Completed");
     }
 

@@ -174,6 +174,7 @@ public sealed partial class MainWindow : Window
         {
             _isInitialPositionSet = true;
             _positionManager?.PositionWindow();
+            _visibilityManager?.MarkAsPositioned();  // ✅ Mark that positioning is complete
             Logger.Info("✅ Initial window position set");
         }
     }
