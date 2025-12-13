@@ -15,7 +15,6 @@ public sealed partial class MainWindow : Window
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
     private readonly SettingsManager _settingsManager;
-    private readonly FocusTracker _focusTracker;
     private readonly InteractiveRegionsManager _interactiveRegionsManager;
     private readonly ClipboardManager _clipboardManager;
     
@@ -41,14 +40,15 @@ public sealed partial class MainWindow : Window
         this.InitializeComponent();
         Title = "Virtual Keyboard";
         
-        Logger.Info("=== MainWindow Constructor Started ===");
+        Logger.Info("═══════════════════════════════════════════════════════");
+        Logger.Info("═══ MainWindow Constructor Started ═══");
+        Logger.Info("═══════════════════════════════════════════════════════");
         
         // Get window handle
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
+        Logger.Info($"Window handle: 0x{_thisWindowHandle:X}");
         
         // Initialize core services
-        _focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
@@ -58,12 +58,14 @@ public sealed partial class MainWindow : Window
         _interactiveRegionsManager = new InteractiveRegionsManager(_thisWindowHandle, this);
         _clipboardManager = new ClipboardManager(_inputService);
         
-        // Configure window
+        // Configure window - CRITICAL: Set styles before any show operations
+        Logger.Info("▶ Configuring window properties...");
         _positionManager.ConfigureWindowSize(_settingsManager.Settings.KeyboardScale);
-        _styleManager.ApplyNoActivateStyle();
+        _styleManager.ApplyNoActivateStyle(); // ✅ CRITICAL: Must be called early
         _styleManager.SubclassWindow();
         _styleManager.ConfigureTitleBar();
         _styleManager.ConfigurePresenter();
+        Logger.Info("✅ Window configured");
         
         // Initialize interactive regions
         _interactiveRegionsManager.Initialize();
@@ -81,14 +83,18 @@ public sealed partial class MainWindow : Window
         this.Activated += MainWindow_Activated;
         this.Closed += MainWindow_Closed;
 
-        Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
-        Logger.Info("=== MainWindow Constructor Completed ===");
+        Logger.Info($"Log file: {Logger.GetLogFilePath()}");
+        Logger.Info("═══════════════════════════════════════════════════════");
+        Logger.Info("═══ MainWindow Constructor Completed ═══");
+        Logger.Info("═══════════════════════════════════════════════════════");
     }
 
     #region Initialization
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
+        Logger.Info("▶ MainWindow_Loaded started");
+        
         var rootElement = this.Content as FrameworkElement;
         
         // Initialize long press popup
@@ -98,22 +104,26 @@ public sealed partial class MainWindow : Window
         // Initialize specialized handlers
         _backspaceHandler = new BackspaceRepeatHandler(_inputService);
         
-        // ✅ FIX: Pass FocusTracker to KeyboardEventCoordinator
+        // ✅ NO FocusTracker - keyboard never steals focus
         _eventCoordinator = new KeyboardEventCoordinator(
             _inputService, 
             _stateManager, 
             _layoutManager, 
-            _longPressPopup,
-            _focusTracker);  // Add this parameter
+            _longPressPopup);
         
-        // Initialize visibility manager
+        // Initialize auto-show manager
+        _autoShowManager = new AutoShowManager(_thisWindowHandle);
+        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
+        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
+        Logger.Info($"AutoShow: {(_autoShowManager.IsEnabled ? "Enabled" : "Disabled")}");
+        
+        // Initialize visibility manager (✅ NO FocusTracker parameter)
         _visibilityManager = new WindowVisibilityManager(
             _thisWindowHandle,
             this,
             _positionManager,
             _stateManager,
             _layoutManager,
-            _focusTracker,
             _autoShowManager,
             rootElement,
             _backspaceHandler,
@@ -141,15 +151,10 @@ public sealed partial class MainWindow : Window
         // Update key labels to match current layout
         _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
         
-        // Initialize auto-show manager
-        _autoShowManager = new AutoShowManager(_thisWindowHandle);
-        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
-        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
-        
         // Update interactive regions after UI is loaded
         _interactiveRegionsManager?.UpdateRegions();
         
-        Logger.Info("MainWindow fully initialized");
+        Logger.Info("✅ MainWindow fully initialized");
     }
 
     private void RootElement_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -159,6 +164,9 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
     {
+        Logger.Info($"▶ MainWindow_Activated: State={e.WindowActivationState}");
+        
+        // ✅ Re-apply styles on activation to ensure they persist
         _styleManager.ApplyNoActivateStyle();
         _styleManager.RemoveMinMaxButtons();
         
@@ -166,7 +174,7 @@ public sealed partial class MainWindow : Window
         {
             _isInitialPositionSet = true;
             _positionManager?.PositionWindow();
-            Logger.Info("Initial window position set");
+            Logger.Info("✅ Initial window position set");
         }
     }
 
@@ -178,19 +186,34 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            Logger.Info("▶ Initializing tray icon...");
+            
             _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
             
             // Show keyboard without focus preservation (normal show from menu)
-            _trayIcon.ShowRequested += (s, e) => _visibilityManager?.Show(preserveFocus: false);
+            _trayIcon.ShowRequested += (s, e) => {
+                Logger.Info("Tray: Show requested");
+                _visibilityManager?.Show(preserveFocus: false);
+            };
             
             // Toggle with focus preservation
-            _trayIcon.ToggleVisibilityRequested += (s, e) => _visibilityManager?.Toggle();
+            _trayIcon.ToggleVisibilityRequested += (s, e) => {
+                Logger.Info("Tray: Toggle requested");
+                _visibilityManager?.Toggle();
+            };
             
-            _trayIcon.SettingsRequested += (s, e) => _settingsDialogManager?.ShowSettingsDialog();
-            _trayIcon.ExitRequested += (s, e) => ExitApplication();
+            _trayIcon.SettingsRequested += (s, e) => {
+                Logger.Info("Tray: Settings requested");
+                _settingsDialogManager?.ShowSettingsDialog();
+            };
+            
+            _trayIcon.ExitRequested += (s, e) => {
+                Logger.Info("Tray: Exit requested");
+                ExitApplication();
+            };
+            
             _trayIcon.Show();
-            
-            Logger.Info("Tray icon initialized and shown");
+            Logger.Info("✅ Tray icon initialized and shown");
         }
         catch (Exception ex)
         {
@@ -204,8 +227,10 @@ public sealed partial class MainWindow : Window
 
     private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
     {
-        Logger.Info("Auto-show triggered by text input focus");
+        Logger.Info("═══════════════════════════════════════════════════════");
+        Logger.Info("AUTO-SHOW triggered by text input focus");
         _visibilityManager?.Show(preserveFocus: true);
+        Logger.Info("═══════════════════════════════════════════════════════");
     }
 
     #endregion
@@ -216,7 +241,7 @@ public sealed partial class MainWindow : Window
     {
         if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
         {
-            Logger.Debug("Drag region clicked (dragging handled by system via Caption region)");
+            Logger.Debug("Drag region clicked (handled by Caption region)");
         }
     }
 
@@ -226,26 +251,31 @@ public sealed partial class MainWindow : Window
 
     private void CopyButton_Click(object sender, RoutedEventArgs e)
     {
+        Logger.Info("Clipboard: Copy");
         _clipboardManager?.Copy();
     }
 
     private void CutButton_Click(object sender, RoutedEventArgs e)
     {
+        Logger.Info("Clipboard: Cut");
         _clipboardManager?.Cut();
     }
 
     private void PasteButton_Click(object sender, RoutedEventArgs e)
     {
+        Logger.Info("Clipboard: Paste");
         _clipboardManager?.Paste();
     }
 
     private void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
+        Logger.Info("Clipboard: Delete");
         _clipboardManager?.Delete();
     }
 
     private void SelectAllButton_Click(object sender, RoutedEventArgs e)
     {
+        Logger.Info("Clipboard: Select All");
         _clipboardManager?.SelectAll();
     }
 
@@ -269,6 +299,9 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            Logger.Info("═══════════════════════════════════════════════════════");
+            Logger.Info("═══ Application Exit Requested ═══");
+            
             _isClosing = true;
             
             // Cleanup through visibility manager
@@ -277,7 +310,9 @@ public sealed partial class MainWindow : Window
             // Restore window procedure
             _styleManager?.RestoreWindowProc();
             
-            Logger.Info("Application exiting");
+            Logger.Info("✅ Cleanup completed, exiting...");
+            Logger.Info("═══════════════════════════════════════════════════════");
+            
             Application.Current.Exit();
         }
         catch (Exception ex)
@@ -288,15 +323,21 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        Logger.Info("▶ MainWindow_Closed event");
+        
         if (!_isClosing)
         {
+            // Minimize to tray instead of closing
             args.Handled = true;
             _visibilityManager?.Hide();
+            Logger.Info("Window minimized to tray");
         }
         else
         {
+            // Actually closing application
             _visibilityManager?.Cleanup();
             _styleManager?.RestoreWindowProc();
+            Logger.Info("Window closed");
         }
     }
 

@@ -1,17 +1,29 @@
 using Microsoft.UI.Xaml;
 using System;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages window visibility, show/hide operations, focus restoration, and lifecycle cleanup
+/// Manages window visibility using true non-activating approach
+/// NO focus tracking, NO focus restoration - window never steals focus
 /// </summary>
 public class WindowVisibilityManager
 {
+    #region Win32 API
+
     private const int SW_HIDE = 0;
-    private const int SW_SHOWNOACTIVATE = 4;
+    private const int SW_SHOWNA = 8; // Show window without activation
+    private const int SWP_NOACTIVATE = 0x0010;
+    private const int SWP_NOZORDER = 0x0004;
+    private const int SWP_NOMOVE = 0x0002;
+    private const int SWP_NOSIZE = 0x0001;
+    private const int SWP_SHOWWINDOW = 0x0040;
+    private const int HWND_TOPMOST = -1;
+
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_EX_NOACTIVATE = 0x08000000L;
+    private const long WS_EX_TOPMOST = 0x00000008L;
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -25,24 +37,35 @@ public class WindowVisibilityManager
     [DllImport("user32.dll")]
     private static extern IntPtr GetFocus();
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetFocus(IntPtr hWnd);
-
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy,
+        uint uFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    #endregion
 
     private readonly IntPtr _windowHandle;
     private readonly Window _window;
     private readonly WindowPositionManager _positionManager;
     private readonly KeyboardStateManager _stateManager;
     private readonly LayoutManager _layoutManager;
-    private readonly FocusTracker _focusTracker;
     private readonly AutoShowManager _autoShowManager;
     private readonly FrameworkElement _rootElement;
     private readonly BackspaceRepeatHandler _backspaceHandler;
@@ -54,7 +77,6 @@ public class WindowVisibilityManager
         WindowPositionManager positionManager,
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
-        FocusTracker focusTracker,
         AutoShowManager autoShowManager,
         FrameworkElement rootElement,
         BackspaceRepeatHandler backspaceHandler = null,
@@ -65,7 +87,6 @@ public class WindowVisibilityManager
         _positionManager = positionManager;
         _stateManager = stateManager;
         _layoutManager = layoutManager;
-        _focusTracker = focusTracker;
         _autoShowManager = autoShowManager;
         _rootElement = rootElement;
         _backspaceHandler = backspaceHandler;
@@ -81,225 +102,100 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window with optional focus preservation
+    /// Show the window WITHOUT activating it (never steals focus)
     /// </summary>
     public void Show(bool preserveFocus = false)
     {
-        Logger.Info($"Show called with preserveFocus={preserveFocus}");
+        Logger.Info("═══════════════════════════════════════════════════════");
+        Logger.Info($"SHOW CALLED: preserveFocus={preserveFocus}");
+        
+        // Log focus state BEFORE show
+        LogFocusState("BEFORE SHOW");
         
         try
         {
-            if (preserveFocus)
-            {
-                ShowWithFocusPreservation();
-            }
-            else
-            {
-                ShowNormal();
-            }
+            // ✅ CRITICAL: Ensure WS_EX_NOACTIVATE is set
+            EnsureNoActivateStyle();
+            
+            // Position window first (if needed)
+            _positionManager?.PositionWindow(showWindow: false);
+            
+            // Show window using non-activating method
+            ShowWindowNonActivating();
+            
+            // Log focus state AFTER show
+            LogFocusState("AFTER SHOW");
         }
         catch (Exception ex)
         {
             Logger.Error("Failed to show window", ex);
         }
+        
+        Logger.Info("═══════════════════════════════════════════════════════");
     }
 
     /// <summary>
-    /// Show window normally - keyboard gets focus
+    /// Show window using true non-activating approach
+    /// Uses SetWindowPos with SWP_NOACTIVATE to prevent any focus stealing
     /// </summary>
-    private void ShowNormal()
+    private void ShowWindowNonActivating()
     {
-        _positionManager?.PositionWindow(showWindow: true);
-        ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
-        _window.Activate();
+        Logger.Info("▶ ShowWindowNonActivating: Starting");
         
-        // Pause focus tracking while keyboard is visible
-        _focusTracker?.PauseTracking();
+        // Method 1: SetWindowPos with SWP_NOACTIVATE + SWP_SHOWWINDOW
+        // This is the most reliable way to show window without activation
+        bool result = SetWindowPos(
+            _windowHandle,
+            new IntPtr(HWND_TOPMOST),
+            0, 0, 0, 0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+        );
         
-        Logger.Info("Window shown and activated (no focus preservation)");
-    }
-
-    /// <summary>
-    /// Show window with focus preservation - async to allow proper restoration
-    /// </summary>
-    private async void ShowWithFocusPreservation()
-    {
-        Logger.Info("ShowWithFocusPreservation started");
-
-        // STEP 1: Pause tracking IMMEDIATELY before any operations
-        // This prevents capturing focus changes during show/restore sequence
-        _focusTracker?.PauseTracking();
-
-        // STEP 2: Get tracked window and capture its focused control
-        IntPtr trackedWindow = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
-        IntPtr focusedControl = IntPtr.Zero;
-
-        Logger.Info($"Tracked window from FocusTracker: 0x{trackedWindow:X}");
-
-        if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
+        if (result)
         {
-            focusedControl = CaptureFocusedControl(trackedWindow);
-            if (focusedControl != IntPtr.Zero)
-            {
-                Logger.Debug($"Captured focused control: 0x{focusedControl:X}");
-            }
-            else
-            {
-                Logger.Debug("No focused control captured (might be at window level)");
-            }
-        }
-
-        // STEP 3: Show keyboard window (using SW_SHOWNOACTIVATE to not steal focus)
-        _positionManager?.PositionWindow(showWindow: false);
-        ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
-        Logger.Info("Keyboard window positioned and shown");
-
-        // STEP 4: Small delay to let window render
-        await Task.Delay(20);
-
-        // STEP 5: Restore focus to tracked window
-        if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
-        {
-            Logger.Info($"Restoring focus to tracked window: 0x{trackedWindow:X}");
-            
-            // Restore foreground window
-            bool restored = FocusHelper.RestoreForegroundWindow(trackedWindow);
-
-            if (restored)
-            {
-                // Additional delay for window activation to settle
-                await Task.Delay(15);
-
-                // Restore specific control focus if we captured one
-                if (focusedControl != IntPtr.Zero)
-                {
-                    RestoreControlFocus(trackedWindow, focusedControl);
-                }
-            }
-            else
-            {
-                Logger.Warning($"Failed to restore foreground to window 0x{trackedWindow:X}");
-            }
+            Logger.Info("✅ SetWindowPos succeeded - window shown without activation");
         }
         else
         {
-            Logger.Warning("No tracked window to restore focus to");
+            int error = Marshal.GetLastWin32Error();
+            Logger.Warning($"⚠ SetWindowPos failed with error {error}, trying ShowWindow fallback");
+            
+            // Fallback: ShowWindow with SW_SHOWNA
+            ShowWindow(_windowHandle, SW_SHOWNA);
+            Logger.Info("✅ ShowWindow(SW_SHOWNA) used as fallback");
         }
+        
+        // ❌ NEVER call _window.Activate() - this would steal focus!
+        Logger.Info("▶ ShowWindowNonActivating: Completed");
     }
 
     /// <summary>
-    /// Capture the currently focused control in a window
-    /// FIXED: Now tries to get focus even if AttachThreadInput fails
+    /// Ensure WS_EX_NOACTIVATE style is properly set
+    /// This is critical for preventing focus theft
     /// </summary>
-    private IntPtr CaptureFocusedControl(IntPtr targetWindow)
+    private void EnsureNoActivateStyle()
     {
-        try
+        Logger.Info("▶ EnsureNoActivateStyle: Checking extended styles");
+        
+        IntPtr exStylePtr = GetWindowLongPtr(_windowHandle, GWL_EXSTYLE);
+        long currentExStyle = exStylePtr.ToInt64();
+        
+        Logger.Info($"  Current extended style: 0x{currentExStyle:X16}");
+        Logger.Info($"  Has WS_EX_NOACTIVATE: {(currentExStyle & WS_EX_NOACTIVATE) != 0}");
+        Logger.Info($"  Has WS_EX_TOPMOST: {(currentExStyle & WS_EX_TOPMOST) != 0}");
+        
+        // Ensure both flags are set
+        long newExStyle = currentExStyle | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+        
+        if (newExStyle != currentExStyle)
         {
-            uint targetThreadId = GetWindowThreadProcessId(targetWindow, out _);
-            uint currentThreadId = GetCurrentThreadId();
-
-            bool attached = false;
-            try
-            {
-                // Try to attach thread input if different threads
-                if (targetThreadId != currentThreadId)
-                {
-                    attached = AttachThreadInput(currentThreadId, targetThreadId, true);
-                    if (!attached)
-                    {
-                        int error = Marshal.GetLastWin32Error();
-                        Logger.Debug($"AttachThreadInput failed for control capture (error {error}), trying anyway...");
-                        // ✅ FIX: Don't return Zero - try to get focus anyway
-                    }
-                }
-
-                // Try to get focused control regardless of attach result
-                IntPtr focusedControl = GetFocus();
-                
-                if (focusedControl != IntPtr.Zero)
-                {
-                    Logger.Debug($"Successfully captured focused control: 0x{focusedControl:X}");
-                }
-                else
-                {
-                    Logger.Debug("GetFocus returned null - no focused control in target window");
-                }
-                
-                return focusedControl;
-            }
-            finally
-            {
-                if (attached)
-                {
-                    AttachThreadInput(currentThreadId, targetThreadId, false);
-                }
-            }
+            Logger.Warning($"⚠ Extended style missing required flags, applying now");
+            SetWindowLongPtr(_windowHandle, GWL_EXSTYLE, (IntPtr)newExStyle);
+            Logger.Info($"  New extended style: 0x{newExStyle:X16}");
         }
-        catch (Exception ex)
+        else
         {
-            Logger.Error("Error capturing focused control", ex);
-            return IntPtr.Zero;
-        }
-    }
-
-    /// <summary>
-    /// Restore focus to a specific control within a window
-    /// FIXED: Better error handling and retry logic
-    /// </summary>
-    private void RestoreControlFocus(IntPtr targetWindow, IntPtr focusedControl)
-    {
-        try
-        {
-            uint targetThreadId = GetWindowThreadProcessId(targetWindow, out _);
-            uint currentThreadId = GetCurrentThreadId();
-
-            bool attached = false;
-            try
-            {
-                // Try to attach thread input if different threads
-                if (targetThreadId != currentThreadId)
-                {
-                    attached = AttachThreadInput(currentThreadId, targetThreadId, true);
-                    if (!attached)
-                    {
-                        int error = Marshal.GetLastWin32Error();
-                        Logger.Warning($"AttachThreadInput failed for control focus restoration (error {error})");
-                        // ✅ FIX: Try to restore focus anyway - sometimes works without attach
-                    }
-                }
-
-                // Try to restore focus to the control
-                IntPtr result = SetFocus(focusedControl);
-                
-                if (result != IntPtr.Zero)
-                {
-                    Logger.Info($"Successfully restored focus to control: 0x{focusedControl:X}");
-                }
-                else
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    Logger.Warning($"SetFocus returned null for control: 0x{focusedControl:X} (error {error})");
-                    
-                    // ✅ FIX: Try alternative approach - set focus to window itself
-                    Logger.Debug("Attempting to set focus to parent window as fallback");
-                    result = SetFocus(targetWindow);
-                    if (result != IntPtr.Zero)
-                    {
-                        Logger.Info("Successfully set focus to parent window");
-                    }
-                }
-            }
-            finally
-            {
-                if (attached)
-                {
-                    AttachThreadInput(currentThreadId, targetThreadId, false);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error restoring control focus", ex);
+            Logger.Info("✅ Extended styles are correct");
         }
     }
 
@@ -308,24 +204,33 @@ public class WindowVisibilityManager
     /// </summary>
     public void Hide()
     {
+        Logger.Info("═══════════════════════════════════════════════════════");
+        Logger.Info("HIDE CALLED");
+        
+        // Log focus state BEFORE hide
+        LogFocusState("BEFORE HIDE");
+        
         try
         {
+            // Reset all modifiers before hiding
             ResetAllModifiers();
             
+            // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
-            
-            // Resume focus tracking when keyboard is hidden
-            _focusTracker?.ResumeTracking();
+            Logger.Info("✅ Window hidden");
             
             // Notify AutoShowManager about hide (for cooldown)
             _autoShowManager?.NotifyKeyboardHidden();
             
-            Logger.Info("Window hidden to tray");
+            // Log focus state AFTER hide
+            LogFocusState("AFTER HIDE");
         }
         catch (Exception ex)
         {
             Logger.Error("Failed to hide window", ex);
         }
+        
+        Logger.Info("═══════════════════════════════════════════════════════");
     }
 
     /// <summary>
@@ -340,9 +245,61 @@ public class WindowVisibilityManager
         }
         else
         {
-            Logger.Info("Toggle: showing window with focus preservation");
+            Logger.Info("Toggle: showing window");
             Show(preserveFocus: true);
         }
+    }
+
+    /// <summary>
+    /// Log detailed focus state for debugging
+    /// </summary>
+    private void LogFocusState(string context)
+    {
+        try
+        {
+            Logger.Info($"┌─── FOCUS STATE: {context} ───");
+            
+            // Get foreground window
+            IntPtr foregroundWindow = GetForegroundWindow();
+            string foregroundTitle = GetWindowTitle(foregroundWindow);
+            uint foregroundPid;
+            uint foregroundTid = GetWindowThreadProcessId(foregroundWindow, out foregroundPid);
+            
+            Logger.Info($"│ Foreground Window: 0x{foregroundWindow:X}");
+            Logger.Info($"│   Title: '{foregroundTitle}'");
+            Logger.Info($"│   PID: {foregroundPid}, TID: {foregroundTid}");
+            Logger.Info($"│   Is Keyboard: {foregroundWindow == _windowHandle}");
+            
+            // Get focused control
+            IntPtr focusedControl = GetFocus();
+            Logger.Info($"│ Focused Control: 0x{focusedControl:X}");
+            
+            // Current thread ID
+            uint currentTid = GetCurrentThreadId();
+            Logger.Info($"│ Current Thread ID: {currentTid}");
+            
+            // Keyboard window state
+            bool isKeyboardVisible = IsWindowVisible(_windowHandle);
+            Logger.Info($"│ Keyboard Visible: {isKeyboardVisible}");
+            
+            Logger.Info($"└─────────────────────────────────────────");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Error logging focus state for {context}", ex);
+        }
+    }
+
+    /// <summary>
+    /// Get window title by handle
+    /// </summary>
+    private string GetWindowTitle(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero) return "<null>";
+        var sb = new System.Text.StringBuilder(256);
+        GetWindowText(hWnd, sb, sb.Capacity);
+        string title = sb.ToString();
+        return string.IsNullOrEmpty(title) ? "<no title>" : title;
     }
 
     /// <summary>
@@ -360,7 +317,6 @@ public class WindowVisibilityManager
             // Dispose managed resources
             _backspaceHandler?.Dispose();
             _autoShowManager?.Dispose();
-            _focusTracker?.Dispose();
             _trayIcon?.Dispose();
             
             Logger.Info("WindowVisibilityManager cleanup completed");
@@ -376,34 +332,34 @@ public class WindowVisibilityManager
     /// </summary>
     private void ResetAllModifiers()
     {
-        Logger.Info("Resetting all modifiers");
+        Logger.Info("▶ Resetting all modifiers");
         
         if (_stateManager.IsShiftActive)
         {
             _stateManager.ToggleShift();
-            Logger.Debug("Shift reset");
+            Logger.Debug("  Shift reset");
         }
         
         if (_stateManager.IsCtrlActive)
         {
             _stateManager.ToggleCtrl();
-            Logger.Debug("Ctrl reset");
+            Logger.Debug("  Ctrl reset");
         }
         
         if (_stateManager.IsAltActive)
         {
             _stateManager.ToggleAlt();
-            Logger.Debug("Alt reset");
+            Logger.Debug("  Alt reset");
         }
         
         if (_stateManager.IsCapsLockActive)
         {
             _stateManager.ToggleCapsLock();
-            Logger.Debug("Caps Lock reset");
+            Logger.Debug("  Caps Lock reset");
         }
         
         _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
         
-        Logger.Info("All modifiers reset successfully");
+        Logger.Info("✅ All modifiers reset successfully");
     }
 }
