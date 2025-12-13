@@ -29,7 +29,11 @@ namespace VirtualKeyboard
         {
             try
             {
-                if (targetWindow == IntPtr.Zero) return false;
+                if (targetWindow == IntPtr.Zero)
+                {
+                    Logger.Warning("RestoreForegroundWindow called with null handle");
+                    return false;
+                }
 
                 IntPtr currentForeground = GetForegroundWindow();
                 if (currentForeground == targetWindow)
@@ -41,7 +45,7 @@ namespace VirtualKeyboard
                 uint targetThreadId = GetWindowThreadProcessId(targetWindow, out _);
                 uint currentThreadId = GetCurrentThreadId();
 
-                // If same thread, simple SetForegroundWindow may work
+                // If same thread, simple SetForegroundWindow works
                 if (targetThreadId == currentThreadId)
                 {
                     bool ok = SetForegroundWindow(targetWindow);
@@ -49,25 +53,30 @@ namespace VirtualKeyboard
                     return ok;
                 }
 
-                // Temporarily attach input queues
+                // Attach input queues - REQUIRED for cross-thread focus
                 bool attached = AttachThreadInput(currentThreadId, targetThreadId, true);
                 if (!attached)
                 {
                     int err = Marshal.GetLastWin32Error();
-                    Logger.Warning($"AttachThreadInput failed (errno={err}). Trying SetForegroundWindow without attaching.");
-                    // fallback
-                    bool okFallback = SetForegroundWindow(targetWindow);
-                    Logger.Info($"SetForegroundWindow (fallback) returned {okFallback}");
-                    return okFallback;
+                    Logger.Error($"AttachThreadInput failed with error {err}. Cannot restore foreground to 0x{targetWindow:X}.");
+                    return false;
                 }
 
-                // Now set foreground
+                // Set foreground
                 bool result = SetForegroundWindow(targetWindow);
 
                 // Detach threads
                 AttachThreadInput(currentThreadId, targetThreadId, false);
 
-                Logger.Info($"RestoreForegroundWindow result: {result}");
+                if (result)
+                {
+                    Logger.Info($"Successfully restored foreground to window 0x{targetWindow:X}");
+                }
+                else
+                {
+                    Logger.Warning($"SetForegroundWindow returned false for window 0x{targetWindow:X}");
+                }
+
                 return result;
             }
             catch (Exception ex)

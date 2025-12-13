@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using System;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace VirtualKeyboard;
 
@@ -20,6 +21,21 @@ public class WindowVisibilityManager
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetFocus();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
     private readonly IntPtr _windowHandle;
     private readonly Window _window;
@@ -69,45 +85,204 @@ public class WindowVisibilityManager
     /// </summary>
     public void Show(bool preserveFocus = false)
     {
+        Logger.Info($"Show called with preserveFocus={preserveFocus}");
+        
         try
         {
-            IntPtr previousForegroundWindow = IntPtr.Zero;
             if (preserveFocus)
             {
-                previousForegroundWindow = GetForegroundWindow();
-            }
-
-            _positionManager?.PositionWindow(showWindow: true);
-
-            if (preserveFocus)
-            {
-                IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
-
-                if (tracked != IntPtr.Zero && tracked != _windowHandle)
-                {
-                    Logger.Info($"Restoring focus to last tracked window: 0x{tracked:X}");
-                    FocusHelper.RestoreForegroundWindow(tracked);
-                }
-                else
-                {
-                    IntPtr prev = GetForegroundWindow();
-                    if (prev != IntPtr.Zero && prev != _windowHandle)
-                    {
-                        Logger.Info($"Fallback restore to previous foreground window: 0x{prev:X}");
-                        FocusHelper.RestoreForegroundWindow(prev);
-                    }
-                }
+                ShowWithFocusPreservation();
             }
             else
             {
-                ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
-                _window.Activate();
-                Logger.Info("Window shown and activated");
+                ShowNormal();
             }
         }
         catch (Exception ex)
         {
             Logger.Error("Failed to show window", ex);
+        }
+    }
+
+    /// <summary>
+    /// Show window normally - keyboard gets focus
+    /// </summary>
+    private void ShowNormal()
+    {
+        _positionManager?.PositionWindow(showWindow: true);
+        ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
+        _window.Activate();
+        Logger.Info("Window shown and activated (no focus preservation)");
+    }
+
+    /// <summary>
+    /// Show window with focus preservation - async to allow proper restoration
+    /// </summary>
+    private async void ShowWithFocusPreservation()
+    {
+        Logger.Info("ShowWithFocusPreservation started");
+
+        // Check if inline edit is active before showing keyboard
+        if (InlineEditDetector.IsInlineEditActive(out IntPtr editControl))
+        {
+            Logger.Info("Inline edit control detected - aborting show to preserve edit state");
+            return;
+        }
+
+        IntPtr previousForegroundWindow = GetForegroundWindow();
+        IntPtr focusedControl = IntPtr.Zero;
+
+        Logger.Info($"Previous foreground window: 0x{previousForegroundWindow:X}");
+
+        // Capture focused control for later restoration
+        if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _windowHandle)
+        {
+            focusedControl = CaptureFocusedControl(previousForegroundWindow);
+        }
+
+        // Show the keyboard window
+        _positionManager?.PositionWindow(showWindow: true);
+        Logger.Info("Keyboard window positioned and shown");
+
+        // Small delay to let keyboard window render and stabilize
+        await Task.Delay(15);
+
+        // Determine target window for focus restoration
+        IntPtr targetWindow = DetermineTargetWindow(previousForegroundWindow);
+
+        if (targetWindow != IntPtr.Zero)
+        {
+            Logger.Info($"Restoring focus to window: 0x{targetWindow:X}");
+            
+            // Restore window focus
+            bool restored = FocusHelper.RestoreForegroundWindow(targetWindow);
+
+            if (restored && focusedControl != IntPtr.Zero)
+            {
+                // Restore specific control focus after window focus is restored
+                await Task.Delay(10);
+                RestoreControlFocus(targetWindow, focusedControl);
+            }
+        }
+        else
+        {
+            Logger.Warning("No target window to restore focus to");
+        }
+    }
+
+    /// <summary>
+    /// Capture the currently focused control in a window
+    /// </summary>
+    private IntPtr CaptureFocusedControl(IntPtr targetWindow)
+    {
+        try
+        {
+            uint foregroundThreadId = GetWindowThreadProcessId(targetWindow, out _);
+            uint currentThreadId = GetCurrentThreadId();
+
+            bool attached = false;
+            try
+            {
+                if (foregroundThreadId != currentThreadId)
+                {
+                    attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
+                    if (!attached)
+                    {
+                        Logger.Debug("Failed to attach thread input for control capture");
+                        return IntPtr.Zero;
+                    }
+                }
+
+                IntPtr focusedControl = GetFocus();
+                if (focusedControl != IntPtr.Zero)
+                {
+                    Logger.Debug($"Captured focused control: 0x{focusedControl:X}");
+                }
+                return focusedControl;
+            }
+            finally
+            {
+                if (attached)
+                {
+                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error capturing focused control", ex);
+            return IntPtr.Zero;
+        }
+    }
+
+    /// <summary>
+    /// Determine which window should receive focus
+    /// </summary>
+    private IntPtr DetermineTargetWindow(IntPtr previousForegroundWindow)
+    {
+        // Try tracked window first
+        IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
+        
+        if (tracked != IntPtr.Zero && tracked != _windowHandle)
+        {
+            Logger.Info($"Using tracked window: 0x{tracked:X}");
+            return tracked;
+        }
+
+        // Fallback to previous foreground
+        if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _windowHandle)
+        {
+            Logger.Info($"Using previous foreground window: 0x{previousForegroundWindow:X}");
+            return previousForegroundWindow;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Restore focus to a specific control within a window
+    /// </summary>
+    private void RestoreControlFocus(IntPtr targetWindow, IntPtr focusedControl)
+    {
+        try
+        {
+            uint targetThreadId = GetWindowThreadProcessId(targetWindow, out _);
+            uint currentThreadId = GetCurrentThreadId();
+
+            bool attached = false;
+            try
+            {
+                if (targetThreadId != currentThreadId)
+                {
+                    attached = AttachThreadInput(currentThreadId, targetThreadId, true);
+                    if (!attached)
+                    {
+                        Logger.Warning("Failed to attach thread input for control focus restoration");
+                        return;
+                    }
+                }
+
+                IntPtr result = SetFocus(focusedControl);
+                if (result != IntPtr.Zero)
+                {
+                    Logger.Info($"Successfully restored focus to control: 0x{focusedControl:X}");
+                }
+                else
+                {
+                    Logger.Debug($"SetFocus returned null for control: 0x{focusedControl:X}");
+                }
+            }
+            finally
+            {
+                if (attached)
+                {
+                    AttachThreadInput(currentThreadId, targetThreadId, false);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error restoring control focus", ex);
         }
     }
 
@@ -140,10 +315,12 @@ public class WindowVisibilityManager
     {
         if (IsVisible())
         {
+            Logger.Info("Toggle: hiding window");
             Hide();
         }
         else
         {
+            Logger.Info("Toggle: showing window with focus preservation");
             Show(preserveFocus: true);
         }
     }
@@ -184,25 +361,25 @@ public class WindowVisibilityManager
         if (_stateManager.IsShiftActive)
         {
             _stateManager.ToggleShift();
-            Logger.Info("Shift reset");
+            Logger.Debug("Shift reset");
         }
         
         if (_stateManager.IsCtrlActive)
         {
             _stateManager.ToggleCtrl();
-            Logger.Info("Ctrl reset");
+            Logger.Debug("Ctrl reset");
         }
         
         if (_stateManager.IsAltActive)
         {
             _stateManager.ToggleAlt();
-            Logger.Info("Alt reset");
+            Logger.Debug("Alt reset");
         }
         
         if (_stateManager.IsCapsLockActive)
         {
             _stateManager.ToggleCapsLock();
-            Logger.Info("Caps Lock reset");
+            Logger.Debug("Caps Lock reset");
         }
         
         _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);

@@ -172,8 +172,13 @@ public sealed partial class MainWindow : Window
         try
         {
             _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
+            
+            // Show keyboard without focus preservation (normal show from menu)
             _trayIcon.ShowRequested += (s, e) => _visibilityManager?.Show(preserveFocus: false);
+            
+            // Toggle with focus preservation
             _trayIcon.ToggleVisibilityRequested += (s, e) => _visibilityManager?.Toggle();
+            
             _trayIcon.SettingsRequested += (s, e) => _settingsDialogManager?.ShowSettingsDialog();
             _trayIcon.ExitRequested += (s, e) => ExitApplication();
             _trayIcon.Show();
@@ -204,7 +209,7 @@ public sealed partial class MainWindow : Window
     {
         if (e.GetCurrentPoint(sender as UIElement).Properties.IsLeftButtonPressed)
         {
-            Logger.Info("Drag region clicked (dragging handled by system via Caption region)");
+            Logger.Debug("Drag region clicked (dragging handled by system via Caption region)");
         }
     }
 
