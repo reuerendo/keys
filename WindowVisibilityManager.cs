@@ -126,43 +126,59 @@ public class WindowVisibilityManager
     {
         Logger.Info("ShowWithFocusPreservation started");
 
-        // CRITICAL: Capture tracked window BEFORE showing keyboard
-        // This ensures we restore to the window that was active before the tray click
+        // STEP 1: Pause tracking IMMEDIATELY before any operations
+        // This prevents capturing focus changes during show/restore sequence
+        _focusTracker?.PauseTracking();
+
+        // STEP 2: Get tracked window and capture its focused control
         IntPtr trackedWindow = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
         IntPtr focusedControl = IntPtr.Zero;
 
         Logger.Info($"Tracked window from FocusTracker: 0x{trackedWindow:X}");
 
-        // Capture focused control for later restoration
         if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
         {
             focusedControl = CaptureFocusedControl(trackedWindow);
+            if (focusedControl != IntPtr.Zero)
+            {
+                Logger.Debug($"Captured focused control: 0x{focusedControl:X}");
+            }
+            else
+            {
+                Logger.Debug("No focused control captured (might be at window level)");
+            }
         }
 
-        // Show the keyboard window
-        _positionManager?.PositionWindow(showWindow: true);
+        // STEP 3: Show keyboard window (using SW_SHOWNOACTIVATE to not steal focus)
+        _positionManager?.PositionWindow(showWindow: false);
+        ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
         Logger.Info("Keyboard window positioned and shown");
 
-        // Pause focus tracking BEFORE restoring focus
-        // This prevents FocusTracker from capturing the restoration as a new focus event
-        _focusTracker?.PauseTracking();
+        // STEP 4: Small delay to let window render
+        await Task.Delay(20);
 
-        // Small delay to let keyboard window render and stabilize
-        await Task.Delay(15);
-
-        // Restore focus to tracked window
+        // STEP 5: Restore focus to tracked window
         if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
         {
             Logger.Info($"Restoring focus to tracked window: 0x{trackedWindow:X}");
             
-            // Restore window focus
+            // Restore foreground window
             bool restored = FocusHelper.RestoreForegroundWindow(trackedWindow);
 
-            if (restored && focusedControl != IntPtr.Zero)
+            if (restored)
             {
-                // Restore specific control focus after window focus is restored
-                await Task.Delay(10);
-                RestoreControlFocus(trackedWindow, focusedControl);
+                // Additional delay for window activation to settle
+                await Task.Delay(15);
+
+                // Restore specific control focus if we captured one
+                if (focusedControl != IntPtr.Zero)
+                {
+                    RestoreControlFocus(trackedWindow, focusedControl);
+                }
+            }
+            else
+            {
+                Logger.Warning($"Failed to restore foreground to window 0x{trackedWindow:X}");
             }
         }
         else
@@ -195,10 +211,6 @@ public class WindowVisibilityManager
                 }
 
                 IntPtr focusedControl = GetFocus();
-                if (focusedControl != IntPtr.Zero)
-                {
-                    Logger.Debug($"Captured focused control: 0x{focusedControl:X}");
-                }
                 return focusedControl;
             }
             finally
@@ -246,7 +258,7 @@ public class WindowVisibilityManager
                 }
                 else
                 {
-                    Logger.Debug($"SetFocus returned null for control: 0x{focusedControl:X}");
+                    Logger.Debug($"SetFocus returned null for control: 0x{focusedControl:X} (might be OK if window-level focus is sufficient)");
                 }
             }
             finally
