@@ -84,7 +84,7 @@
 
         <!-- Keyboard Layout -->
         <ScrollViewer Grid.Row="1">
-            <StackPanel Margin="12,4,12,12" Spacing="6">
+            <StackPanel Margin="12,3,12,12" Spacing="6">
                 
                 <!-- Row 1: Numbers and special chars -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -143,7 +143,12 @@
 
                 <!-- Row 4: ZXCV row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" Width="180" Height="54" FontWeight="Medium" Background="White"/>
+                    <Button Click="KeyButton_Click" Width="180" Height="54" FontWeight="Medium" Background="White">
+						<StackPanel Orientation="Horizontal" Spacing="6">
+							<FontIcon Glyph="&#xE008;" FontSize="16" VerticalAlignment="Center"/>
+							<TextBlock Text="Shift" VerticalAlignment="Center"/>
+						</StackPanel>
+					</Button>
                     <Button Content="z" Tag="z" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="x" Tag="x" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="c" Tag="c" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
