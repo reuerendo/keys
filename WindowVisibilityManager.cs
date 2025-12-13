@@ -181,21 +181,27 @@ public class WindowVisibilityManager
         long currentExStyle = exStylePtr.ToInt64();
         
         Logger.Info($"  Current extended style: 0x{currentExStyle:X16}");
-        Logger.Info($"  Has WS_EX_NOACTIVATE: {(currentExStyle & WS_EX_NOACTIVATE) != 0}");
-        Logger.Info($"  Has WS_EX_TOPMOST: {(currentExStyle & WS_EX_TOPMOST) != 0}");
         
-        // Ensure both flags are set
-        long newExStyle = currentExStyle | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+        bool hasNoActivate = (currentExStyle & WS_EX_NOACTIVATE) != 0;
+        
+        Logger.Info($"  Has WS_EX_NOACTIVATE: {hasNoActivate}");
+        
+        // Ensure WS_EX_NOACTIVATE is set
+        long newExStyle = currentExStyle | WS_EX_NOACTIVATE;
         
         if (newExStyle != currentExStyle)
         {
-            Logger.Warning($"⚠ Extended style missing required flags, applying now");
+            Logger.Warning($"⚠ WS_EX_NOACTIVATE missing, applying now");
             SetWindowLongPtr(_windowHandle, GWL_EXSTYLE, (IntPtr)newExStyle);
             Logger.Info($"  New extended style: 0x{newExStyle:X16}");
         }
-        else
+        else if (hasNoActivate)
         {
             Logger.Info("✅ Extended styles are correct");
+        }
+        else
+        {
+            Logger.Error("❌ Failed to verify WS_EX_NOACTIVATE");
         }
     }
 

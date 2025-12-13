@@ -61,7 +61,7 @@ namespace VirtualKeyboard
         }
 
         /// <summary>
-        /// Apply WS_EX_NOACTIVATE + WS_EX_TOPMOST with verification
+        /// Apply WS_EX_NOACTIVATE (TOPMOST handled by Presenter)
         /// CRITICAL: This must be called BEFORE any window show operations
         /// </summary>
         public void ApplyNoActivateStyle()
@@ -78,10 +78,11 @@ namespace VirtualKeyboard
                 Logger.Info($"│ Current extended style: 0x{currentExStyle:X16}");
                 LogExtendedStyleFlags(currentExStyle, "BEFORE");
                 
-                // Build new style with required flags
+                // Build new style - ONLY WS_EX_NOACTIVATE
+                // NOTE: WS_EX_TOPMOST doesn't work in extended styles for WinUI3
+                // We use Presenter.IsAlwaysOnTop instead
                 long newExStyle = currentExStyle;
                 newExStyle |= WS_EX_NOACTIVATE;  // ✅ CRITICAL: Prevent activation
-                newExStyle |= WS_EX_TOPMOST;     // ✅ Keep on top
                 
                 // Apply if changed
                 if (newExStyle != currentExStyle)
@@ -130,17 +131,14 @@ namespace VirtualKeyboard
                 LogExtendedStyleFlags(actualStyle, "AFTER");
                 
                 bool hasNoActivate = (actualStyle & WS_EX_NOACTIVATE) != 0;
-                bool hasTopmost = (actualStyle & WS_EX_TOPMOST) != 0;
                 
-                if (hasNoActivate && hasTopmost)
+                if (hasNoActivate)
                 {
-                    Logger.Info("│ ✅ VERIFICATION PASSED: All required flags present");
+                    Logger.Info("│ ✅ VERIFICATION PASSED: WS_EX_NOACTIVATE is set");
                 }
                 else
                 {
-                    Logger.Error($"│ ❌ VERIFICATION FAILED: Missing flags");
-                    Logger.Error($"│    WS_EX_NOACTIVATE: {hasNoActivate}");
-                    Logger.Error($"│    WS_EX_TOPMOST: {hasTopmost}");
+                    Logger.Error($"│ ❌ VERIFICATION FAILED: WS_EX_NOACTIVATE not set");
                 }
             }
             catch (Exception ex)
@@ -156,7 +154,7 @@ namespace VirtualKeyboard
         {
             Logger.Debug($"│ Extended Style Flags ({context}):");
             Logger.Debug($"│   WS_EX_NOACTIVATE:  {((style & WS_EX_NOACTIVATE) != 0 ? "✅ SET" : "❌ NOT SET")}");
-            Logger.Debug($"│   WS_EX_TOPMOST:     {((style & WS_EX_TOPMOST) != 0 ? "✅ SET" : "❌ NOT SET")}");
+            Logger.Debug($"│   WS_EX_TOPMOST:     {((style & WS_EX_TOPMOST) != 0 ? "SET (unused)" : "not set (using Presenter.IsAlwaysOnTop)")}");
             Logger.Debug($"│   WS_EX_TOOLWINDOW:  {((style & WS_EX_TOOLWINDOW) != 0 ? "SET" : "not set")}");
         }
 
