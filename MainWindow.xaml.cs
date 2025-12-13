@@ -97,7 +97,14 @@ public sealed partial class MainWindow : Window
         
         // Initialize specialized handlers
         _backspaceHandler = new BackspaceRepeatHandler(_inputService);
-        _eventCoordinator = new KeyboardEventCoordinator(_inputService, _stateManager, _layoutManager, _longPressPopup);
+        
+        // ✅ FIX: Pass FocusTracker to KeyboardEventCoordinator
+        _eventCoordinator = new KeyboardEventCoordinator(
+            _inputService, 
+            _stateManager, 
+            _layoutManager, 
+            _longPressPopup,
+            _focusTracker);  // Add this parameter
         
         // Initialize visibility manager
         _visibilityManager = new WindowVisibilityManager(
@@ -140,7 +147,7 @@ public sealed partial class MainWindow : Window
         _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
         // Update interactive regions after UI is loaded
-        _interactiveRegionsManager.UpdateRegions();
+        _interactiveRegionsManager?.UpdateRegions();
         
         Logger.Info("MainWindow fully initialized");
     }

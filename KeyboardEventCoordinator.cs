@@ -14,6 +14,7 @@ public class KeyboardEventCoordinator
     private readonly KeyboardStateManager _stateManager;
     private readonly LayoutManager _layoutManager;
     private readonly LongPressPopup _longPressPopup;
+    private readonly FocusTracker _focusTracker;
     
     private bool _isLongPressHandled = false;
 
@@ -21,12 +22,14 @@ public class KeyboardEventCoordinator
         KeyboardInputService inputService,
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
-        LongPressPopup longPressPopup)
+        LongPressPopup longPressPopup,
+        FocusTracker focusTracker)
     {
         _inputService = inputService;
         _stateManager = stateManager;
         _layoutManager = layoutManager;
         _longPressPopup = longPressPopup;
+        _focusTracker = focusTracker;
         
         _longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
     }
@@ -170,14 +173,53 @@ public class KeyboardEventCoordinator
         Logger.Info($"Long-press character selected: '{character}'");
         _isLongPressHandled = true;
         
+        // ✅ FIX: Restore focus before sending long-press character
+        RestoreFocusToTrackedWindow();
+        
         foreach (char c in character)
         {
             _inputService.SendUnicodeChar(c);
         }
     }
 
+    /// <summary>
+    /// Restore focus to the tracked window before sending input
+    /// This prevents keyboard from stealing focus when user clicks buttons
+    /// </summary>
+    private void RestoreFocusToTrackedWindow()
+    {
+        if (_focusTracker == null)
+            return;
+
+        IntPtr trackedWindow = _focusTracker.GetLastFocusedWindow();
+        
+        if (trackedWindow == IntPtr.Zero)
+        {
+            Logger.Debug("No tracked window to restore focus to");
+            return;
+        }
+
+        bool restored = FocusHelper.RestoreForegroundWindow(trackedWindow);
+        
+        if (restored)
+        {
+            Logger.Debug($"Focus restored to 0x{trackedWindow:X} before sending input");
+        }
+        else
+        {
+            Logger.Warning($"Failed to restore focus to 0x{trackedWindow:X} before sending input");
+        }
+    }
+
     private void SendKey(string key)
     {
+        // ✅ FIX: Restore focus to tracked window BEFORE checking current foreground
+        // This ensures we send input to the correct window
+        RestoreFocusToTrackedWindow();
+
+        // Small delay to let focus restoration settle
+        System.Threading.Thread.Sleep(5);
+
         IntPtr currentForeground = _inputService.GetForegroundWindowHandle();
         string currentTitle = _inputService.GetWindowTitle(currentForeground);
 
