@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace VirtualKeyboard
 {
@@ -7,6 +8,9 @@ namespace VirtualKeyboard
     /// Tracks the last 'interesting' focused window (the one that user had focus in),
     /// using WinEvent hooks. Use GetLastFocusedWindow() when you need to restore focus
     /// after an external focus grab (e.g. click on tray).
+    /// 
+    /// Tracking is paused when keyboard is visible to prevent capturing focus changes
+    /// that happen while user is interacting with the keyboard.
     /// </summary>
     public class FocusTracker : IDisposable
     {
@@ -24,14 +28,44 @@ namespace VirtualKeyboard
 
         private IntPtr _lastInterestingWindow = IntPtr.Zero;
         private readonly IntPtr _ownHwnd;
+        
+        // Pause tracking when keyboard is visible
+        private bool _isTrackingPaused = false;
 
         public FocusTracker(IntPtr ownWindowHandle)
         {
             _ownHwnd = ownWindowHandle;
             _procDelegate = new WinEventDelegate(WinEventProc);
+            
             // Hook both focus and foreground changes
             _hook1 = SetWinEventHook(EVENT_OBJECT_FOCUS, EVENT_OBJECT_FOCUS, IntPtr.Zero, _procDelegate, 0, 0, WINEVENT_OUTOFCONTEXT);
             _hook2 = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, _procDelegate, 0, 0, WINEVENT_OUTOFCONTEXT);
+            
+            Logger.Info("FocusTracker initialized with hooks");
+        }
+
+        /// <summary>
+        /// Pause focus tracking (call when keyboard becomes visible)
+        /// </summary>
+        public void PauseTracking()
+        {
+            if (!_isTrackingPaused)
+            {
+                _isTrackingPaused = true;
+                Logger.Debug("FocusTracker: tracking paused");
+            }
+        }
+
+        /// <summary>
+        /// Resume focus tracking (call when keyboard is hidden)
+        /// </summary>
+        public void ResumeTracking()
+        {
+            if (_isTrackingPaused)
+            {
+                _isTrackingPaused = false;
+                Logger.Debug("FocusTracker: tracking resumed");
+            }
         }
 
         public IntPtr GetLastFocusedWindow()
@@ -43,28 +77,37 @@ namespace VirtualKeyboard
         {
             try
             {
-                // We only consider real window focus events (idObject == OBJID_WINDOW(0) and idChild == CHILDID_SELF(0))
+                // Skip tracking if paused (keyboard is visible)
+                if (_isTrackingPaused)
+                    return;
+
+                // Only consider real window focus events (idObject == OBJID_WINDOW(0) and idChild == CHILDID_SELF(0))
                 const long OBJID_WINDOW = 0x00000000;
                 const long CHILDID_SELF = 0x00000000;
+                
                 if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF)
                     return;
 
                 if (hwnd == IntPtr.Zero)
                     return;
 
-                // Ignore our own window (keyboard) and tray message window if desired
+                // Ignore our own window (keyboard)
                 if (hwnd == _ownHwnd)
                     return;
 
-                // Filter out shell windows (explorer/tray/taskbar) — we don't want to set them as "last interesting"
+                // Filter out shell windows (explorer/tray/taskbar)
                 if (IsShellWindow(hwnd))
                     return;
 
-                // Optionally: filter out invisible/disabled windows etc.
+                // Filter out invisible windows
                 if (!IsWindowVisible(hwnd))
                     return;
 
-                // Save as last interesting
+                // Filter out message-only windows and other non-interactive windows
+                if (!IsInteractiveWindow(hwnd))
+                    return;
+
+                // Save as last interesting window
                 _lastInterestingWindow = hwnd;
                 Logger.Debug($"FocusTracker: saved last interesting window 0x{hwnd.ToInt64():X}");
             }
@@ -76,36 +119,99 @@ namespace VirtualKeyboard
 
         private bool IsShellWindow(IntPtr hwnd)
         {
-            // Quick heuristics: check class names or process names to avoid storing Explorer/tray
-            const int length = 256;
-            var sb = new System.Text.StringBuilder(length);
-            if (GetClassName(hwnd, sb, length) > 0)
-            {
-                string cls = sb.ToString();
-                // Common shell class names: "Shell_TrayWnd", "TrayNotifyWnd", "WorkerW", "Shell_SecondaryTrayWnd"
-                if (cls.StartsWith("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase)
-                    || cls.StartsWith("TrayNotifyWnd", StringComparison.OrdinalIgnoreCase)
-                    || cls.StartsWith("WorkerW", StringComparison.OrdinalIgnoreCase)
-                    || cls.StartsWith("Shell_SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            // Also exclude the actual shell window handle returned by GetShellWindow()
-            IntPtr shell = GetShellWindow();
-            if (shell != IntPtr.Zero && shell == hwnd)
-                return true;
-
-            // Optionally check process name = explorer.exe
-            GetWindowThreadProcessId(hwnd, out uint pid);
             try
             {
-                var proc = System.Diagnostics.Process.GetProcessById((int)pid);
-                if (proc != null && string.Equals(proc.ProcessName, "explorer", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            catch { /* ignore */ }
+                // Check class names for common shell windows
+                const int length = 256;
+                var sb = new StringBuilder(length);
+                if (GetClassName(hwnd, sb, length) > 0)
+                {
+                    string cls = sb.ToString();
+                    
+                    // Common shell class names that should be ignored
+                    if (cls.StartsWith("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase) ||
+                        cls.StartsWith("TrayNotifyWnd", StringComparison.OrdinalIgnoreCase) ||
+                        cls.StartsWith("WorkerW", StringComparison.OrdinalIgnoreCase) ||
+                        cls.StartsWith("Shell_SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase) ||
+                        cls.StartsWith("Progman", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
 
-            return false;
+                // Check if it's the actual shell window
+                IntPtr shell = GetShellWindow();
+                if (shell != IntPtr.Zero && shell == hwnd)
+                    return true;
+
+                // Check if process is explorer.exe
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                try
+                {
+                    var proc = System.Diagnostics.Process.GetProcessById((int)pid);
+                    if (proc != null && string.Equals(proc.ProcessName, "explorer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Additional check: Explorer main windows are usually shell windows
+                        // but Explorer file dialogs are not
+                        var sb2 = new StringBuilder(256);
+                        if (GetClassName(hwnd, sb2, 256) > 0)
+                        {
+                            string cls2 = sb2.ToString();
+                            // CabinetWClass = File Explorer windows (these are OK to track)
+                            // ExploreWClass = older Explorer windows (these are OK to track)
+                            if (cls2 == "CabinetWClass" || cls2 == "ExploreWClass")
+                                return false;
+                        }
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // Process might have exited
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Error in IsShellWindow", ex);
+                return false;
+            }
+        }
+
+        private bool IsInteractiveWindow(IntPtr hwnd)
+        {
+            try
+            {
+                // Get window styles
+                long style = GetWindowLongPtr(hwnd, GWL_STYLE).ToInt64();
+                long exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+
+                // Filter out tool windows and other non-main windows
+                const long WS_EX_TOOLWINDOW = 0x00000080L;
+                const long WS_EX_NOACTIVATE = 0x08000000L;
+
+                if ((exStyle & WS_EX_TOOLWINDOW) != 0)
+                    return false;
+
+                if ((exStyle & WS_EX_NOACTIVATE) != 0)
+                    return false;
+
+                // Check if window has caption or is sizeable (main windows usually have these)
+                const long WS_CAPTION = 0x00C00000L;
+                const long WS_THICKFRAME = 0x00040000L;
+
+                bool hasCaption = (style & WS_CAPTION) == WS_CAPTION;
+                bool hasThickFrame = (style & WS_THICKFRAME) != 0;
+
+                // Accept windows with caption or thick frame
+                return hasCaption || hasThickFrame;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Error in IsInteractiveWindow", ex);
+                return true; // Default to true on error to be safe
+            }
         }
 
         public void Dispose()
@@ -120,9 +226,15 @@ namespace VirtualKeyboard
                 UnhookWinEvent(_hook2);
                 _hook2 = IntPtr.Zero;
             }
+            
+            Logger.Info("FocusTracker disposed");
         }
 
         #region PInvoke
+
+        private const int GWL_STYLE = -16;
+        private const int GWL_EXSTYLE = -20;
+
         [DllImport("user32.dll")]
         private static extern IntPtr SetWinEventHook(
             uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
@@ -131,8 +243,8 @@ namespace VirtualKeyboard
         [DllImport("user32.dll")]
         private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 
-        [DllImport("user32.dll")]
-        private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
         [DllImport("user32.dll")]
         private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -142,6 +254,10 @@ namespace VirtualKeyboard
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
+        private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
         #endregion
     }
 }
