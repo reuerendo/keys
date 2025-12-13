@@ -102,7 +102,9 @@
                     <Button Content="-" Tag="-" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
                     <Button Content="+" Tag="+" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
                     <Button Content="=" Tag="=" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="Backspace" Tag="Backspace" Click="KeyButton_Click" Width="120" Height="36" FontWeight="Medium" Background="White"/>
+                    <Button Tag="Backspace" Click="KeyButton_Click" Width="120" Height="36" FontWeight="Medium" Background="White" ToolTipService.ToolTip="Backspace">
+                        <FontIcon Glyph="&#xE750;" FontSize="16"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- Row 2: QWERTY row -->
@@ -138,18 +140,16 @@
                     <Button Content="l" Tag="l" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content=":" Tag=":" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content=";" Tag=";" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="Enter" Tag="Enter" Click="KeyButton_Click" Width="147" Height="54" FontWeight="Medium" Background="White"/>
+                    <Button Tag="Enter" Click="KeyButton_Click" Width="147" Height="54" FontWeight="Medium" Background="White" ToolTipService.ToolTip="Enter">
+                        <FontIcon Glyph="&#xE751;" FontSize="20"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- Row 4: ZXCV row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" 
-							Width="180" Height="54" FontWeight="Medium" Background="White">
-						<StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-							<FontIcon Glyph="&#xE72D;"/>
-							<TextBlock Text="Shift" VerticalAlignment="Center"/>
-						</StackPanel>
-					</Button>
+                    <Button Tag="Shift" Click="KeyButton_Click" Width="180" Height="54" FontWeight="Medium" Background="White" ToolTipService.ToolTip="Shift">
+                        <FontIcon Glyph="&#xE752;" FontSize="20"/>
+                    </Button>
                     <Button Content="z" Tag="z" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="x" Tag="x" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="c" Tag="c" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
