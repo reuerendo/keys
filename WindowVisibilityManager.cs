@@ -129,15 +129,17 @@ public class WindowVisibilityManager
             return;
         }
 
-        IntPtr previousForegroundWindow = GetForegroundWindow();
+        // CRITICAL: Use tracked window, not GetForegroundWindow()
+        // When clicking tray icon, foreground is already the tray message window
+        IntPtr trackedWindow = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
         IntPtr focusedControl = IntPtr.Zero;
 
-        Logger.Info($"Previous foreground window: 0x{previousForegroundWindow:X}");
+        Logger.Info($"Tracked window from FocusTracker: 0x{trackedWindow:X}");
 
         // Capture focused control for later restoration
-        if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _windowHandle)
+        if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
         {
-            focusedControl = CaptureFocusedControl(previousForegroundWindow);
+            focusedControl = CaptureFocusedControl(trackedWindow);
         }
 
         // Show the keyboard window
@@ -147,26 +149,24 @@ public class WindowVisibilityManager
         // Small delay to let keyboard window render and stabilize
         await Task.Delay(15);
 
-        // Determine target window for focus restoration
-        IntPtr targetWindow = DetermineTargetWindow(previousForegroundWindow);
-
-        if (targetWindow != IntPtr.Zero)
+        // Restore focus to tracked window
+        if (trackedWindow != IntPtr.Zero && trackedWindow != _windowHandle)
         {
-            Logger.Info($"Restoring focus to window: 0x{targetWindow:X}");
+            Logger.Info($"Restoring focus to tracked window: 0x{trackedWindow:X}");
             
             // Restore window focus
-            bool restored = FocusHelper.RestoreForegroundWindow(targetWindow);
+            bool restored = FocusHelper.RestoreForegroundWindow(trackedWindow);
 
             if (restored && focusedControl != IntPtr.Zero)
             {
                 // Restore specific control focus after window focus is restored
                 await Task.Delay(10);
-                RestoreControlFocus(targetWindow, focusedControl);
+                RestoreControlFocus(trackedWindow, focusedControl);
             }
         }
         else
         {
-            Logger.Warning("No target window to restore focus to");
+            Logger.Warning("No tracked window to restore focus to");
         }
     }
 
@@ -215,29 +215,7 @@ public class WindowVisibilityManager
         }
     }
 
-    /// <summary>
-    /// Determine which window should receive focus
-    /// </summary>
-    private IntPtr DetermineTargetWindow(IntPtr previousForegroundWindow)
-    {
-        // Try tracked window first
-        IntPtr tracked = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
-        
-        if (tracked != IntPtr.Zero && tracked != _windowHandle)
-        {
-            Logger.Info($"Using tracked window: 0x{tracked:X}");
-            return tracked;
-        }
 
-        // Fallback to previous foreground
-        if (previousForegroundWindow != IntPtr.Zero && previousForegroundWindow != _windowHandle)
-        {
-            Logger.Info($"Using previous foreground window: 0x{previousForegroundWindow:X}");
-            return previousForegroundWindow;
-        }
-
-        return IntPtr.Zero;
-    }
 
     /// <summary>
     /// Restore focus to a specific control within a window
