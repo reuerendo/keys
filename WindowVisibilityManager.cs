@@ -189,35 +189,49 @@ public class WindowVisibilityManager
 
     /// <summary>
     /// Capture the currently focused control in a window
+    /// FIXED: Now tries to get focus even if AttachThreadInput fails
     /// </summary>
     private IntPtr CaptureFocusedControl(IntPtr targetWindow)
     {
         try
         {
-            uint foregroundThreadId = GetWindowThreadProcessId(targetWindow, out _);
+            uint targetThreadId = GetWindowThreadProcessId(targetWindow, out _);
             uint currentThreadId = GetCurrentThreadId();
 
             bool attached = false;
             try
             {
-                if (foregroundThreadId != currentThreadId)
+                // Try to attach thread input if different threads
+                if (targetThreadId != currentThreadId)
                 {
-                    attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
+                    attached = AttachThreadInput(currentThreadId, targetThreadId, true);
                     if (!attached)
                     {
-                        Logger.Debug("Failed to attach thread input for control capture");
-                        return IntPtr.Zero;
+                        int error = Marshal.GetLastWin32Error();
+                        Logger.Debug($"AttachThreadInput failed for control capture (error {error}), trying anyway...");
+                        // ✅ FIX: Don't return Zero - try to get focus anyway
                     }
                 }
 
+                // Try to get focused control regardless of attach result
                 IntPtr focusedControl = GetFocus();
+                
+                if (focusedControl != IntPtr.Zero)
+                {
+                    Logger.Debug($"Successfully captured focused control: 0x{focusedControl:X}");
+                }
+                else
+                {
+                    Logger.Debug("GetFocus returned null - no focused control in target window");
+                }
+                
                 return focusedControl;
             }
             finally
             {
                 if (attached)
                 {
-                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
+                    AttachThreadInput(currentThreadId, targetThreadId, false);
                 }
             }
         }
@@ -230,6 +244,7 @@ public class WindowVisibilityManager
 
     /// <summary>
     /// Restore focus to a specific control within a window
+    /// FIXED: Better error handling and retry logic
     /// </summary>
     private void RestoreControlFocus(IntPtr targetWindow, IntPtr focusedControl)
     {
@@ -241,24 +256,37 @@ public class WindowVisibilityManager
             bool attached = false;
             try
             {
+                // Try to attach thread input if different threads
                 if (targetThreadId != currentThreadId)
                 {
                     attached = AttachThreadInput(currentThreadId, targetThreadId, true);
                     if (!attached)
                     {
-                        Logger.Warning("Failed to attach thread input for control focus restoration");
-                        return;
+                        int error = Marshal.GetLastWin32Error();
+                        Logger.Warning($"AttachThreadInput failed for control focus restoration (error {error})");
+                        // ✅ FIX: Try to restore focus anyway - sometimes works without attach
                     }
                 }
 
+                // Try to restore focus to the control
                 IntPtr result = SetFocus(focusedControl);
+                
                 if (result != IntPtr.Zero)
                 {
                     Logger.Info($"Successfully restored focus to control: 0x{focusedControl:X}");
                 }
                 else
                 {
-                    Logger.Debug($"SetFocus returned null for control: 0x{focusedControl:X} (might be OK if window-level focus is sufficient)");
+                    int error = Marshal.GetLastWin32Error();
+                    Logger.Warning($"SetFocus returned null for control: 0x{focusedControl:X} (error {error})");
+                    
+                    // ✅ FIX: Try alternative approach - set focus to window itself
+                    Logger.Debug("Attempting to set focus to parent window as fallback");
+                    result = SetFocus(targetWindow);
+                    if (result != IntPtr.Zero)
+                    {
+                        Logger.Info("Successfully set focus to parent window");
+                    }
                 }
             }
             finally
