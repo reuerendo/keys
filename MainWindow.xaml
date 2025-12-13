@@ -143,9 +143,10 @@
 
                 <!-- Row 4: ZXCV row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Click="KeyButton_Click" Width="180" Height="54" FontWeight="Medium" Background="White">
-						<StackPanel Orientation="Horizontal" Spacing="6">
-							<FontIcon Glyph="&#xE008;" FontSize="16" VerticalAlignment="Center"/>
+                    <Button Content="Shift" Tag="Shift" Click="KeyButton_Click" 
+							Width="180" Height="54" FontWeight="Medium" Background="White">
+						<StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+							<FontIcon Glyph="&#xE72D;"/>
 							<TextBlock Text="Shift" VerticalAlignment="Center"/>
 						</StackPanel>
 					</Button>
