@@ -8,6 +8,9 @@ namespace VirtualKeyboard
     /// Tracks the last 'interesting' focused window (the one that user had focus in),
     /// using WinEvent hooks. Use GetLastFocusedWindow() when you need to restore focus
     /// after an external focus grab (e.g. click on tray).
+    /// 
+    /// Tracking is paused when keyboard is visible to prevent capturing focus changes
+    /// that happen while user is interacting with the keyboard.
     /// </summary>
     public class FocusTracker : IDisposable
     {
@@ -25,6 +28,9 @@ namespace VirtualKeyboard
 
         private IntPtr _lastInterestingWindow = IntPtr.Zero;
         private readonly IntPtr _ownHwnd;
+        
+        // Pause tracking when keyboard is visible
+        private bool _isTrackingPaused = false;
 
         public FocusTracker(IntPtr ownWindowHandle)
         {
@@ -38,6 +44,30 @@ namespace VirtualKeyboard
             Logger.Info("FocusTracker initialized with hooks");
         }
 
+        /// <summary>
+        /// Pause focus tracking (call when keyboard becomes visible)
+        /// </summary>
+        public void PauseTracking()
+        {
+            if (!_isTrackingPaused)
+            {
+                _isTrackingPaused = true;
+                Logger.Debug("FocusTracker: tracking paused");
+            }
+        }
+
+        /// <summary>
+        /// Resume focus tracking (call when keyboard is hidden)
+        /// </summary>
+        public void ResumeTracking()
+        {
+            if (_isTrackingPaused)
+            {
+                _isTrackingPaused = false;
+                Logger.Debug("FocusTracker: tracking resumed");
+            }
+        }
+
         public IntPtr GetLastFocusedWindow()
         {
             return _lastInterestingWindow;
@@ -47,6 +77,10 @@ namespace VirtualKeyboard
         {
             try
             {
+                // Skip tracking if paused (keyboard is visible)
+                if (_isTrackingPaused)
+                    return;
+
                 // Only consider real window focus events (idObject == OBJID_WINDOW(0) and idChild == CHILDID_SELF(0))
                 const long OBJID_WINDOW = 0x00000000;
                 const long CHILDID_SELF = 0x00000000;

@@ -112,6 +112,10 @@ public class WindowVisibilityManager
         _positionManager?.PositionWindow(showWindow: true);
         ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
         _window.Activate();
+        
+        // Pause focus tracking while keyboard is visible
+        _focusTracker?.PauseTracking();
+        
         Logger.Info("Window shown and activated (no focus preservation)");
     }
 
@@ -122,8 +126,8 @@ public class WindowVisibilityManager
     {
         Logger.Info("ShowWithFocusPreservation started");
 
-        // CRITICAL: Use tracked window, not GetForegroundWindow()
-        // When clicking tray icon, foreground is already the tray message window
+        // CRITICAL: Capture tracked window BEFORE showing keyboard
+        // This ensures we restore to the window that was active before the tray click
         IntPtr trackedWindow = _focusTracker?.GetLastFocusedWindow() ?? IntPtr.Zero;
         IntPtr focusedControl = IntPtr.Zero;
 
@@ -138,6 +142,10 @@ public class WindowVisibilityManager
         // Show the keyboard window
         _positionManager?.PositionWindow(showWindow: true);
         Logger.Info("Keyboard window positioned and shown");
+
+        // Pause focus tracking BEFORE restoring focus
+        // This prevents FocusTracker from capturing the restoration as a new focus event
+        _focusTracker?.PauseTracking();
 
         // Small delay to let keyboard window render and stabilize
         await Task.Delay(15);
@@ -208,8 +216,6 @@ public class WindowVisibilityManager
         }
     }
 
-
-
     /// <summary>
     /// Restore focus to a specific control within a window
     /// </summary>
@@ -267,6 +273,9 @@ public class WindowVisibilityManager
             ResetAllModifiers();
             
             ShowWindow(_windowHandle, SW_HIDE);
+            
+            // Resume focus tracking when keyboard is hidden
+            _focusTracker?.ResumeTracking();
             
             // Notify AutoShowManager about hide (for cooldown)
             _autoShowManager?.NotifyKeyboardHidden();
