@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Windows.UI.Text;
 
 namespace VirtualKeyboard;
 
@@ -172,7 +173,8 @@ public class LongPressPopup
                 Tag = valueChar,
                 Width = 48,
                 Height = 48,
-                FontSize = 14
+                FontSize = 14,
+				FontWeight = FontWeights.Medium
             };
 
             btn.Click += PopupButton_Click;
