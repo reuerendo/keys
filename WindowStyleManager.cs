@@ -244,8 +244,6 @@ namespace VirtualKeyboard
 		/// Additional method: Prevent window from being activated via SetActiveWindow
 		/// This intercepts WM_MOUSEACTIVATE messages
 		/// </summary>
-		private const uint WM_MOUSEACTIVATE = 0x0021;
-		private const int MA_NOACTIVATE = 3;
 
 		// Update the WndProc method to handle WM_MOUSEACTIVATE
 		private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
