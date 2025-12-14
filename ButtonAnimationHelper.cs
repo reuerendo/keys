@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using System;
-using System.Numerics;
 
 namespace VirtualKeyboard;
 
@@ -13,54 +12,35 @@ namespace VirtualKeyboard;
 /// </summary>
 public static class ButtonAnimationHelper
 {
-    private const float PRESS_SCALE = 0.85f;
-    private const float NORMAL_SCALE = 1.0f;
-    private const int ANIMATION_DURATION_MS = 100;
+    private const double PRESS_SCALE = 0.90;
+    private const double NORMAL_SCALE = 1.0;
+    private const int ANIMATION_DURATION_MS = 80;
 
     /// <summary>
-    /// Setup press animation for a button using Composition API
+    /// Setup press animation for a button
     /// </summary>
     public static void SetupPressAnimation(Button button)
     {
         if (button == null) return;
 
+        // Ensure button has a ScaleTransform
+        if (button.RenderTransform == null || button.RenderTransform is not ScaleTransform)
+        {
+            button.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+            button.RenderTransform = new ScaleTransform
+            {
+                ScaleX = NORMAL_SCALE,
+                ScaleY = NORMAL_SCALE
+            };
+        }
+
         button.PointerPressed += Button_PointerPressed;
         button.PointerReleased += Button_PointerReleased;
         button.PointerCanceled += Button_PointerCanceled;
         button.PointerCaptureLost += Button_PointerCaptureLost;
+        button.PointerExited += Button_PointerExited;
         
-        // Ensure visual is initialized when button is loaded
-        button.Loaded += (s, e) =>
-        {
-            if (s is Button btn)
-            {
-                InitializeVisual(btn);
-            }
-        };
-    }
-
-    /// <summary>
-    /// Initialize the visual element for a button
-    /// </summary>
-    private static void InitializeVisual(Button button)
-    {
-        try
-        {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(button);
-            
-            // Set center point for scaling
-            visual.CenterPoint = new Vector3(
-                (float)button.ActualWidth / 2, 
-                (float)button.ActualHeight / 2, 
-                0);
-            
-            // Ensure scale is set to normal
-            visual.Scale = new Vector3(NORMAL_SCALE, NORMAL_SCALE, 1.0f);
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Visual initialization error: {ex.Message}");
-        }
+        Logger.Debug($"Animation setup for button: {button.Content}");
     }
 
     /// <summary>
@@ -92,6 +72,7 @@ public static class ButtonAnimationHelper
     {
         if (sender is Button button)
         {
+            Logger.Debug($"Button pressed: {button.Content}");
             AnimateScale(button, PRESS_SCALE);
         }
     }
@@ -100,6 +81,7 @@ public static class ButtonAnimationHelper
     {
         if (sender is Button button)
         {
+            Logger.Debug($"Button released: {button.Content}");
             AnimateScale(button, NORMAL_SCALE);
         }
     }
@@ -120,40 +102,59 @@ public static class ButtonAnimationHelper
         }
     }
 
+    private static void Button_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is Button button)
+        {
+            AnimateScale(button, NORMAL_SCALE);
+        }
+    }
+
     /// <summary>
-    /// Animate button scale using Composition API
+    /// Animate button scale using Storyboard
     /// </summary>
-    private static void AnimateScale(Button button, float targetScale)
+    private static void AnimateScale(Button button, double targetScale)
     {
         try
         {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(button);
-            var compositor = visual.Compositor;
+            if (button.RenderTransform is not ScaleTransform scaleTransform)
+            {
+                Logger.Warning("Button doesn't have ScaleTransform");
+                return;
+            }
 
-            // КРИТИЧЕСКИ ВАЖНО: установить центр масштабирования для визуального элемента
-            visual.CenterPoint = new Vector3(
-                (float)button.ActualWidth / 2, 
-                (float)button.ActualHeight / 2, 
-                0);
+            var storyboard = new Storyboard();
 
-            // Create scale animation
-            var scaleAnimation = compositor.CreateVector3KeyFrameAnimation();
-            scaleAnimation.Duration = TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS);
-            scaleAnimation.InsertKeyFrame(1.0f, new Vector3(targetScale, targetScale, 1.0f));
+            // Scale X animation
+            var scaleXAnimation = new DoubleAnimation
+            {
+                To = targetScale,
+                Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(scaleXAnimation, scaleTransform);
+            Storyboard.SetTargetProperty(scaleXAnimation, "ScaleX");
 
-            // Use cubic bezier easing for smooth animation
-            var easingFunction = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.25f, 0.1f), 
-                new Vector2(0.25f, 1.0f));
+            // Scale Y animation
+            var scaleYAnimation = new DoubleAnimation
+            {
+                To = targetScale,
+                Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTarget(scaleYAnimation, scaleTransform);
+            Storyboard.SetTargetProperty(scaleYAnimation, "ScaleY");
+
+            storyboard.Children.Add(scaleXAnimation);
+            storyboard.Children.Add(scaleYAnimation);
             
-            // ИСПРАВЛЕНО: правильное применение easing функции
-            scaleAnimation.SetReferenceParameter("easingFunction", easingFunction);
+            storyboard.Begin();
             
-            visual.StartAnimation("Scale", scaleAnimation);
+            Logger.Debug($"Animation started: scale to {targetScale}");
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Animation error: {ex.Message}");
+            Logger.Error($"Animation error: {ex.Message}", ex);
         }
     }
 
@@ -166,77 +167,68 @@ public static class ButtonAnimationHelper
 
         try
         {
-            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(button);
-            var compositor = visual.Compositor;
+            if (button.RenderTransform is not ScaleTransform scaleTransform)
+            {
+                button.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+                scaleTransform = new ScaleTransform();
+                button.RenderTransform = scaleTransform;
+            }
 
-            // Set center point
-            visual.CenterPoint = new Vector3(
-                (float)button.ActualWidth / 2, 
-                (float)button.ActualHeight / 2, 
-                0);
+            var storyboard = new Storyboard();
 
-            // Create bounce animation
-            var scaleAnimation = compositor.CreateVector3KeyFrameAnimation();
-            scaleAnimation.Duration = TimeSpan.FromMilliseconds(300);
-            
-            scaleAnimation.InsertKeyFrame(0.0f, new Vector3(1.0f, 1.0f, 1.0f));
-            scaleAnimation.InsertKeyFrame(0.5f, new Vector3(1.15f, 1.15f, 1.0f));
-            scaleAnimation.InsertKeyFrame(1.0f, new Vector3(1.0f, 1.0f, 1.0f));
+            // Scale X animation with bounce
+            var scaleXAnimation = new DoubleAnimationUsingKeyFrames();
+            scaleXAnimation.KeyFrames.Add(new EasingDoubleKeyFrame 
+            { 
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero), 
+                Value = 1.0 
+            });
+            scaleXAnimation.KeyFrames.Add(new EasingDoubleKeyFrame 
+            { 
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(150)), 
+                Value = 1.2,
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            });
+            scaleXAnimation.KeyFrames.Add(new EasingDoubleKeyFrame 
+            { 
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(300)), 
+                Value = 1.0,
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+            });
+            Storyboard.SetTarget(scaleXAnimation, scaleTransform);
+            Storyboard.SetTargetProperty(scaleXAnimation, "ScaleX");
 
-            var easingFunction = compositor.CreateCubicBezierEasingFunction(
-                new Vector2(0.4f, 0.0f), 
-                new Vector2(0.2f, 1.0f));
+            // Scale Y animation with bounce
+            var scaleYAnimation = new DoubleAnimationUsingKeyFrames();
+            scaleYAnimation.KeyFrames.Add(new EasingDoubleKeyFrame 
+            { 
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero), 
+                Value = 1.0 
+            });
+            scaleYAnimation.KeyFrames.Add(new EasingDoubleKeyFrame 
+            { 
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(150)), 
+                Value = 1.2,
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            });
+            scaleYAnimation.KeyFrames.Add(new EasingDoubleKeyFrame 
+            { 
+                KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(300)), 
+                Value = 1.0,
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+            });
+            Storyboard.SetTarget(scaleYAnimation, scaleTransform);
+            Storyboard.SetTargetProperty(scaleYAnimation, "ScaleY");
+
+            storyboard.Children.Add(scaleXAnimation);
+            storyboard.Children.Add(scaleYAnimation);
             
-            scaleAnimation.SetReferenceParameter("easingFunction", easingFunction);
-            
-            visual.StartAnimation("Scale", scaleAnimation);
+            storyboard.Begin();
         }
         catch (Exception ex)
         {
             Logger.Debug($"Bounce animation error: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// Create storyboard-based press animation (alternative approach)
-    /// </summary>
-    public static Storyboard CreatePressStoryboard(Button button, bool isPressed)
-    {
-        var storyboard = new Storyboard();
-        
-        // Ensure button has RenderTransform
-        if (button.RenderTransform == null || button.RenderTransform is not ScaleTransform)
-        {
-            button.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
-            button.RenderTransform = new ScaleTransform();
-        }
-        
-        // Scale X animation
-        var scaleXAnimation = new DoubleAnimation
-        {
-            To = isPressed ? PRESS_SCALE : NORMAL_SCALE,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        
-        Storyboard.SetTarget(scaleXAnimation, button);
-        Storyboard.SetTargetProperty(scaleXAnimation, "(UIElement.RenderTransform).(ScaleTransform.ScaleX)");
-        
-        // Scale Y animation
-        var scaleYAnimation = new DoubleAnimation
-        {
-            To = isPressed ? PRESS_SCALE : NORMAL_SCALE,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        
-        Storyboard.SetTarget(scaleYAnimation, button);
-        Storyboard.SetTargetProperty(scaleYAnimation, "(UIElement.RenderTransform).(ScaleTransform.ScaleY)");
-        
-        storyboard.Children.Add(scaleXAnimation);
-        storyboard.Children.Add(scaleYAnimation);
-        
-        return storyboard;
     }
 
     /// <summary>
@@ -250,5 +242,6 @@ public static class ButtonAnimationHelper
         button.PointerReleased -= Button_PointerReleased;
         button.PointerCanceled -= Button_PointerCanceled;
         button.PointerCaptureLost -= Button_PointerCaptureLost;
+        button.PointerExited -= Button_PointerExited;
     }
 }
