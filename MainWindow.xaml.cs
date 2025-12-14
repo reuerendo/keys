@@ -103,6 +103,11 @@ public sealed partial class MainWindow : Window
             _layoutManager, 
             _longPressPopup);
         
+        // Initialize auto-show manager first
+        _autoShowManager = new AutoShowManager(_thisWindowHandle);
+        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
+        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
+        
         // Initialize visibility manager (without focus tracker)
         _visibilityManager = new WindowVisibilityManager(
             _thisWindowHandle,
@@ -126,6 +131,7 @@ public sealed partial class MainWindow : Window
             _visibilityManager
         );
         
+        
         // Setup handlers
         _backspaceHandler.SetupHandlers(rootElement);
         _eventCoordinator.SetupLongPressHandlers(rootElement);
@@ -136,11 +142,6 @@ public sealed partial class MainWindow : Window
         
         // Update key labels to match current layout
         _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
-        
-        // Initialize auto-show manager
-        _autoShowManager = new AutoShowManager(_thisWindowHandle);
-        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
-        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
         
         // Update interactive regions after UI is loaded
         _interactiveRegionsManager?.UpdateRegions();
