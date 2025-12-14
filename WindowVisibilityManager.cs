@@ -52,9 +52,6 @@ public class WindowVisibilityManager
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        // Disable DWM transitions for cleaner show/hide
-        DwmHelper.DisableTransitions(_windowHandle);
-        
         Logger.Info("WindowVisibilityManager initialized (no window animations)");
     }
 
@@ -193,9 +190,6 @@ public class WindowVisibilityManager
         try
         {
             Logger.Info("WindowVisibilityManager cleanup started");
-            
-            // Re-enable DWM transitions (cleanup)
-            DwmHelper.EnableTransitions(_windowHandle);
             
             // Reset modifiers
             ResetAllModifiers();
