@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media; // Добавлено для CompositeTransform
 using System;
 using System.Threading.Tasks;
 
@@ -95,11 +96,11 @@ public sealed partial class MainWindow : Window
             // Check if we need to replace ScaleTransform with CompositeTransform
             if (rootElement.RenderTransform is not CompositeTransform)
             {
-                var existingTransform = rootElement.RenderTransform as Microsoft.UI.Xaml.Media.ScaleTransform;
+                var existingTransform = rootElement.RenderTransform as ScaleTransform;
                 double scaleX = existingTransform?.ScaleX ?? 1.0;
                 double scaleY = existingTransform?.ScaleY ?? 1.0;
                 
-                rootElement.RenderTransform = new Microsoft.UI.Xaml.Media.CompositeTransform
+                rootElement.RenderTransform = new CompositeTransform
                 {
                     ScaleX = scaleX,
                     ScaleY = scaleY
