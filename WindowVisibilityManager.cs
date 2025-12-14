@@ -9,13 +9,14 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with focus preservation and smooth animations
+/// Window visibility manager with focus preservation and smooth slide animations
 /// </summary>
 public class WindowVisibilityManager
 {
     private const int SW_HIDE = 0;
     private const int SW_SHOWNOACTIVATE = 4;
     private const int ANIMATION_DURATION_MS = 250;
+    private const double SLIDE_DISTANCE = 50; // Distance to slide in pixels
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -64,28 +65,24 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Initialize show/hide animations
+    /// Initialize show/hide animations (slide only, no fade)
     /// </summary>
     private void InitializeAnimations()
     {
         try
         {
-            // Show animation - slide up + fade in
-            _showStoryboard = new Storyboard();
-            
-            var fadeIn = new DoubleAnimation
+            // Ensure CompositeTransform exists
+            if (_rootElement.RenderTransform == null || _rootElement.RenderTransform is not CompositeTransform)
             {
-                From = 0,
-                To = 1,
-                Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            Storyboard.SetTarget(fadeIn, _rootElement);
-            Storyboard.SetTargetProperty(fadeIn, "Opacity");
+                _rootElement.RenderTransform = new CompositeTransform();
+            }
+            
+            // Show animation - slide up only
+            _showStoryboard = new Storyboard();
             
             var slideIn = new DoubleAnimation
             {
-                From = 50,
+                From = SLIDE_DISTANCE,
                 To = 0,
                 Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
@@ -93,7 +90,6 @@ public class WindowVisibilityManager
             Storyboard.SetTarget(slideIn, _rootElement);
             Storyboard.SetTargetProperty(slideIn, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
             
-            _showStoryboard.Children.Add(fadeIn);
             _showStoryboard.Children.Add(slideIn);
             
             _showStoryboard.Completed += (s, e) =>
@@ -102,44 +98,29 @@ public class WindowVisibilityManager
                 Logger.Debug("Show animation completed");
             };
             
-            // Hide animation - slide down + fade out
+            // Hide animation - slide down only
             _hideStoryboard = new Storyboard();
-            
-            var fadeOut = new DoubleAnimation
-            {
-                To = 0,
-                Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS - 50)),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-            };
-            Storyboard.SetTarget(fadeOut, _rootElement);
-            Storyboard.SetTargetProperty(fadeOut, "Opacity");
             
             var slideOut = new DoubleAnimation
             {
-                To = 30,
-                Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS - 50)),
+                From = 0,
+                To = SLIDE_DISTANCE,
+                Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
             };
             Storyboard.SetTarget(slideOut, _rootElement);
             Storyboard.SetTargetProperty(slideOut, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
             
-            _hideStoryboard.Children.Add(fadeOut);
             _hideStoryboard.Children.Add(slideOut);
             
             _hideStoryboard.Completed += (s, e) =>
             {
                 _isAnimating = false;
                 ShowWindow(_windowHandle, SW_HIDE);
-                Logger.Debug("Hide animation completed");
+                Logger.Debug("Hide animation completed, window hidden");
             };
             
-            // Setup render transform if not already present
-            if (_rootElement.RenderTransform == null || _rootElement.RenderTransform is not CompositeTransform)
-            {
-                _rootElement.RenderTransform = new CompositeTransform();
-            }
-            
-            Logger.Info("Window animations initialized");
+            Logger.Info("Window slide animations initialized");
         }
         catch (Exception ex)
         {
@@ -156,7 +137,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window with animation and preserve focus
+    /// Show the window with slide animation and preserve focus
     /// </summary>
     public async void Show(bool preserveFocus = true)
     {
@@ -178,22 +159,24 @@ public class WindowVisibilityManager
                 _focusManager.SaveForegroundWindow();
             }
 
-            // Position window
-            _positionManager?.PositionWindow(showWindow: false);
-            
-            // Reset transform for animation
+            // Set initial position for animation BEFORE showing window
             if (_rootElement.RenderTransform is CompositeTransform transform)
             {
-                transform.TranslateY = 50;
+                transform.TranslateY = SLIDE_DISTANCE;
             }
-            _rootElement.Opacity = 0;
+            
+            // Position window
+            _positionManager?.PositionWindow(showWindow: false);
             
             // Show window without activation
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
             
-            Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
+            Logger.Info($"Window shown at initial position. Current foreground: 0x{GetForegroundWindow():X}");
 
-            // Start show animation
+            // Small delay to ensure window is rendered before starting animation
+            await Task.Delay(10);
+
+            // Start slide animation
             try
             {
                 _showStoryboard.Begin();
@@ -201,7 +184,7 @@ public class WindowVisibilityManager
             catch (Exception ex)
             {
                 Logger.Error($"Animation error: {ex.Message}");
-                _rootElement.Opacity = 1;
+                // Fallback: set final position immediately
                 if (_rootElement.RenderTransform is CompositeTransform t)
                 {
                     t.TranslateY = 0;
@@ -209,10 +192,10 @@ public class WindowVisibilityManager
                 _isAnimating = false;
             }
 
-            // Restore focus after animation starts
+            // Restore focus after brief delay
             if (preserveFocus && _focusManager.HasValidSavedWindow())
             {
-                await Task.Delay(50); // Small delay for window to be fully shown
+                await Task.Delay(50);
                 
                 bool restored = await _focusManager.RestoreForegroundWindowAsync();
                 
@@ -244,7 +227,7 @@ public class WindowVisibilityManager
             return;
         }
 
-        Logger.Info("Showing window with composition animation");
+        Logger.Info("Showing window with composition slide animation");
 
         try
         {
@@ -260,29 +243,28 @@ public class WindowVisibilityManager
             var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_rootElement);
             var compositor = visual.Compositor;
 
-            // Create slide + fade animation
+            // Create slide animation only (no opacity)
             var offsetAnimation = compositor.CreateVector3KeyFrameAnimation();
             offsetAnimation.Duration = TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS);
-            offsetAnimation.InsertKeyFrame(0.0f, new Vector3(0, 50, 0));
+            offsetAnimation.InsertKeyFrame(0.0f, new Vector3(0, (float)SLIDE_DISTANCE, 0));
             offsetAnimation.InsertKeyFrame(1.0f, new Vector3(0, 0, 0));
             
-            var opacityAnimation = compositor.CreateScalarKeyFrameAnimation();
-            opacityAnimation.Duration = TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS);
-            opacityAnimation.InsertKeyFrame(0.0f, 0.0f);
-            opacityAnimation.InsertKeyFrame(1.0f, 1.0f);
-
             var easingFunction = compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0.25f, 0.1f),
                 new Vector2(0.25f, 1.0f));
             
             offsetAnimation.SetReferenceParameter("easingFunction", easingFunction);
-            opacityAnimation.SetReferenceParameter("easingFunction", easingFunction);
+
+            // Set initial offset
+            visual.Offset = new Vector3(0, (float)SLIDE_DISTANCE, 0);
 
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
 
+            // Small delay to ensure window is rendered
+            await Task.Delay(10);
+
             var batch = compositor.CreateScopedBatch(Microsoft.UI.Composition.CompositionBatchTypes.Animation);
             visual.StartAnimation("Offset", offsetAnimation);
-            visual.StartAnimation("Opacity", opacityAnimation);
             batch.End();
 
             batch.Completed += (s, e) =>
@@ -304,7 +286,8 @@ public class WindowVisibilityManager
             
             // Fallback to immediate show
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
-            _rootElement.Opacity = 1;
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_rootElement);
+            visual.Offset = new Vector3(0, 0, 0);
         }
     }
 
@@ -317,7 +300,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Hide window with animation
+    /// Hide window with slide animation
     /// </summary>
     public void Hide()
     {
@@ -337,7 +320,7 @@ public class WindowVisibilityManager
 
         try
         {
-            Logger.Info("Hiding window with animation");
+            Logger.Info("Hiding window with slide animation");
             _isAnimating = true;
             
             // Reset modifiers
@@ -345,6 +328,12 @@ public class WindowVisibilityManager
             
             // Clear saved foreground
             _focusManager.ClearSavedWindow();
+            
+            // Ensure we're at starting position before animating
+            if (_rootElement.RenderTransform is CompositeTransform transform)
+            {
+                transform.TranslateY = 0;
+            }
             
             // Start hide animation - window will be hidden in Completed event
             try
@@ -367,7 +356,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Toggle visibility with animations
+    /// Toggle visibility with slide animations
     /// </summary>
     public void Toggle()
     {
@@ -412,6 +401,12 @@ public class WindowVisibilityManager
             _showStoryboard?.Stop();
             _hideStoryboard?.Stop();
             _isAnimating = false;
+            
+            // Reset transform
+            if (_rootElement.RenderTransform is CompositeTransform transform)
+            {
+                transform.TranslateY = 0;
+            }
             
             // Reset modifiers
             ResetAllModifiers();

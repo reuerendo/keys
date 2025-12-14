@@ -13,7 +13,7 @@ namespace VirtualKeyboard;
 /// </summary>
 public static class ButtonAnimationHelper
 {
-    private const float PRESS_SCALE = 0.95f;
+    private const float PRESS_SCALE = 0.8f;
     private const float NORMAL_SCALE = 1.0f;
     private const int ANIMATION_DURATION_MS = 100;
 
