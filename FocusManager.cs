@@ -1,12 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Text;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages focus preservation when showing/hiding the keyboard window
-/// Ensures that the foreground application maintains focus while keyboard is visible
+/// Manages focus preservation with detailed diagnostics
 /// </summary>
 public class FocusManager
 {
@@ -39,7 +39,29 @@ public class FocusManager
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("psapi.dll", CharSet = CharSet.Unicode)]
+    private static extern uint GetModuleBaseName(IntPtr hProcess, IntPtr hModule, StringBuilder lpBaseName, uint nSize);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
     private const uint GW_OWNER = 4;
+    private const uint PROCESS_QUERY_INFORMATION = 0x0400;
+    private const uint PROCESS_VM_READ = 0x0010;
+    private const uint GA_ROOT = 2;
+    private const uint GA_ROOTOWNER = 3;
 
     #endregion
 
@@ -53,7 +75,43 @@ public class FocusManager
     }
 
     /// <summary>
+    /// Get detailed information about a window
+    /// </summary>
+    private string GetWindowInfo(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+            return "Invalid window";
+
+        StringBuilder title = new StringBuilder(256);
+        GetWindowText(hWnd, title, title.Capacity);
+
+        StringBuilder className = new StringBuilder(256);
+        GetClassName(hWnd, className, className.Capacity);
+
+        uint processId;
+        GetWindowThreadProcessId(hWnd, out processId);
+
+        string processName = "Unknown";
+        IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
+        if (hProcess != IntPtr.Zero)
+        {
+            StringBuilder procName = new StringBuilder(256);
+            if (GetModuleBaseName(hProcess, IntPtr.Zero, procName, (uint)procName.Capacity) > 0)
+            {
+                processName = procName.ToString();
+            }
+            CloseHandle(hProcess);
+        }
+
+        bool isVisible = IsWindowVisible(hWnd);
+        IntPtr owner = GetWindow(hWnd, GW_OWNER);
+
+        return $"HWND=0x{hWnd:X}, Title='{title}', Class='{className}', Process='{processName}' (PID={processId}), Visible={isVisible}, Owner=0x{owner:X}";
+    }
+
+    /// <summary>
     /// Save the current foreground window before showing keyboard
+    /// WITH DETAILED DIAGNOSTICS
     /// </summary>
     public void SaveForegroundWindow()
     {
@@ -61,25 +119,60 @@ public class FocusManager
         {
             IntPtr foreground = GetForegroundWindow();
             
-            // Don't save our own window as target
-            if (foreground != _keyboardWindowHandle)
+            Logger.Info("=== FOCUS SAVE DIAGNOSTICS ===");
+            Logger.Info($"Current foreground: {GetWindowInfo(foreground)}");
+            
+            // Check if it's our own window
+            if (foreground == _keyboardWindowHandle)
             {
-                _savedForegroundWindow = foreground;
-                Logger.Info($"Saved foreground window: 0x{foreground:X}");
+                Logger.Warning("Current foreground is keyboard itself!");
+                Logger.Info($"Keyboard window: {GetWindowInfo(_keyboardWindowHandle)}");
+                
+                // Try to find the real target window - maybe it's the root/owner?
+                IntPtr rootOwner = GetAncestor(foreground, GA_ROOTOWNER);
+                if (rootOwner != IntPtr.Zero && rootOwner != foreground)
+                {
+                    Logger.Info($"Root owner window: {GetWindowInfo(rootOwner)}");
+                }
+                
+                _savedForegroundWindow = IntPtr.Zero;
+                Logger.Warning("Not saving - keyboard has focus");
+                return;
+            }
+
+            // Check if foreground is valid and visible
+            if (!IsWindow(foreground) || !IsWindowVisible(foreground))
+            {
+                Logger.Warning($"Foreground window is not valid or not visible");
+                _savedForegroundWindow = IntPtr.Zero;
+                return;
+            }
+
+            // Get the root window (in case foreground is a child window)
+            IntPtr rootWindow = GetAncestor(foreground, GA_ROOT);
+            if (rootWindow != IntPtr.Zero && rootWindow != foreground)
+            {
+                Logger.Info($"Root window: {GetWindowInfo(rootWindow)}");
+                Logger.Info("Using root window instead of foreground");
+                _savedForegroundWindow = rootWindow;
             }
             else
             {
-                Logger.Warning("Current foreground is keyboard itself, not saving");
+                _savedForegroundWindow = foreground;
             }
+            
+            Logger.Info($"✓ SAVED: {GetWindowInfo(_savedForegroundWindow)}");
+            Logger.Info("=== END DIAGNOSTICS ===");
         }
     }
 
     /// <summary>
     /// Restore focus to the previously saved foreground window
-    /// Uses multiple techniques to ensure focus is restored
     /// </summary>
     public async Task<bool> RestoreForegroundWindowAsync()
     {
+        IntPtr targetWindow;
+        
         lock (_lockObject)
         {
             if (_savedForegroundWindow == IntPtr.Zero)
@@ -100,30 +193,46 @@ public class FocusManager
                 Logger.Warning("Saved window is not visible");
                 return false;
             }
+            
+            targetWindow = _savedForegroundWindow;
         }
+
+        Logger.Info("=== FOCUS RESTORE DIAGNOSTICS ===");
+        IntPtr currentBefore = GetForegroundWindow();
+        Logger.Info($"BEFORE restore - Current: {GetWindowInfo(currentBefore)}");
+        Logger.Info($"BEFORE restore - Target: {GetWindowInfo(targetWindow)}");
 
         // Try multiple methods to restore focus
         bool success = false;
 
         // Method 1: Direct SetForegroundWindow
-        success = TrySetForegroundWindow(_savedForegroundWindow);
+        success = TrySetForegroundWindow(targetWindow);
         
         if (!success)
         {
             // Method 2: Using AttachThreadInput
-            success = TrySetForegroundWindowWithThreadAttach(_savedForegroundWindow);
+            success = TrySetForegroundWindowWithThreadAttach(targetWindow);
         }
 
-        if (success)
+        IntPtr currentAfter = GetForegroundWindow();
+        Logger.Info($"AFTER restore - Current: {GetWindowInfo(currentAfter)}");
+        
+        if (success && currentAfter == targetWindow)
         {
-            Logger.Info($"Successfully restored focus to 0x{_savedForegroundWindow:X}");
+            Logger.Info($"✓ SUCCESS: Focus restored to correct window");
+        }
+        else if (success)
+        {
+            Logger.Warning($"⚠ PARTIAL: SetForegroundWindow succeeded but foreground is different window");
         }
         else
         {
-            Logger.Warning($"Failed to restore focus to 0x{_savedForegroundWindow:X}");
+            Logger.Error($"✗ FAILED: Could not restore focus");
         }
+        
+        Logger.Info("=== END RESTORE DIAGNOSTICS ===");
 
-        return success;
+        return success && currentAfter == targetWindow;
     }
 
     /// <summary>
