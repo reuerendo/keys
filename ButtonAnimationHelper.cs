@@ -34,11 +34,32 @@ public static class ButtonAnimationHelper
             };
         }
 
-        button.PointerPressed += Button_PointerPressed;
-        button.PointerReleased += Button_PointerReleased;
-        button.PointerCanceled += Button_PointerCanceled;
-        button.PointerCaptureLost += Button_PointerCaptureLost;
-        button.PointerExited += Button_PointerExited;
+        // CRITICAL: Use AddHandler with handledEventsToo = true to ensure we catch events
+        // even if they were marked as handled by other controls
+        button.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler(Button_PointerPressed),
+            handledEventsToo: true);
+        
+        button.AddHandler(
+            UIElement.PointerReleasedEvent,
+            new PointerEventHandler(Button_PointerReleased),
+            handledEventsToo: true);
+        
+        button.AddHandler(
+            UIElement.PointerCanceledEvent,
+            new PointerEventHandler(Button_PointerCanceled),
+            handledEventsToo: true);
+        
+        button.AddHandler(
+            UIElement.PointerCaptureLostEvent,
+            new PointerEventHandler(Button_PointerCaptureLost),
+            handledEventsToo: true);
+        
+        button.AddHandler(
+            UIElement.PointerExitedEvent,
+            new PointerEventHandler(Button_PointerExited),
+            handledEventsToo: true);
         
         Logger.Debug($"Animation setup for button: {button.Content}");
     }
@@ -74,6 +95,7 @@ public static class ButtonAnimationHelper
         {
             Logger.Debug($"Button pressed: {button.Content}");
             AnimateScale(button, PRESS_SCALE);
+            // Don't mark as handled - let other handlers process it too
         }
     }
 
@@ -238,10 +260,10 @@ public static class ButtonAnimationHelper
     {
         if (button == null) return;
 
-        button.PointerPressed -= Button_PointerPressed;
-        button.PointerReleased -= Button_PointerReleased;
-        button.PointerCanceled -= Button_PointerCanceled;
-        button.PointerCaptureLost -= Button_PointerCaptureLost;
-        button.PointerExited -= Button_PointerExited;
+        button.RemoveHandler(UIElement.PointerPressedEvent, (PointerEventHandler)Button_PointerPressed);
+        button.RemoveHandler(UIElement.PointerReleasedEvent, (PointerEventHandler)Button_PointerReleased);
+        button.RemoveHandler(UIElement.PointerCanceledEvent, (PointerEventHandler)Button_PointerCanceled);
+        button.RemoveHandler(UIElement.PointerCaptureLostEvent, (PointerEventHandler)Button_PointerCaptureLost);
+        button.RemoveHandler(UIElement.PointerExitedEvent, (PointerEventHandler)Button_PointerExited);
     }
 }
