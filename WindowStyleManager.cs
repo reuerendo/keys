@@ -21,6 +21,10 @@ namespace VirtualKeyboard
         private const long WS_EX_NOACTIVATE = 0x08000000L;
         private const long WS_EX_TOPMOST = 0x00000008L;
         private const long WS_EX_NOREDIRECTIONBITMAP = 0x00200000L;
+		
+		private const uint WM_MOUSEACTIVATE = 0x0021;
+		private const int MA_NOACTIVATE = 3;
+		private const long WS_EX_TOOLWINDOW = 0x00000080L;
 
         // Window Messages
         private const uint WM_NCLBUTTONDBLCLK = 0x00A3;
@@ -57,28 +61,29 @@ namespace VirtualKeyboard
         /// <summary>
         /// Apply WS_EX_NOACTIVATE + WS_EX_TOPMOST to prevent window from stealing focus
         /// </summary>
-        public void ApplyNoActivateStyle()
-        {
-            try
-            {
-                IntPtr exStylePtr = GetWindowLongPtr(_hwnd, GWL_EXSTYLE);
-                long exStyle = exStylePtr.ToInt64();
+		public void ApplyNoActivateStyle()
+		{
+			try
+			{
+				IntPtr exStylePtr = GetWindowLongPtr(_hwnd, GWL_EXSTYLE);
+				long exStyle = exStylePtr.ToInt64();
 
-                long newFlags = exStyle;
-                newFlags |= WS_EX_NOACTIVATE;
-                newFlags |= WS_EX_TOPMOST;
+				long newFlags = exStyle;
+				newFlags |= WS_EX_NOACTIVATE;
+				newFlags |= WS_EX_TOPMOST;
+				newFlags |= WS_EX_TOOLWINDOW; // Prevents taskbar button and helps with activation
 
-                if (newFlags != exStyle)
-                {
-                    SetWindowLongPtr(_hwnd, GWL_EXSTYLE, (IntPtr)newFlags);
-                    Logger.Info($"Applied extended window styles: 0x{newFlags:X}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Failed to apply window style", ex);
-            }
-        }
+				if (newFlags != exStyle)
+				{
+					SetWindowLongPtr(_hwnd, GWL_EXSTYLE, (IntPtr)newFlags);
+					Logger.Info($"Applied extended window styles: 0x{newFlags:X}");
+				}
+			}
+			catch (Exception ex)
+			{
+				Logger.Error("Failed to apply window style", ex);
+			}
+		}
 
         /// <summary>
         /// Remove minimize and maximize buttons from the window
@@ -148,21 +153,124 @@ namespace VirtualKeyboard
         /// <summary>
         /// Custom window procedure to block double-click on title bar
         /// </summary>
-        private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
-        {
-            if (msg == WM_NCLBUTTONDBLCLK && wParam.ToInt32() == HTCAPTION)
-            {
-                Logger.Info("Blocked double-click on title bar (would cause maximize)");
-                return IntPtr.Zero;
-            }
+		private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+		{
+			// Prevent activation on mouse click
+			if (msg == WM_MOUSEACTIVATE)
+			{
+				Logger.Debug("WM_MOUSEACTIVATE intercepted - returning MA_NOACTIVATE");
+				return new IntPtr(MA_NOACTIVATE);
+			}
 
-            if (_oldWndProc != IntPtr.Zero)
-            {
-                return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
-            }
+			// Block double-click on title bar
+			if (msg == WM_NCLBUTTONDBLCLK && wParam.ToInt32() == HTCAPTION)
+			{
+				Logger.Info("Blocked double-click on title bar");
+				return IntPtr.Zero;
+			}
 
-            return IntPtr.Zero;
-        }
+			if (_oldWndProc != IntPtr.Zero)
+			{
+				return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+			}
+
+			return IntPtr.Zero;
+		}
+
+		/// <summary>
+		/// Apply comprehensive no-activate styles to prevent focus stealing
+		/// Call this method periodically to ensure styles remain applied
+		/// </summary>
+		public void EnforceNoActivateStyle()
+		{
+			try
+			{
+				IntPtr exStylePtr = GetWindowLongPtr(_hwnd, GWL_EXSTYLE);
+				long exStyle = exStylePtr.ToInt64();
+
+				// Apply all relevant extended styles
+				long newFlags = exStyle;
+				newFlags |= WS_EX_NOACTIVATE;  // Don't activate on click
+				newFlags |= WS_EX_TOPMOST;     // Stay on top
+				newFlags |= 0x00000080L;       // WS_EX_TOOLWINDOW - prevents taskbar button
+
+				if (newFlags != exStyle)
+				{
+					IntPtr result = SetWindowLongPtr(_hwnd, GWL_EXSTYLE, (IntPtr)newFlags);
+					
+					if (result != IntPtr.Zero)
+					{
+						Logger.Info($"Enforced extended window styles: 0x{newFlags:X}");
+					}
+					else
+					{
+						int error = Marshal.GetLastWin32Error();
+						Logger.Warning($"Failed to enforce styles. Error: {error}");
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				Logger.Error("Failed to enforce no-activate style", ex);
+			}
+		}
+
+		/// <summary>
+		/// Verify that no-activate styles are still applied
+		/// Returns true if styles are correct, false otherwise
+		/// </summary>
+		public bool VerifyNoActivateStyle()
+		{
+			try
+			{
+				IntPtr exStylePtr = GetWindowLongPtr(_hwnd, GWL_EXSTYLE);
+				long exStyle = exStylePtr.ToInt64();
+
+				bool hasNoActivate = (exStyle & WS_EX_NOACTIVATE) != 0;
+				bool hasTopmost = (exStyle & WS_EX_TOPMOST) != 0;
+
+				Logger.Debug($"Style check - NoActivate: {hasNoActivate}, Topmost: {hasTopmost}");
+
+				return hasNoActivate && hasTopmost;
+			}
+			catch (Exception ex)
+			{
+				Logger.Error("Failed to verify no-activate style", ex);
+				return false;
+			}
+		}
+
+		/// <summary>
+		/// Additional method: Prevent window from being activated via SetActiveWindow
+		/// This intercepts WM_MOUSEACTIVATE messages
+		/// </summary>
+		private const uint WM_MOUSEACTIVATE = 0x0021;
+		private const int MA_NOACTIVATE = 3;
+
+		// Update the WndProc method to handle WM_MOUSEACTIVATE
+		private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+		{
+			// Prevent activation on mouse click
+			if (msg == WM_MOUSEACTIVATE)
+			{
+				Logger.Debug("WM_MOUSEACTIVATE intercepted - returning MA_NOACTIVATE");
+				return new IntPtr(MA_NOACTIVATE);
+			}
+
+			// Block double-click on title bar
+			if (msg == WM_NCLBUTTONDBLCLK && wParam.ToInt32() == HTCAPTION)
+			{
+				Logger.Info("Blocked double-click on title bar");
+				return IntPtr.Zero;
+			}
+
+			if (_oldWndProc != IntPtr.Zero)
+			{
+				return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
+			}
+
+			return IntPtr.Zero;
+		}
 
         /// <summary>
         /// Configure custom title bar with close button visible

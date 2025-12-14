@@ -1,11 +1,13 @@
 using Microsoft.UI.Xaml;
 using System;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Simplified window visibility manager - shows/hides keyboard without focus management
+/// Window visibility manager with focus preservation
+/// Ensures foreground application maintains focus when keyboard is shown
 /// </summary>
 public class WindowVisibilityManager
 {
@@ -30,6 +32,7 @@ public class WindowVisibilityManager
     private readonly FrameworkElement _rootElement;
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
+    private readonly FocusManager _focusManager;
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -51,6 +54,7 @@ public class WindowVisibilityManager
         _rootElement = rootElement;
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
+        _focusManager = new FocusManager(windowHandle);
     }
 
     /// <summary>
@@ -62,15 +66,21 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window
-    /// preserveFocus parameter is kept for compatibility but no longer used
+    /// Show the window and preserve focus on foreground application
     /// </summary>
-    public void Show(bool preserveFocus = false)
+    /// <param name="preserveFocus">If true, attempts to maintain focus on current foreground window</param>
+    public async void Show(bool preserveFocus = true)
     {
-        Logger.Info($"Show called (preserveFocus parameter ignored)");
+        Logger.Info($"Show called with preserveFocus={preserveFocus}");
         
         try
         {
+            // Save current foreground window before showing keyboard
+            if (preserveFocus)
+            {
+                _focusManager.SaveForegroundWindow();
+            }
+
             // Position window
             _positionManager?.PositionWindow(showWindow: false);
             
@@ -78,11 +88,37 @@ public class WindowVisibilityManager
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
             
             Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
+
+            // Restore focus to the saved window
+            if (preserveFocus && _focusManager.HasValidSavedWindow())
+            {
+                // Small delay to ensure window is fully shown
+                await Task.Delay(10);
+                
+                bool restored = await _focusManager.RestoreForegroundWindowAsync();
+                
+                if (restored)
+                {
+                    Logger.Info("Focus successfully preserved on foreground application");
+                }
+                else
+                {
+                    Logger.Warning("Could not preserve focus - user may need to click target application");
+                }
+            }
         }
         catch (Exception ex)
         {
             Logger.Error("Failed to show window", ex);
         }
+    }
+
+    /// <summary>
+    /// Show the window synchronously (for compatibility)
+    /// </summary>
+    public void ShowSync(bool preserveFocus = true)
+    {
+        Show(preserveFocus);
     }
 
     /// <summary>
@@ -94,6 +130,9 @@ public class WindowVisibilityManager
         {
             // Reset all modifiers before hiding
             ResetAllModifiers();
+            
+            // Clear saved foreground window
+            _focusManager.ClearSavedWindow();
             
             // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
@@ -110,7 +149,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Toggle window visibility
+    /// Toggle window visibility with focus preservation
     /// </summary>
     public void Toggle()
     {
@@ -121,9 +160,26 @@ public class WindowVisibilityManager
         }
         else
         {
-            Logger.Info("Toggle: showing window");
-            Show(preserveFocus: false);
+            Logger.Info("Toggle: showing window with focus preservation");
+            Show(preserveFocus: true);
         }
+    }
+
+    /// <summary>
+    /// Force restore focus to saved foreground window
+    /// Useful when keyboard window accidentally gets focus
+    /// </summary>
+    public async Task<bool> RestoreFocusAsync()
+    {
+        return await _focusManager.RestoreForegroundWindowAsync();
+    }
+
+    /// <summary>
+    /// Check if keyboard currently has focus (shouldn't happen normally)
+    /// </summary>
+    public bool HasFocus()
+    {
+        return _focusManager.IsKeyboardFocused();
     }
 
     /// <summary>
@@ -137,6 +193,9 @@ public class WindowVisibilityManager
             
             // Reset all modifiers before closing
             ResetAllModifiers();
+            
+            // Clear saved window
+            _focusManager.ClearSavedWindow();
             
             // Dispose managed resources
             _backspaceHandler?.Dispose();

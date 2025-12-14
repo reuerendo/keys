@@ -154,46 +154,71 @@ public sealed partial class MainWindow : Window
         _interactiveRegionsManager?.UpdateRegions();
     }
 
-    private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
-    {
-        _styleManager.ApplyNoActivateStyle();
-        _styleManager.RemoveMinMaxButtons();
-        
-        if (!_isInitialPositionSet && e.WindowActivationState != WindowActivationState.Deactivated)
-        {
-            _isInitialPositionSet = true;
-            _positionManager?.PositionWindow();
-            Logger.Info("Initial window position set");
-        }
-    }
+	private async void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
+	{
+		_styleManager.ApplyNoActivateStyle();
+		_styleManager.RemoveMinMaxButtons();
+		
+		// Handle initial position
+		if (!_isInitialPositionSet && e.WindowActivationState != WindowActivationState.Deactivated)
+		{
+			_isInitialPositionSet = true;
+			_positionManager?.PositionWindow();
+			Logger.Info("Initial window position set");
+			return; // Don't restore focus on initial setup
+		}
+
+		// If window gets activated (shouldn't happen with WS_EX_NOACTIVATE, but just in case)
+		if (e.WindowActivationState == WindowActivationState.CodeActivated || 
+			e.WindowActivationState == WindowActivationState.PointerActivated)
+		{
+			Logger.Warning($"Window was activated: {e.WindowActivationState}");
+			
+			// Immediately restore focus to the foreground application
+			if (_visibilityManager != null)
+			{
+				await Task.Delay(10); // Small delay to ensure activation is complete
+				bool restored = await _visibilityManager.RestoreFocusAsync();
+				
+				if (restored)
+				{
+					Logger.Info("Focus restored after unwanted activation");
+				}
+				else
+				{
+					Logger.Warning("Failed to restore focus after activation");
+				}
+			}
+		}
+	}
 
     #endregion
 
     #region Tray Icon
 
-    private void InitializeTrayIcon()
-    {
-        try
-        {
-            _trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
-            
-            // Show keyboard without focus preservation (normal show from menu)
-            _trayIcon.ShowRequested += (s, e) => _visibilityManager?.Show(preserveFocus: false);
-            
-            // Toggle with focus preservation
-            _trayIcon.ToggleVisibilityRequested += (s, e) => _visibilityManager?.Toggle();
-            
-            _trayIcon.SettingsRequested += (s, e) => _settingsDialogManager?.ShowSettingsDialog();
-            _trayIcon.ExitRequested += (s, e) => ExitApplication();
-            _trayIcon.Show();
-            
-            Logger.Info("Tray icon initialized and shown");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to initialize tray icon", ex);
-        }
-    }
+	private void InitializeTrayIcon()
+	{
+		try
+		{
+			_trayIcon = new TrayIcon(_thisWindowHandle, "Virtual Keyboard");
+			
+			// Show with focus preservation
+			_trayIcon.ShowRequested += (s, e) => _visibilityManager?.Show(preserveFocus: true);
+			
+			// Toggle with focus preservation
+			_trayIcon.ToggleVisibilityRequested += (s, e) => _visibilityManager?.Toggle();
+			
+			_trayIcon.SettingsRequested += (s, e) => _settingsDialogManager?.ShowSettingsDialog();
+			_trayIcon.ExitRequested += (s, e) => ExitApplication();
+			_trayIcon.Show();
+			
+			Logger.Info("Tray icon initialized");
+		}
+		catch (Exception ex)
+		{
+			Logger.Error("Failed to initialize tray icon", ex);
+		}
+	}
 
     #endregion
 
@@ -250,13 +275,20 @@ public sealed partial class MainWindow : Window
 
     #region Key Button Click Handler
 
-    private void KeyButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button || button.Tag is not string keyCode)
-            return;
+	private async void KeyButton_Click(object sender, RoutedEventArgs e)
+	{
+		if (sender is not Button button || button.Tag is not string keyCode)
+			return;
 
-        _eventCoordinator?.HandleKeyButtonClick(keyCode, this.Content as FrameworkElement);
-    }
+		_eventCoordinator?.HandleKeyButtonClick(keyCode, this.Content as FrameworkElement);
+		
+		// After handling the key, check if we accidentally took focus and restore it
+		if (_visibilityManager?.HasFocus() == true)
+		{
+			Logger.Debug("Keyboard has focus after key click, restoring...");
+			await _visibilityManager.RestoreFocusAsync();
+		}
+	}
 
     #endregion
 

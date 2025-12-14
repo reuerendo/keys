@@ -223,11 +223,11 @@ public class TrayIcon : IDisposable
     /// <summary>
     /// Handle left click on tray icon - toggle visibility
     /// </summary>
-    private void OnLeftClick()
-    {
-        Logger.Debug("Tray icon left click - toggling visibility");
-        ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty);
-    }
+	private void OnLeftClick()
+	{
+		Logger.Debug("Tray icon left click - toggling with focus preservation");
+		ToggleVisibilityRequested?.Invoke(this, EventArgs.Empty);
+	}
 
     /// <summary>
     /// Handle right click on tray icon - show context menu
@@ -269,10 +269,10 @@ public class TrayIcon : IDisposable
     {
         switch (cmd)
         {
-            case MENU_SHOW:
-                Logger.Info("Tray menu: Show requested");
-                ShowRequested?.Invoke(this, EventArgs.Empty);
-                break;
+			case MENU_SHOW:
+				Logger.Info("Tray menu: Show requested with focus preservation");
+				ShowRequested?.Invoke(this, EventArgs.Empty);
+				break;
             case MENU_SETTINGS:
                 Logger.Info("Tray menu: Settings requested");
                 SettingsRequested?.Invoke(this, EventArgs.Empty);
