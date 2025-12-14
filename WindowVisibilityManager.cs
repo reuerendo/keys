@@ -329,6 +329,12 @@ public class WindowVisibilityManager
             return;
         }
 
+        if (!IsVisible())
+        {
+            Logger.Debug("Window already hidden");
+            return;
+        }
+
         try
         {
             Logger.Info("Hiding window with animation");
@@ -340,7 +346,7 @@ public class WindowVisibilityManager
             // Clear saved foreground
             _focusManager.ClearSavedWindow();
             
-            // Start hide animation
+            // Start hide animation - window will be hidden in Completed event
             try
             {
                 _hideStoryboard.Begin();
@@ -355,6 +361,7 @@ public class WindowVisibilityManager
         catch (Exception ex)
         {
             Logger.Error("Failed to hide window", ex);
+            ShowWindow(_windowHandle, SW_HIDE);
             _isAnimating = false;
         }
     }

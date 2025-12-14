@@ -112,21 +112,33 @@ public class WindowPositionManager
                 rootElement.HorizontalAlignment = HorizontalAlignment.Left;
                 rootElement.VerticalAlignment = VerticalAlignment.Top;
 
-                if (rootElement is Grid rootGrid && rootGrid.RenderTransform is ScaleTransform scaleTransform)
+                // Use CompositeTransform for compatibility with animations
+                if (rootElement.RenderTransform is CompositeTransform compositeTransform)
                 {
-                    scaleTransform.ScaleX = userScale;
-                    scaleTransform.ScaleY = userScale;
-                    Logger.Info($"Applied ScaleTransform to existing transform: {userScale}x");
+                    compositeTransform.ScaleX = userScale;
+                    compositeTransform.ScaleY = userScale;
+                    Logger.Info($"Applied scale to existing CompositeTransform: {userScale}x");
+                }
+                else if (rootElement.RenderTransform is ScaleTransform scaleTransform)
+                {
+                    // Replace ScaleTransform with CompositeTransform for animation compatibility
+                    rootElement.RenderTransform = new CompositeTransform
+                    {
+                        ScaleX = userScale,
+                        ScaleY = userScale
+                    };
+                    Logger.Info($"Replaced ScaleTransform with CompositeTransform: {userScale}x");
                 }
                 else
                 {
-                    var transform = new ScaleTransform
+                    // Create new CompositeTransform
+                    var transform = new CompositeTransform
                     {
                         ScaleX = userScale,
                         ScaleY = userScale
                     };
                     rootElement.RenderTransform = transform;
-                    Logger.Info($"Created and applied new ScaleTransform: {userScale}x");
+                    Logger.Info($"Created new CompositeTransform: {userScale}x");
                 }
             }
         }
