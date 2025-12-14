@@ -13,7 +13,7 @@ namespace VirtualKeyboard;
 /// </summary>
 public static class ButtonAnimationHelper
 {
-    private const float PRESS_SCALE = 0.8f;
+    private const float PRESS_SCALE = 0.85f;
     private const float NORMAL_SCALE = 1.0f;
     private const int ANIMATION_DURATION_MS = 100;
 
@@ -24,23 +24,43 @@ public static class ButtonAnimationHelper
     {
         if (button == null) return;
 
-        // Enable translation for animations
-        button.Translation = new Vector3(0, 0, 0);
-        button.CenterPoint = new Vector3((float)button.ActualWidth / 2, (float)button.ActualHeight / 2, 0);
-
         button.PointerPressed += Button_PointerPressed;
         button.PointerReleased += Button_PointerReleased;
         button.PointerCanceled += Button_PointerCanceled;
         button.PointerCaptureLost += Button_PointerCaptureLost;
         
-        // Update center point when size changes
-        button.SizeChanged += (s, e) =>
+        // Ensure visual is initialized when button is loaded
+        button.Loaded += (s, e) =>
         {
             if (s is Button btn)
             {
-                btn.CenterPoint = new Vector3((float)btn.ActualWidth / 2, (float)btn.ActualHeight / 2, 0);
+                InitializeVisual(btn);
             }
         };
+    }
+
+    /// <summary>
+    /// Initialize the visual element for a button
+    /// </summary>
+    private static void InitializeVisual(Button button)
+    {
+        try
+        {
+            var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(button);
+            
+            // Set center point for scaling
+            visual.CenterPoint = new Vector3(
+                (float)button.ActualWidth / 2, 
+                (float)button.ActualHeight / 2, 
+                0);
+            
+            // Ensure scale is set to normal
+            visual.Scale = new Vector3(NORMAL_SCALE, NORMAL_SCALE, 1.0f);
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Visual initialization error: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -110,6 +130,12 @@ public static class ButtonAnimationHelper
             var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(button);
             var compositor = visual.Compositor;
 
+            // КРИТИЧЕСКИ ВАЖНО: установить центр масштабирования для визуального элемента
+            visual.CenterPoint = new Vector3(
+                (float)button.ActualWidth / 2, 
+                (float)button.ActualHeight / 2, 
+                0);
+
             // Create scale animation
             var scaleAnimation = compositor.CreateVector3KeyFrameAnimation();
             scaleAnimation.Duration = TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS);
@@ -119,7 +145,9 @@ public static class ButtonAnimationHelper
             var easingFunction = compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0.25f, 0.1f), 
                 new Vector2(0.25f, 1.0f));
-            scaleAnimation.SetScalarParameter("easingFunction", 0);
+            
+            // ИСПРАВЛЕНО: правильное применение easing функции
+            scaleAnimation.SetReferenceParameter("easingFunction", easingFunction);
             
             visual.StartAnimation("Scale", scaleAnimation);
         }
@@ -141,17 +169,25 @@ public static class ButtonAnimationHelper
             var visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(button);
             var compositor = visual.Compositor;
 
+            // Set center point
+            visual.CenterPoint = new Vector3(
+                (float)button.ActualWidth / 2, 
+                (float)button.ActualHeight / 2, 
+                0);
+
             // Create bounce animation
             var scaleAnimation = compositor.CreateVector3KeyFrameAnimation();
             scaleAnimation.Duration = TimeSpan.FromMilliseconds(300);
             
             scaleAnimation.InsertKeyFrame(0.0f, new Vector3(1.0f, 1.0f, 1.0f));
-            scaleAnimation.InsertKeyFrame(0.5f, new Vector3(1.1f, 1.1f, 1.0f));
+            scaleAnimation.InsertKeyFrame(0.5f, new Vector3(1.15f, 1.15f, 1.0f));
             scaleAnimation.InsertKeyFrame(1.0f, new Vector3(1.0f, 1.0f, 1.0f));
 
             var easingFunction = compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0.4f, 0.0f), 
                 new Vector2(0.2f, 1.0f));
+            
+            scaleAnimation.SetReferenceParameter("easingFunction", easingFunction);
             
             visual.StartAnimation("Scale", scaleAnimation);
         }
@@ -167,6 +203,13 @@ public static class ButtonAnimationHelper
     public static Storyboard CreatePressStoryboard(Button button, bool isPressed)
     {
         var storyboard = new Storyboard();
+        
+        // Ensure button has RenderTransform
+        if (button.RenderTransform == null || button.RenderTransform is not ScaleTransform)
+        {
+            button.RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5);
+            button.RenderTransform = new ScaleTransform();
+        }
         
         // Scale X animation
         var scaleXAnimation = new DoubleAnimation
