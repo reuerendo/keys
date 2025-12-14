@@ -80,6 +80,9 @@ public sealed partial class MainWindow : Window
         this.Activated += MainWindow_Activated;
         this.Closed += MainWindow_Closed;
 
+        // Disable DWM transitions early to prevent any system animations
+        DwmHelper.DisableTransitions(_thisWindowHandle);
+        
         Logger.Info($"Log file location: {Logger.GetLogFilePath()}");
         Logger.Info("=== MainWindow Constructor Completed ===");
     }

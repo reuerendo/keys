@@ -8,17 +8,30 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with focus preservation and smooth slide animations using Composition API
+/// Window visibility manager with focus preservation and smooth slide animations
+/// Uses SetWindowPos instead of ShowWindow to avoid system animations
 /// </summary>
 public class WindowVisibilityManager
 {
-    private const int SW_HIDE = 0;
-    private const int SW_SHOWNOACTIVATE = 4;
+    // SetWindowPos flags
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_HIDEWINDOW = 0x0080;
+    private const uint SWP_NOOWNERZORDER = 0x0200;
+    
     private const int ANIMATION_DURATION_MS = 250;
-    private const float SLIDE_DISTANCE = 50f; // Distance to slide in pixels
+    private const float SLIDE_DISTANCE = 50f;
 
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int X, int Y,
+        int cx, int cy,
+        uint uFlags);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
@@ -61,10 +74,39 @@ public class WindowVisibilityManager
         _focusManager = new FocusManager(windowHandle);
         
         InitializeComposition();
+        DisableSystemAnimations();
     }
 
     /// <summary>
-    /// Initialize Composition API
+    /// Disable Windows DWM system animations for this window
+    /// </summary>
+    private void DisableSystemAnimations()
+    {
+        try
+        {
+            bool success = DwmHelper.DisableTransitions(_windowHandle);
+            
+            if (success)
+            {
+                Logger.Info("System window transitions disabled via DWM");
+            }
+            else
+            {
+                Logger.Warning("Could not disable DWM transitions (may not work on Windows 11)");
+            }
+
+            // Verify the setting
+            bool disabled = DwmHelper.AreTransitionsDisabled(_windowHandle);
+            Logger.Info($"DWM transitions disabled state: {disabled}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to disable system animations", ex);
+        }
+    }
+
+    /// <summary>
+    /// Initialize Composition API for custom animations
     /// </summary>
     private void InitializeComposition()
     {
@@ -73,13 +115,13 @@ public class WindowVisibilityManager
             _visual = Microsoft.UI.Xaml.Hosting.ElementCompositionPreview.GetElementVisual(_rootElement);
             _compositor = _visual.Compositor;
             
-            // Ensure opacity is always 1 (no fade animations)
+            // Force opacity to 1.0 - no fade effects
             _visual.Opacity = 1.0f;
             
             // Set initial offset to 0
             _visual.Offset = new Vector3(0, 0, 0);
             
-            Logger.Info("Composition API initialized for window animations");
+            Logger.Info("Composition API initialized (no fade, slide only)");
         }
         catch (Exception ex)
         {
@@ -96,13 +138,13 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window with slide animation and preserve focus
+    /// Show the window with slide animation using SetWindowPos (avoids system animations)
     /// </summary>
     public async void Show(bool preserveFocus = true)
     {
         if (_isAnimating)
         {
-            Logger.Debug("Animation already in progress, skipping");
+            Logger.Debug("Animation in progress, skipping");
             return;
         }
 
@@ -121,35 +163,42 @@ public class WindowVisibilityManager
             // Position window
             _positionManager?.PositionWindow(showWindow: false);
             
-            // Set initial offset BEFORE showing window
+            // Set initial offset BEFORE showing
             _visual.Offset = new Vector3(0, SLIDE_DISTANCE, 0);
-            _visual.Opacity = 1.0f; // Ensure no fade
+            _visual.Opacity = 1.0f;
             
-            // Show window without activation
-            ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
-            
-            Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
+            // Show window using SetWindowPos (no system animations)
+            bool success = SetWindowPos(
+                _windowHandle,
+                IntPtr.Zero,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | 
+                SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
 
-            // Small delay to ensure window is fully rendered
-            await Task.Delay(20);
+            if (!success)
+            {
+                Logger.Warning($"SetWindowPos failed: {Marshal.GetLastWin32Error()}");
+            }
+            
+            Logger.Info($"Window shown via SetWindowPos. Foreground: 0x{GetForegroundWindow():X}");
+
+            // Wait for window to be fully rendered
+            await Task.Delay(30);
 
             // Create and start slide animation
             var offsetAnimation = _compositor.CreateVector3KeyFrameAnimation();
             offsetAnimation.Duration = TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS);
             offsetAnimation.InsertKeyFrame(1.0f, new Vector3(0, 0, 0));
-            offsetAnimation.Target = "Offset";
             
-            // Use smooth easing
             var easingFunction = _compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0.25f, 0.1f),
                 new Vector2(0.25f, 1.0f));
             offsetAnimation.SetReferenceParameter("easingFunction", easingFunction);
 
-            // Create batch to track completion
-            var batch = _compositor.CreateScopedBatch(Microsoft.UI.Composition.CompositionBatchTypes.Animation);
+            var batch = _compositor.CreateScopedBatch(
+                Microsoft.UI.Composition.CompositionBatchTypes.Animation);
             
             _visual.StartAnimation("Offset", offsetAnimation);
-            
             batch.End();
 
             batch.Completed += (s, e) =>
@@ -158,7 +207,7 @@ public class WindowVisibilityManager
                 Logger.Debug("Show animation completed");
             };
 
-            // Restore focus after brief delay
+            // Restore focus
             if (preserveFocus && _focusManager.HasValidSavedWindow())
             {
                 await Task.Delay(50);
@@ -167,7 +216,7 @@ public class WindowVisibilityManager
                 
                 if (restored)
                 {
-                    Logger.Info("Focus successfully preserved");
+                    Logger.Info("Focus preserved successfully");
                 }
                 else
                 {
@@ -184,7 +233,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show window synchronously (for compatibility)
+    /// Show window synchronously
     /// </summary>
     public void ShowSync(bool preserveFocus = true)
     {
@@ -192,7 +241,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Hide window with slide animation
+    /// Hide window with slide animation using SetWindowPos
     /// </summary>
     public void Hide()
     {
@@ -200,7 +249,14 @@ public class WindowVisibilityManager
         {
             Logger.Debug("Animation in progress, forcing hide");
             _visual.Offset = new Vector3(0, 0, 0);
-            ShowWindow(_windowHandle, SW_HIDE);
+            
+            SetWindowPos(
+                _windowHandle,
+                IntPtr.Zero,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | 
+                SWP_NOACTIVATE | SWP_HIDEWINDOW);
+            
             _isAnimating = false;
             return;
         }
@@ -222,65 +278,77 @@ public class WindowVisibilityManager
             // Clear saved foreground
             _focusManager.ClearSavedWindow();
             
-            // Ensure we start from position 0
+            // Start from position 0
             _visual.Offset = new Vector3(0, 0, 0);
-            _visual.Opacity = 1.0f; // Ensure no fade
+            _visual.Opacity = 1.0f;
             
             // Create slide down animation
             var offsetAnimation = _compositor.CreateVector3KeyFrameAnimation();
             offsetAnimation.Duration = TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS);
             offsetAnimation.InsertKeyFrame(1.0f, new Vector3(0, SLIDE_DISTANCE, 0));
-            offsetAnimation.Target = "Offset";
             
-            // Use smooth easing
             var easingFunction = _compositor.CreateCubicBezierEasingFunction(
                 new Vector2(0.75f, 0.0f),
                 new Vector2(0.75f, 0.9f));
             offsetAnimation.SetReferenceParameter("easingFunction", easingFunction);
 
-            // Create batch to track completion
-            var batch = _compositor.CreateScopedBatch(Microsoft.UI.Composition.CompositionBatchTypes.Animation);
+            var batch = _compositor.CreateScopedBatch(
+                Microsoft.UI.Composition.CompositionBatchTypes.Animation);
             
             _visual.StartAnimation("Offset", offsetAnimation);
-            
             batch.End();
 
             batch.Completed += (s, e) =>
             {
                 _isAnimating = false;
-                ShowWindow(_windowHandle, SW_HIDE);
-                _visual.Offset = new Vector3(0, 0, 0); // Reset for next show
+                
+                // Hide window using SetWindowPos
+                SetWindowPos(
+                    _windowHandle,
+                    IntPtr.Zero,
+                    0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | 
+                    SWP_NOACTIVATE | SWP_HIDEWINDOW);
+                
+                _visual.Offset = new Vector3(0, 0, 0);
                 Logger.Debug("Hide animation completed, window hidden");
             };
         }
         catch (Exception ex)
         {
             Logger.Error("Failed to hide window", ex);
-            ShowWindow(_windowHandle, SW_HIDE);
+            
+            SetWindowPos(
+                _windowHandle,
+                IntPtr.Zero,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | 
+                SWP_NOACTIVATE | SWP_HIDEWINDOW);
+            
             _visual.Offset = new Vector3(0, 0, 0);
             _isAnimating = false;
         }
     }
 
     /// <summary>
-    /// Toggle visibility with slide animations
+    /// Toggle visibility
     /// </summary>
     public void Toggle()
     {
         if (IsVisible())
         {
-            Logger.Info("Toggle: hiding window");
+            Logger.Info("Toggle: hiding");
             Hide();
         }
         else
         {
-            Logger.Info("Toggle: showing window with focus preservation");
+            Logger.Info("Toggle: showing with focus preservation");
             Show(preserveFocus: true);
         }
     }
 
     /// <summary>
-    /// Force restore focus to saved foreground window
+    /// Restore focus to saved window
     /// </summary>
     public async Task<bool> RestoreFocusAsync()
     {
@@ -288,7 +356,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Check if keyboard currently has focus
+    /// Check if keyboard has focus
     /// </summary>
     public bool HasFocus()
     {
@@ -304,17 +372,20 @@ public class WindowVisibilityManager
         {
             Logger.Info("WindowVisibilityManager cleanup started");
             
-            // Stop any running animations
+            // Stop animations
             _visual?.StopAnimation("Offset");
             _visual?.StopAnimation("Opacity");
             _isAnimating = false;
             
-            // Reset visual properties
+            // Reset visual
             if (_visual != null)
             {
                 _visual.Offset = new Vector3(0, 0, 0);
                 _visual.Opacity = 1.0f;
             }
+            
+            // Re-enable DWM transitions (cleanup)
+            DwmHelper.EnableTransitions(_windowHandle);
             
             // Reset modifiers
             ResetAllModifiers();
