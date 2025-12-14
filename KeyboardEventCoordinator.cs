@@ -7,6 +7,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Coordinates all keyboard button events, long press handling, and key sending
+/// Simplified version - no focus tracking or restoration
 /// </summary>
 public class KeyboardEventCoordinator
 {
@@ -14,7 +15,6 @@ public class KeyboardEventCoordinator
     private readonly KeyboardStateManager _stateManager;
     private readonly LayoutManager _layoutManager;
     private readonly LongPressPopup _longPressPopup;
-    private readonly FocusTracker _focusTracker;
     
     private bool _isLongPressHandled = false;
 
@@ -22,14 +22,12 @@ public class KeyboardEventCoordinator
         KeyboardInputService inputService,
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
-        LongPressPopup longPressPopup,
-        FocusTracker focusTracker)
+        LongPressPopup longPressPopup)
     {
         _inputService = inputService;
         _stateManager = stateManager;
         _layoutManager = layoutManager;
         _longPressPopup = longPressPopup;
-        _focusTracker = focusTracker;
         
         _longPressPopup.CharacterSelected += LongPressPopup_CharacterSelected;
     }
@@ -173,9 +171,7 @@ public class KeyboardEventCoordinator
         Logger.Info($"Long-press character selected: '{character}'");
         _isLongPressHandled = true;
         
-        // ✅ FIX: Restore focus before sending long-press character
-        RestoreFocusToTrackedWindow();
-        
+        // Send character directly - SendInput automatically goes to foreground window
         foreach (char c in character)
         {
             _inputService.SendUnicodeChar(c);
@@ -183,53 +179,16 @@ public class KeyboardEventCoordinator
     }
 
     /// <summary>
-    /// Restore focus to the tracked window before sending input
-    /// This prevents keyboard from stealing focus when user clicks buttons
+    /// Send key to foreground application
     /// </summary>
-    private void RestoreFocusToTrackedWindow()
-    {
-        if (_focusTracker == null)
-            return;
-
-        IntPtr trackedWindow = _focusTracker.GetLastFocusedWindow();
-        
-        if (trackedWindow == IntPtr.Zero)
-        {
-            Logger.Debug("No tracked window to restore focus to");
-            return;
-        }
-
-        bool restored = FocusHelper.RestoreForegroundWindow(trackedWindow);
-        
-        if (restored)
-        {
-            Logger.Debug($"Focus restored to 0x{trackedWindow:X} before sending input");
-        }
-        else
-        {
-            Logger.Warning($"Failed to restore focus to 0x{trackedWindow:X} before sending input");
-        }
-    }
-
     private void SendKey(string key)
     {
-        // ✅ FIX: Restore focus to tracked window BEFORE checking current foreground
-        // This ensures we send input to the correct window
-        RestoreFocusToTrackedWindow();
-
-        // Small delay to let focus restoration settle
-        System.Threading.Thread.Sleep(5);
-
         IntPtr currentForeground = _inputService.GetForegroundWindowHandle();
         string currentTitle = _inputService.GetWindowTitle(currentForeground);
 
-        Logger.Info($"Clicking '{key}'. Target Window: 0x{currentForeground:X} ({currentTitle}). Modifiers: Ctrl={_stateManager.IsCtrlActive}, Alt={_stateManager.IsAltActive}, Shift={_stateManager.IsShiftActive}, Caps={_stateManager.IsCapsLockActive}");
+        Logger.Info($"Sending '{key}' to foreground window: 0x{currentForeground:X} ({currentTitle})");
 
-        if (_inputService.IsKeyboardWindowFocused())
-        {
-            Logger.Warning("CRITICAL: Keyboard has focus! Keys will not be sent to target app. WS_EX_NOACTIVATE failed.");
-        }
-
+        // Check for control keys (Esc, Tab, etc.)
         byte controlVk = _inputService.GetVirtualKeyCode(key);
         if (controlVk != 0)
         {
@@ -237,9 +196,11 @@ public class KeyboardEventCoordinator
             return;
         }
 
+        // Get key definition from layout
         var keyDef = _layoutManager.GetKeyDefinition(key);
         if (keyDef != null)
         {
+            // Handle shortcuts (Ctrl+X, Alt+X)
             if (_stateManager.IsCtrlActive || _stateManager.IsAltActive)
             {
                 byte vk = _inputService.GetVirtualKeyCodeForLayoutKey(key);
@@ -254,12 +215,14 @@ public class KeyboardEventCoordinator
             }
             else
             {
+                // Handle regular character input
                 bool shouldCapitalize = false;
                 
                 if (keyDef.IsLetter)
                 {
                     shouldCapitalize = (_stateManager.IsShiftActive || _stateManager.IsCapsLockActive);
                     
+                    // XOR logic: Shift + Caps = lowercase
                     if (_stateManager.IsShiftActive && _stateManager.IsCapsLockActive)
                     {
                         shouldCapitalize = false;
@@ -268,8 +231,9 @@ public class KeyboardEventCoordinator
                 
                 string charToSend = shouldCapitalize ? keyDef.ValueShift : keyDef.Value;
                 
-                Logger.Debug($"Key '{key}': Value={keyDef.Value}, isLetter={keyDef.IsLetter}, shouldCapitalize={shouldCapitalize}, sending='{charToSend}'");
+                Logger.Debug($"Key '{key}': sending '{charToSend}' (capitalized={shouldCapitalize})");
                 
+                // Send Unicode character(s)
                 foreach (char c in charToSend)
                 {
                     _inputService.SendUnicodeChar(c);
@@ -278,6 +242,7 @@ public class KeyboardEventCoordinator
         }
         else
         {
+            // Fallback: send single character
             if (key.Length == 1 && !char.IsControl(key[0]))
             {
                 _inputService.SendUnicodeChar(key[0]);
