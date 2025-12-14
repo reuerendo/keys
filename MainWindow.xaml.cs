@@ -15,7 +15,6 @@ public sealed partial class MainWindow : Window
     private readonly WindowStyleManager _styleManager;
     private readonly WindowPositionManager _positionManager;
     private readonly SettingsManager _settingsManager;
-    private readonly FocusTracker _focusTracker;
     private readonly InteractiveRegionsManager _interactiveRegionsManager;
     private readonly ClipboardManager _clipboardManager;
     
@@ -45,10 +44,9 @@ public sealed partial class MainWindow : Window
         
         // Get window handle
         _thisWindowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        Logger.Info($"This window handle: 0x{_thisWindowHandle.ToString("X")}");
+        Logger.Info($"This window handle: 0x{_thisWindowHandle:X}");
         
         // Initialize core services
-        _focusTracker = new FocusTracker(_thisWindowHandle);
         _settingsManager = new SettingsManager();
         _inputService = new KeyboardInputService(_thisWindowHandle);
         _stateManager = new KeyboardStateManager(_inputService);
@@ -98,22 +96,20 @@ public sealed partial class MainWindow : Window
         // Initialize specialized handlers
         _backspaceHandler = new BackspaceRepeatHandler(_inputService);
         
-        // ✅ FIX: Pass FocusTracker to KeyboardEventCoordinator
+        // Initialize event coordinator (without focus tracker)
         _eventCoordinator = new KeyboardEventCoordinator(
             _inputService, 
             _stateManager, 
             _layoutManager, 
-            _longPressPopup,
-            _focusTracker);  // Add this parameter
+            _longPressPopup);
         
-        // Initialize visibility manager
+        // Initialize visibility manager (without focus tracker)
         _visibilityManager = new WindowVisibilityManager(
             _thisWindowHandle,
             this,
             _positionManager,
             _stateManager,
             _layoutManager,
-            _focusTracker,
             _autoShowManager,
             rootElement,
             _backspaceHandler,
