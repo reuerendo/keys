@@ -28,7 +28,6 @@ public class WindowVisibilityManager
     private readonly WindowPositionManager _positionManager;
     private readonly KeyboardStateManager _stateManager;
     private readonly LayoutManager _layoutManager;
-    private readonly AutoShowManager _autoShowManager;
     private readonly FrameworkElement _rootElement;
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
@@ -40,7 +39,6 @@ public class WindowVisibilityManager
         WindowPositionManager positionManager,
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
-        AutoShowManager autoShowManager,
         FrameworkElement rootElement,
         BackspaceRepeatHandler backspaceHandler = null,
         TrayIcon trayIcon = null)
@@ -50,7 +48,6 @@ public class WindowVisibilityManager
         _positionManager = positionManager;
         _stateManager = stateManager;
         _layoutManager = layoutManager;
-        _autoShowManager = autoShowManager;
         _rootElement = rootElement;
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
@@ -137,9 +134,6 @@ public class WindowVisibilityManager
             // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
             
-            // Notify AutoShowManager about hide (for cooldown)
-            _autoShowManager?.NotifyKeyboardHidden();
-            
             Logger.Info("Window hidden");
         }
         catch (Exception ex)
@@ -199,7 +193,6 @@ public class WindowVisibilityManager
             
             // Dispose managed resources
             _backspaceHandler?.Dispose();
-            _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
             
             Logger.Info("WindowVisibilityManager cleanup completed");

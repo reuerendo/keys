@@ -19,7 +19,6 @@ public sealed partial class MainWindow : Window
     private readonly InteractiveRegionsManager _interactiveRegionsManager;
     private readonly ClipboardManager _clipboardManager;
     
-    private AutoShowManager _autoShowManager;
     private BackspaceRepeatHandler _backspaceHandler;
     private KeyboardEventCoordinator _eventCoordinator;
     private WindowVisibilityManager _visibilityManager;
@@ -97,26 +96,20 @@ public sealed partial class MainWindow : Window
         // Initialize specialized handlers
         _backspaceHandler = new BackspaceRepeatHandler(_inputService);
         
-        // Initialize event coordinator (without focus tracker)
+        // Initialize event coordinator
         _eventCoordinator = new KeyboardEventCoordinator(
             _inputService, 
             _stateManager, 
             _layoutManager, 
             _longPressPopup);
         
-        // Initialize auto-show manager first
-        _autoShowManager = new AutoShowManager(_thisWindowHandle);
-        _autoShowManager.ShowKeyboardRequested += AutoShowManager_ShowKeyboardRequested;
-        _autoShowManager.IsEnabled = _settingsManager.GetAutoShowKeyboard();
-        
-        // Initialize visibility manager (without focus tracker)
+        // Initialize visibility manager
         _visibilityManager = new WindowVisibilityManager(
             _thisWindowHandle,
             this,
             _positionManager,
             _stateManager,
             _layoutManager,
-            _autoShowManager,
             rootElement,
             _backspaceHandler,
             _trayIcon
@@ -128,10 +121,8 @@ public sealed partial class MainWindow : Window
             _settingsManager,
             _layoutManager,
             _stateManager,
-            _autoShowManager,
             _visibilityManager
         );
-        
         
         // Setup handlers
         _backspaceHandler.SetupHandlers(rootElement);
@@ -220,16 +211,6 @@ public sealed partial class MainWindow : Window
 			Logger.Error("Failed to initialize tray icon", ex);
 		}
 	}
-
-    #endregion
-
-    #region Auto-Show Event Handler
-
-    private void AutoShowManager_ShowKeyboardRequested(object sender, EventArgs e)
-    {
-        Logger.Info("Auto-show triggered by text input focus");
-        _visibilityManager?.Show(preserveFocus: true);
-    }
 
     #endregion
 
