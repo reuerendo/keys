@@ -150,33 +150,6 @@ namespace VirtualKeyboard
             }
         }
 
-        /// <summary>
-        /// Custom window procedure to block double-click on title bar
-        /// </summary>
-		private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
-		{
-			// Prevent activation on mouse click
-			if (msg == WM_MOUSEACTIVATE)
-			{
-				Logger.Debug("WM_MOUSEACTIVATE intercepted - returning MA_NOACTIVATE");
-				return new IntPtr(MA_NOACTIVATE);
-			}
-
-			// Block double-click on title bar
-			if (msg == WM_NCLBUTTONDBLCLK && wParam.ToInt32() == HTCAPTION)
-			{
-				Logger.Info("Blocked double-click on title bar");
-				return IntPtr.Zero;
-			}
-
-			if (_oldWndProc != IntPtr.Zero)
-			{
-				return CallWindowProc(_oldWndProc, hWnd, msg, wParam, lParam);
-			}
-
-			return IntPtr.Zero;
-		}
-
 		/// <summary>
 		/// Apply comprehensive no-activate styles to prevent focus stealing
 		/// Call this method periodically to ensure styles remain applied
