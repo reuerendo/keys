@@ -90,26 +90,6 @@ public sealed partial class MainWindow : Window
     {
         var rootElement = this.Content as FrameworkElement;
         
-        // Ensure CompositeTransform exists for animations
-        if (rootElement != null)
-        {
-            // Check if we need to replace ScaleTransform with CompositeTransform
-            if (rootElement.RenderTransform is not CompositeTransform)
-            {
-                var existingTransform = rootElement.RenderTransform as ScaleTransform;
-                double scaleX = existingTransform?.ScaleX ?? 1.0;
-                double scaleY = existingTransform?.ScaleY ?? 1.0;
-                
-                rootElement.RenderTransform = new CompositeTransform
-                {
-                    ScaleX = scaleX,
-                    ScaleY = scaleY
-                };
-                
-                Logger.Info($"Replaced ScaleTransform with CompositeTransform (scale: {scaleX}x)");
-            }
-        }
-        
         // Initialize long press popup WITH ANIMATIONS
         _longPressPopup = new LongPressPopup(rootElement, _stateManager);
         _longPressPopup.SetCurrentLayout(_layoutManager.CurrentLayout.Name);

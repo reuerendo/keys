@@ -104,7 +104,8 @@ public class WindowPositionManager
 
             _window.AppWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
 
-            // Apply scaling to root element
+            // Apply scaling to root element using ScaleTransform only
+            // Composition API will handle animations separately
             if (_window.Content is FrameworkElement rootElement)
             {
                 rootElement.Width = BASE_WIDTH;
@@ -112,33 +113,22 @@ public class WindowPositionManager
                 rootElement.HorizontalAlignment = HorizontalAlignment.Left;
                 rootElement.VerticalAlignment = VerticalAlignment.Top;
 
-                // Use CompositeTransform for compatibility with animations
-                if (rootElement.RenderTransform is CompositeTransform compositeTransform)
+                // Use simple ScaleTransform for scaling
+                // Don't use CompositeTransform as it conflicts with Composition API animations
+                if (Math.Abs(userScale - 1.0) > 0.001)
                 {
-                    compositeTransform.ScaleX = userScale;
-                    compositeTransform.ScaleY = userScale;
-                    Logger.Info($"Applied scale to existing CompositeTransform: {userScale}x");
-                }
-                else if (rootElement.RenderTransform is ScaleTransform scaleTransform)
-                {
-                    // Replace ScaleTransform with CompositeTransform for animation compatibility
-                    rootElement.RenderTransform = new CompositeTransform
+                    rootElement.RenderTransform = new ScaleTransform
                     {
                         ScaleX = userScale,
                         ScaleY = userScale
                     };
-                    Logger.Info($"Replaced ScaleTransform with CompositeTransform: {userScale}x");
+                    Logger.Info($"Applied ScaleTransform: {userScale}x");
                 }
                 else
                 {
-                    // Create new CompositeTransform
-                    var transform = new CompositeTransform
-                    {
-                        ScaleX = userScale,
-                        ScaleY = userScale
-                    };
-                    rootElement.RenderTransform = transform;
-                    Logger.Info($"Created new CompositeTransform: {userScale}x");
+                    // No transform needed for 1.0 scale
+                    rootElement.RenderTransform = null;
+                    Logger.Info("No transform needed (scale = 1.0)");
                 }
             }
         }
