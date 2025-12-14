@@ -24,7 +24,7 @@ namespace VirtualKeyboard
 		
 		private const uint WM_MOUSEACTIVATE = 0x0021;
 		private const int MA_NOACTIVATE = 3;
-		private const long WS_EX_TOOLWINDOW = 0x00000080L;
+		// private const long WS_EX_TOOLWINDOW = 0x00000080L;
 
         // Window Messages
         private const uint WM_NCLBUTTONDBLCLK = 0x00A3;
@@ -71,7 +71,7 @@ namespace VirtualKeyboard
 				long newFlags = exStyle;
 				newFlags |= WS_EX_NOACTIVATE;
 				newFlags |= WS_EX_TOPMOST;
-				newFlags |= WS_EX_TOOLWINDOW; // Prevents taskbar button and helps with activation
+				// newFlags |= WS_EX_TOOLWINDOW; // Prevents taskbar button and helps with activation
 
 				if (newFlags != exStyle)
 				{
@@ -165,7 +165,7 @@ namespace VirtualKeyboard
 				long newFlags = exStyle;
 				newFlags |= WS_EX_NOACTIVATE;  // Don't activate on click
 				newFlags |= WS_EX_TOPMOST;     // Stay on top
-				newFlags |= 0x00000080L;       // WS_EX_TOOLWINDOW - prevents taskbar button
+				// newFlags |= 0x00000080L;       // WS_EX_TOOLWINDOW - prevents taskbar button
 
 				if (newFlags != exStyle)
 				{
