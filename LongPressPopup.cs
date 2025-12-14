@@ -77,96 +77,96 @@ public class LongPressPopup
         Logger.Debug("Popup UI initialized");
     }
 
-    private void InitializeAnimations()
-    {
-        // Show animation - fade in + scale up + slide up
-        _showStoryboard = new Storyboard();
-        
-        var fadeIn = new DoubleAnimation
-        {
-            From = 0,
-            To = 1,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        Storyboard.SetTarget(fadeIn, _popupPanel);
-        Storyboard.SetTargetProperty(fadeIn, "Opacity");
-        
-        var scaleXIn = new DoubleAnimation
-        {
-            From = 0.8,
-            To = 1.0,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-            EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 }
-        };
-        Storyboard.SetTarget(scaleXIn, _popupPanel);
-        Storyboard.SetTargetProperty(scaleXIn, "(UIElement.RenderTransform).(CompositeTransform.ScaleX)");
-        
-        var scaleYIn = new DoubleAnimation
-        {
-            From = 0.8,
-            To = 1.0,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-            EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.3 }
-        };
-        Storyboard.SetTarget(scaleYIn, _popupPanel);
-        Storyboard.SetTargetProperty(scaleYIn, "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
-        
-        var slideIn = new DoubleAnimation
-        {
-            From = 10,
-            To = 0,
-            Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-        };
-        Storyboard.SetTarget(slideIn, _popupPanel);
-        Storyboard.SetTargetProperty(slideIn, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
-        
-        _showStoryboard.Children.Add(fadeIn);
-        _showStoryboard.Children.Add(scaleXIn);
-        _showStoryboard.Children.Add(scaleYIn);
-        _showStoryboard.Children.Add(slideIn);
-        
-        // Hide animation - fade out + scale down
-        _hideStoryboard = new Storyboard();
-        
-        var fadeOut = new DoubleAnimation
-        {
-            To = 0,
-            Duration = new Duration(TimeSpan.FromMilliseconds(100)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-        };
-        Storyboard.SetTarget(fadeOut, _popupPanel);
-        Storyboard.SetTargetProperty(fadeOut, "Opacity");
-        
-        var scaleOut = new DoubleAnimation
-        {
-            To = 0.8,
-            Duration = new Duration(TimeSpan.FromMilliseconds(100)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-        };
-        Storyboard.SetTarget(scaleOut, _popupPanel);
-        Storyboard.SetTargetProperty(scaleOut, "(UIElement.RenderTransform).(CompositeTransform.ScaleX)");
-        
-        var scaleOutY = new DoubleAnimation
-        {
-            To = 0.8,
-            Duration = new Duration(TimeSpan.FromMilliseconds(100)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
-        };
-        Storyboard.SetTarget(scaleOutY, _popupPanel);
-        Storyboard.SetTargetProperty(scaleOutY, "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
-        
-        _hideStoryboard.Children.Add(fadeOut);
-        _hideStoryboard.Children.Add(scaleOut);
-        _hideStoryboard.Children.Add(scaleOutY);
-        
-        _hideStoryboard.Completed += (s, e) =>
-        {
-            _popup.IsOpen = false;
-            _popupPanel.Children.Clear();
-        };
-    }
+	private void InitializeAnimations()
+	{
+		// Show animation - fade in + scale up + slide up
+		_showStoryboard = new Storyboard();
+		
+		var fadeIn = new DoubleAnimation
+		{
+			From = 0,
+			To = 1,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(fadeIn, _popupPanel);
+		Storyboard.SetTargetProperty(fadeIn, "Opacity");
+		
+		var scaleXIn = new DoubleAnimation
+		{
+			From = 0.8,
+			To = 1.0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(scaleXIn, _popupPanel);
+		Storyboard.SetTargetProperty(scaleXIn, "(UIElement.RenderTransform).(CompositeTransform.ScaleX)");
+		
+		var scaleYIn = new DoubleAnimation
+		{
+			From = 0.8,
+			To = 1.0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(scaleYIn, _popupPanel);
+		Storyboard.SetTargetProperty(scaleYIn, "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
+		
+		var slideIn = new DoubleAnimation
+		{
+			From = 10,
+			To = 0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(slideIn, _popupPanel);
+		Storyboard.SetTargetProperty(slideIn, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
+		
+		_showStoryboard.Children.Add(fadeIn);
+		_showStoryboard.Children.Add(scaleXIn);
+		_showStoryboard.Children.Add(scaleYIn);
+		_showStoryboard.Children.Add(slideIn);
+		
+		// Hide animation - fade out + scale down
+		_hideStoryboard = new Storyboard();
+		
+		var fadeOut = new DoubleAnimation
+		{
+			To = 0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(100)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+		};
+		Storyboard.SetTarget(fadeOut, _popupPanel);
+		Storyboard.SetTargetProperty(fadeOut, "Opacity");
+		
+		var scaleOut = new DoubleAnimation
+		{
+			To = 0.8,
+			Duration = new Duration(TimeSpan.FromMilliseconds(100)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+		};
+		Storyboard.SetTarget(scaleOut, _popupPanel);
+		Storyboard.SetTargetProperty(scaleOut, "(UIElement.RenderTransform).(CompositeTransform.ScaleX)");
+		
+		var scaleOutY = new DoubleAnimation
+		{
+			To = 0.8,
+			Duration = new Duration(TimeSpan.FromMilliseconds(100)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+		};
+		Storyboard.SetTarget(scaleOutY, _popupPanel);
+		Storyboard.SetTargetProperty(scaleOutY, "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
+		
+		_hideStoryboard.Children.Add(fadeOut);
+		_hideStoryboard.Children.Add(scaleOut);
+		_hideStoryboard.Children.Add(scaleOutY);
+		
+		_hideStoryboard.Completed += (s, e) =>
+		{
+			_popup.IsOpen = false;
+			_popupPanel.Children.Clear();
+		};
+	}
 
     private void InitializeLongPressTimer()
     {
