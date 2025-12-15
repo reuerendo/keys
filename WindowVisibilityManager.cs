@@ -73,6 +73,7 @@ public class WindowVisibilityManager
         try
         {
             // Save current foreground window
+            // This will intelligently find the real target window if foreground is system/tray
             if (preserveFocus)
             {
                 _focusManager.SaveForegroundWindow();
@@ -86,7 +87,7 @@ public class WindowVisibilityManager
             
             Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
 
-            // Restore focus
+            // Restore focus to saved window
             if (preserveFocus && _focusManager.HasValidSavedWindow())
             {
                 await Task.Delay(50);
@@ -118,7 +119,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Hide window
+    /// Hide window - НЕ трогаем saved window!
     /// </summary>
     public void Hide()
     {
@@ -135,8 +136,8 @@ public class WindowVisibilityManager
             // Reset modifiers
             ResetAllModifiers();
             
-            // Clear saved foreground
-            _focusManager.ClearSavedWindow();
+            // ВАЖНО: НЕ очищаем saved window!
+            // Оно понадобится при следующем Show()
             
             // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
@@ -194,7 +195,7 @@ public class WindowVisibilityManager
             // Reset modifiers
             ResetAllModifiers();
             
-            // Clear saved window
+            // Clear saved window ONLY on cleanup (app exit)
             _focusManager.ClearSavedWindow();
             
             // Dispose resources

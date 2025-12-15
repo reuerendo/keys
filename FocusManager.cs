@@ -221,20 +221,19 @@ public class FocusManager
 
     /// <summary>
     /// Find the best target window using Z-order (topmost windows first)
-    /// This respects the actual window stacking order, not random enumeration
+    /// УВЕЛИЧЕН ЛИМИТ до 300 окон для более глубокого поиска
     /// </summary>
     private IntPtr FindBestTargetWindow()
     {
         Logger.Info("Searching for best target window using Z-order...");
         
-        // Start from the topmost window (GetTopWindow returns top-level window)
+        // Start from the topmost window
         IntPtr hWnd = GetTopWindow(IntPtr.Zero);
         int checkedCount = 0;
         
         if (hWnd == IntPtr.Zero)
         {
             Logger.Warning("GetTopWindow returned NULL, trying desktop method");
-            // Fallback: get desktop and then its first child
             IntPtr desktop = GetDesktopWindow();
             if (desktop != IntPtr.Zero)
             {
@@ -242,14 +241,15 @@ public class FocusManager
             }
         }
         
-        while (hWnd != IntPtr.Zero && checkedCount < 100) // Safety limit
+        // УВЕЛИЧЕН ЛИМИТ: проверяем до 300 окон вместо 100
+        while (hWnd != IntPtr.Zero && checkedCount < 300)
         {
             checkedCount++;
             Logger.Debug($"Checking window #{checkedCount}: {GetWindowInfo(hWnd)}");
             
             if (!ShouldIgnoreWindow(hWnd))
             {
-                Logger.Info($"Found target window (Z-order #{checkedCount}): {GetWindowInfo(hWnd)}");
+                Logger.Info($"✓ Found target window (Z-order #{checkedCount}): {GetWindowInfo(hWnd)}");
                 return hWnd;
             }
             
@@ -421,7 +421,7 @@ public class FocusManager
     }
 
     /// <summary>
-    /// Clear the saved foreground window
+    /// Clear the saved foreground window (only call on app exit)
     /// </summary>
     public void ClearSavedWindow()
     {
