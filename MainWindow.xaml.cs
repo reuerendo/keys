@@ -104,7 +104,7 @@ public sealed partial class MainWindow : Window
             _layoutManager, 
             _longPressPopup);
         
-        // Initialize visibility manager WITH ANIMATIONS
+        // Initialize visibility manager WITH REAL-TIME FOCUS TRACKING
         _visibilityManager = new WindowVisibilityManager(
             _thisWindowHandle,
             this,
@@ -143,7 +143,7 @@ public sealed partial class MainWindow : Window
         // Update interactive regions
         _interactiveRegionsManager?.UpdateRegions();
         
-        Logger.Info("MainWindow fully initialized with animations");
+        Logger.Info("MainWindow fully initialized with real-time focus tracking");
     }
 
     private void RootElement_SizeChanged(object sender, Microsoft.UI.Xaml.SizeChangedEventArgs e)
@@ -313,7 +313,7 @@ public sealed partial class MainWindow : Window
         {
             _isClosing = true;
             
-            // Cleanup
+            // Cleanup - this will properly dispose FocusManager and stop tracking
             _visibilityManager?.Cleanup();
             _styleManager?.RestoreWindowProc();
             
@@ -335,6 +335,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
+            // Proper cleanup on actual close
             _visibilityManager?.Cleanup();
             _styleManager?.RestoreWindowProc();
         }

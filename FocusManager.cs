@@ -2,15 +2,14 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Text;
-using System.Collections.Generic;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages focus preservation with smart window detection
-/// Ignores system windows like taskbar/tray and finds real target applications
+/// Manages focus restoration using real-time window tracking
+/// Much faster and more accurate than Z-order search
 /// </summary>
-public class FocusManager
+public class FocusManager : IDisposable
 {
     #region Win32 API
 
@@ -38,310 +37,83 @@ public class FocusManager
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool BringWindowToTop(IntPtr hWnd);
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
-
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
-
-    [DllImport("psapi.dll", CharSet = CharSet.Unicode)]
-    private static extern uint GetModuleBaseName(IntPtr hProcess, IntPtr hModule, StringBuilder lpBaseName, uint nSize);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
-
-    [DllImport("user32.dll")]
-    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-    private const uint GW_OWNER = 4;
-    private const uint PROCESS_QUERY_INFORMATION = 0x0400;
-    private const uint PROCESS_VM_READ = 0x0010;
-    private const uint GA_ROOT = 2;
-    private const uint GA_ROOTOWNER = 3;
-    private const int GWL_STYLE = -16;
-    private const int GWL_EXSTYLE = -20;
-    private const long WS_VISIBLE = 0x10000000L;
-    private const long WS_EX_TOOLWINDOW = 0x00000080L;
-    private const long WS_EX_APPWINDOW = 0x00040000L;
-
     #endregion
 
     private readonly IntPtr _keyboardWindowHandle;
-    private IntPtr _savedForegroundWindow = IntPtr.Zero;
+    private readonly ForegroundWindowTracker _windowTracker;
     private readonly object _lockObject = new object();
-
-    // System windows to ignore
-    private static readonly HashSet<string> IgnoredClasses = new HashSet<string>
-    {
-        "Shell_TrayWnd",           // Taskbar
-        "Shell_SecondaryTrayWnd",  // Secondary taskbar
-        "Progman",                 // Desktop
-        "WorkerW",                 // Desktop worker
-        "Windows.UI.Core.CoreWindow", // Modern UI system windows
-        "ApplicationFrameWindow",  // Some UWP containers (we'll check these specially)
-    };
-
-    private static readonly HashSet<string> IgnoredProcesses = new HashSet<string>
-    {
-        "ShellExperienceHost.exe",
-        "SearchHost.exe",
-        "StartMenuExperienceHost.exe",
-    };
+    private bool _isDisposed = false;
 
     public FocusManager(IntPtr keyboardWindowHandle)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-    }
-
-    /// <summary>
-    /// Get detailed information about a window
-    /// </summary>
-    private string GetWindowInfo(IntPtr hWnd)
-    {
-        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
-            return "Invalid window";
-
-        StringBuilder title = new StringBuilder(256);
-        GetWindowText(hWnd, title, title.Capacity);
-
-        StringBuilder className = new StringBuilder(256);
-        GetClassName(hWnd, className, className.Capacity);
-
-        uint processId;
-        GetWindowThreadProcessId(hWnd, out processId);
-
-        string processName = "Unknown";
-        IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
-        if (hProcess != IntPtr.Zero)
-        {
-            StringBuilder procName = new StringBuilder(256);
-            if (GetModuleBaseName(hProcess, IntPtr.Zero, procName, (uint)procName.Capacity) > 0)
-            {
-                processName = procName.ToString();
-            }
-            CloseHandle(hProcess);
-        }
-
-        bool isVisible = IsWindowVisible(hWnd);
-        IntPtr owner = GetWindow(hWnd, GW_OWNER);
-
-        return $"HWND=0x{hWnd:X}, Title='{title}', Class='{className}', Process='{processName}' (PID={processId}), Visible={isVisible}, Owner=0x{owner:X}";
-    }
-
-    /// <summary>
-    /// Check if window should be ignored (system windows, taskbar, etc.)
-    /// </summary>
-    private bool ShouldIgnoreWindow(IntPtr hWnd)
-    {
-        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
-            return true;
-
-        // Ignore keyboard itself
-        if (hWnd == _keyboardWindowHandle)
-            return true;
-
-        // Get class name
-        StringBuilder className = new StringBuilder(256);
-        GetClassName(hWnd, className, className.Capacity);
-        string classStr = className.ToString();
-
-        // Check ignored classes
-        if (IgnoredClasses.Contains(classStr))
-        {
-            Logger.Debug($"Ignoring window with class '{classStr}'");
-            return true;
-        }
-
-        // Get process name
-        uint processId;
-        GetWindowThreadProcessId(hWnd, out processId);
-        IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
-        if (hProcess != IntPtr.Zero)
-        {
-            StringBuilder procName = new StringBuilder(256);
-            if (GetModuleBaseName(hProcess, IntPtr.Zero, procName, (uint)procName.Capacity) > 0)
-            {
-                string processName = procName.ToString();
-                CloseHandle(hProcess);
-                
-                if (IgnoredProcesses.Contains(processName))
-                {
-                    Logger.Debug($"Ignoring window from process '{processName}'");
-                    return true;
-                }
-            }
-            else
-            {
-                CloseHandle(hProcess);
-            }
-        }
-
-        // Check if window is visible
-        if (!IsWindowVisible(hWnd))
-        {
-            Logger.Debug($"Ignoring invisible window");
-            return true;
-        }
-
-        // Check window styles - ignore tool windows without WS_EX_APPWINDOW
-        int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
-        if ((exStyle & WS_EX_TOOLWINDOW) != 0 && (exStyle & WS_EX_APPWINDOW) == 0)
-        {
-            Logger.Debug($"Ignoring tool window");
-            return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Find the best target window - looks for visible application windows
-    /// </summary>
-    private IntPtr FindBestTargetWindow()
-    {
-        IntPtr bestWindow = IntPtr.Zero;
         
-        // First, try to find the topmost visible application window (excluding keyboard)
-        EnumWindows((hWnd, lParam) =>
+        // Initialize real-time window tracker
+        _windowTracker = new ForegroundWindowTracker(keyboardWindowHandle);
+        
+        Logger.Info("FocusManager initialized with real-time tracking");
+    }
+
+    /// <summary>
+    /// Get the target window for focus restoration
+    /// Uses real-time tracked window - instant, no search needed!
+    /// </summary>
+    public IntPtr GetTargetWindow()
+    {
+        lock (_lockObject)
         {
-            if (!ShouldIgnoreWindow(hWnd))
+            IntPtr targetWindow = _windowTracker.GetLastValidWindow();
+            
+            if (targetWindow != IntPtr.Zero)
             {
-                // Get window title to prefer windows with titles
+                string info = GetWindowInfo(targetWindow);
+                Logger.Info($"✓ Target window from tracker: {info}");
+                
+                // Verify window has a meaningful title
                 StringBuilder title = new StringBuilder(256);
-                GetWindowText(hWnd, title, title.Capacity);
-                
-                if (title.Length > 0) // Prefer windows with titles
+                GetWindowText(targetWindow, title, title.Capacity);
+                if (string.IsNullOrWhiteSpace(title.ToString()))
                 {
-                    bestWindow = hWnd;
-                    Logger.Info($"Found candidate window: {GetWindowInfo(hWnd)}");
-                    return false; // Stop enumeration
-                }
-            }
-            return true; // Continue enumeration
-        }, IntPtr.Zero);
-
-        // If no window with title found, try any valid window
-        if (bestWindow == IntPtr.Zero)
-        {
-            EnumWindows((hWnd, lParam) =>
-            {
-                if (!ShouldIgnoreWindow(hWnd))
-                {
-                    bestWindow = hWnd;
-                    Logger.Info($"Found fallback window: {GetWindowInfo(hWnd)}");
-                    return false;
-                }
-                return true;
-            }, IntPtr.Zero);
-        }
-
-        return bestWindow;
-    }
-
-    /// <summary>
-    /// Save the current foreground window before showing keyboard
-    /// WITH SMART DETECTION - ignores system windows and finds real target
-    /// </summary>
-    public void SaveForegroundWindow()
-    {
-        lock (_lockObject)
-        {
-            IntPtr foreground = GetForegroundWindow();
-            
-            Logger.Info("=== FOCUS SAVE DIAGNOSTICS ===");
-            Logger.Info($"Current foreground: {GetWindowInfo(foreground)}");
-            
-            // Check if current foreground should be ignored
-            if (ShouldIgnoreWindow(foreground))
-            {
-                Logger.Warning($"Current foreground is system window - searching for real target");
-                
-                // Find the best target window
-                IntPtr targetWindow = FindBestTargetWindow();
-                
-                if (targetWindow != IntPtr.Zero)
-                {
-                    _savedForegroundWindow = targetWindow;
-                    Logger.Info($"✓ SAVED (smart detection): {GetWindowInfo(_savedForegroundWindow)}");
-                }
-                else
-                {
-                    Logger.Warning("✗ No valid target window found");
-                    _savedForegroundWindow = IntPtr.Zero;
-                }
-            }
-            else
-            {
-                // Foreground is a valid target window
-                // Get the root window (in case foreground is a child window)
-                IntPtr rootWindow = GetAncestor(foreground, GA_ROOT);
-                if (rootWindow != IntPtr.Zero && rootWindow != foreground && !ShouldIgnoreWindow(rootWindow))
-                {
-                    Logger.Info($"Root window: {GetWindowInfo(rootWindow)}");
-                    Logger.Info("Using root window instead of foreground");
-                    _savedForegroundWindow = rootWindow;
-                }
-                else
-                {
-                    _savedForegroundWindow = foreground;
+                    Logger.Warning("⚠ Target window has no title - might be a system window!");
                 }
                 
-                Logger.Info($"✓ SAVED (direct): {GetWindowInfo(_savedForegroundWindow)}");
+                return targetWindow;
             }
             
-            Logger.Info("=== END DIAGNOSTICS ===");
+            Logger.Warning("No valid target window tracked");
+            return IntPtr.Zero;
         }
     }
 
     /// <summary>
-    /// Restore focus to the previously saved foreground window
+    /// Restore focus to the tracked target window
     /// </summary>
-    public async Task<bool> RestoreForegroundWindowAsync()
+    public async Task<bool> RestoreFocusAsync()
     {
-        IntPtr targetWindow;
+        IntPtr targetWindow = GetTargetWindow();
         
-        lock (_lockObject)
+        if (targetWindow == IntPtr.Zero)
         {
-            if (_savedForegroundWindow == IntPtr.Zero)
-            {
-                Logger.Warning("No saved foreground window to restore");
-                return false;
-            }
-
-            if (!IsWindow(_savedForegroundWindow))
-            {
-                Logger.Warning("Saved window is no longer valid");
-                _savedForegroundWindow = IntPtr.Zero;
-                return false;
-            }
-
-            if (!IsWindowVisible(_savedForegroundWindow))
-            {
-                Logger.Warning("Saved window is not visible");
-                return false;
-            }
-            
-            targetWindow = _savedForegroundWindow;
+            Logger.Warning("No target window to restore focus to");
+            return false;
         }
 
-        Logger.Info("=== FOCUS RESTORE DIAGNOSTICS ===");
+        // Verify window is still valid
+        if (!IsWindow(targetWindow) || !IsWindowVisible(targetWindow))
+        {
+            Logger.Warning("Target window is no longer valid or visible");
+            return false;
+        }
+
+        Logger.Info("=== FOCUS RESTORE ===");
         IntPtr currentBefore = GetForegroundWindow();
-        Logger.Info($"BEFORE restore - Current: {GetWindowInfo(currentBefore)}");
-        Logger.Info($"BEFORE restore - Target: {GetWindowInfo(targetWindow)}");
+        Logger.Info($"BEFORE: Current={GetWindowInfo(currentBefore)}, Target={GetWindowInfo(targetWindow)}");
 
         // Try multiple methods to restore focus
         bool success = false;
@@ -355,68 +127,69 @@ public class FocusManager
             success = TrySetForegroundWindowWithThreadAttach(targetWindow);
         }
 
+        // Give Windows time to process
+        await Task.Delay(10);
+
         IntPtr currentAfter = GetForegroundWindow();
-        Logger.Info($"AFTER restore - Current: {GetWindowInfo(currentAfter)}");
+        Logger.Info($"AFTER: Current={GetWindowInfo(currentAfter)}");
         
         if (success && currentAfter == targetWindow)
         {
-            Logger.Info($"✓ SUCCESS: Focus restored to correct window");
+            Logger.Info("✓ SUCCESS: Focus restored");
         }
         else if (success)
         {
-            Logger.Warning($"⚠ PARTIAL: SetForegroundWindow succeeded but foreground is different window");
+            Logger.Warning("⚠ PARTIAL: SetForegroundWindow succeeded but foreground is different");
         }
         else
         {
-            Logger.Error($"✗ FAILED: Could not restore focus");
+            Logger.Error("✗ FAILED: Could not restore focus");
         }
         
-        Logger.Info("=== END RESTORE DIAGNOSTICS ===");
+        Logger.Info("=== END RESTORE ===");
 
         return success && currentAfter == targetWindow;
     }
 
     /// <summary>
-    /// Synchronous version of RestoreForegroundWindow for immediate use
+    /// Synchronous version of RestoreFocus
     /// </summary>
-    public bool RestoreForegroundWindow()
+    public bool RestoreFocus()
     {
-        return RestoreForegroundWindowAsync().GetAwaiter().GetResult();
+        return RestoreFocusAsync().GetAwaiter().GetResult();
     }
 
     /// <summary>
-    /// Get the currently saved foreground window
+    /// Check if we have a valid tracked window
     /// </summary>
-    public IntPtr GetSavedForegroundWindow()
+    public bool HasValidTrackedWindow()
     {
-        lock (_lockObject)
-        {
-            return _savedForegroundWindow;
-        }
+        return _windowTracker.HasValidWindow();
     }
 
     /// <summary>
-    /// Check if we have a valid saved window
+    /// Check if the keyboard window currently has focus
     /// </summary>
-    public bool HasValidSavedWindow()
+    public bool IsKeyboardFocused()
     {
-        lock (_lockObject)
-        {
-            return _savedForegroundWindow != IntPtr.Zero && 
-                   IsWindow(_savedForegroundWindow) && 
-                   IsWindowVisible(_savedForegroundWindow);
-        }
+        return GetForegroundWindow() == _keyboardWindowHandle;
     }
 
     /// <summary>
-    /// Clear the saved foreground window
+    /// Clear tracked window (only call on app exit)
     /// </summary>
-    public void ClearSavedWindow()
+    public void ClearTrackedWindow()
     {
-        lock (_lockObject)
-        {
-            _savedForegroundWindow = IntPtr.Zero;
-        }
+        _windowTracker.ClearTrackedWindow();
+    }
+
+    /// <summary>
+    /// Restore focus with delay (for use after UI operations)
+    /// </summary>
+    public async Task RestoreFocusWithDelayAsync(int delayMs = 50)
+    {
+        await Task.Delay(delayMs);
+        await RestoreFocusAsync();
     }
 
     /// <summary>
@@ -502,19 +275,44 @@ public class FocusManager
     }
 
     /// <summary>
-    /// Check if the keyboard window currently has focus
+    /// Get detailed information about a window (for logging)
     /// </summary>
-    public bool IsKeyboardFocused()
+    private string GetWindowInfo(IntPtr hWnd)
     {
-        return GetForegroundWindow() == _keyboardWindowHandle;
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+            return "Invalid window";
+
+        StringBuilder title = new StringBuilder(256);
+        GetWindowText(hWnd, title, title.Capacity);
+
+        StringBuilder className = new StringBuilder(256);
+        GetClassName(hWnd, className, className.Capacity);
+
+        uint processId;
+        GetWindowThreadProcessId(hWnd, out processId);
+
+        return $"HWND=0x{hWnd:X}, Title='{title}', Class='{className}', PID={processId}";
     }
 
     /// <summary>
-    /// Restore focus with delay (for use after UI operations)
+    /// Dispose resources
     /// </summary>
-    public async Task RestoreForegroundWindowWithDelayAsync(int delayMs = 50)
+    public void Dispose()
     {
-        await Task.Delay(delayMs);
-        await RestoreForegroundWindowAsync();
+        if (_isDisposed)
+            return;
+
+        _isDisposed = true;
+
+        _windowTracker?.Dispose();
+
+        Logger.Info("FocusManager disposed");
+
+        GC.SuppressFinalize(this);
+    }
+
+    ~FocusManager()
+    {
+        Dispose();
     }
 }
