@@ -6,9 +6,9 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with focus preservation (no animations)
+/// Window visibility manager with real-time focus tracking
 /// </summary>
-public class WindowVisibilityManager
+public class WindowVisibilityManager : IDisposable
 {
     private const int SW_HIDE = 0;
     private const int SW_SHOWNOACTIVATE = 4;
@@ -31,6 +31,7 @@ public class WindowVisibilityManager
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
     private readonly FocusManager _focusManager;
+    private bool _isDisposed = false;
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -52,7 +53,7 @@ public class WindowVisibilityManager
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        Logger.Info("WindowVisibilityManager initialized (no window animations)");
+        Logger.Info("WindowVisibilityManager initialized with real-time focus tracking");
     }
 
     /// <summary>
@@ -64,7 +65,8 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window and preserve focus
+    /// Show the window with automatic focus preservation
+    /// Focus is automatically tracked in real-time - no manual saving needed!
     /// </summary>
     public async void Show(bool preserveFocus = true)
     {
@@ -72,13 +74,6 @@ public class WindowVisibilityManager
         
         try
         {
-            // Save current foreground window
-            // This will intelligently find the real target window if foreground is system/tray
-            if (preserveFocus)
-            {
-                _focusManager.SaveForegroundWindow();
-            }
-
             // Position window
             _positionManager?.PositionWindow(showWindow: false);
             
@@ -87,21 +82,26 @@ public class WindowVisibilityManager
             
             Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
 
-            // Restore focus to saved window
-            if (preserveFocus && _focusManager.HasValidSavedWindow())
+            // Restore focus to tracked window
+            // The tracker already knows which window was active before the tray click!
+            if (preserveFocus && _focusManager.HasValidTrackedWindow())
             {
                 await Task.Delay(50);
                 
-                bool restored = await _focusManager.RestoreForegroundWindowAsync();
+                bool restored = await _focusManager.RestoreFocusAsync();
                 
                 if (restored)
                 {
-                    Logger.Info("Focus successfully preserved");
+                    Logger.Info("✓ Focus successfully restored to tracked window");
                 }
                 else
                 {
-                    Logger.Warning("Could not preserve focus");
+                    Logger.Warning("Could not restore focus");
                 }
+            }
+            else if (preserveFocus)
+            {
+                Logger.Warning("No valid window tracked for focus restoration");
             }
         }
         catch (Exception ex)
@@ -119,7 +119,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Hide window - НЕ трогаем saved window!
+    /// Hide window - tracker continues to monitor foreground changes
     /// </summary>
     public void Hide()
     {
@@ -136,13 +136,10 @@ public class WindowVisibilityManager
             // Reset modifiers
             ResetAllModifiers();
             
-            // ВАЖНО: НЕ очищаем saved window!
-            // Оно понадобится при следующем Show()
-            
             // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
             
-            Logger.Debug("Window hidden");
+            Logger.Debug("Window hidden - tracker continues monitoring");
         }
         catch (Exception ex)
         {
@@ -168,11 +165,11 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Force restore focus to saved foreground window
+    /// Force restore focus to tracked window
     /// </summary>
     public async Task<bool> RestoreFocusAsync()
     {
-        return await _focusManager.RestoreForegroundWindowAsync();
+        return await _focusManager.RestoreFocusAsync();
     }
 
     /// <summary>
@@ -188,6 +185,9 @@ public class WindowVisibilityManager
     /// </summary>
     public void Cleanup()
     {
+        if (_isDisposed)
+            return;
+
         try
         {
             Logger.Info("WindowVisibilityManager cleanup started");
@@ -195,12 +195,15 @@ public class WindowVisibilityManager
             // Reset modifiers
             ResetAllModifiers();
             
-            // Clear saved window ONLY on cleanup (app exit)
-            _focusManager.ClearSavedWindow();
+            // Clear tracked window
+            _focusManager.ClearTrackedWindow();
             
             // Dispose resources
+            _focusManager?.Dispose();
             _backspaceHandler?.Dispose();
             _trayIcon?.Dispose();
+            
+            _isDisposed = true;
             
             Logger.Info("WindowVisibilityManager cleanup completed");
         }
@@ -238,5 +241,19 @@ public class WindowVisibilityManager
         }
         
         _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
+    }
+
+    /// <summary>
+    /// Dispose resources
+    /// </summary>
+    public void Dispose()
+    {
+        Cleanup();
+        GC.SuppressFinalize(this);
+    }
+
+    ~WindowVisibilityManager()
+    {
+        Dispose();
     }
 }
