@@ -78,20 +78,28 @@ public class ForegroundWindowTracker : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    private const uint GA_ROOT = 2;
+
     #endregion
 
     #region Ignored Windows Lists
 
-    // System windows to ignore
+    // System window classes to ignore
     private static readonly HashSet<string> IgnoredClasses = new HashSet<string>
     {
-        "Shell_TrayWnd",              // Taskbar
-        "Shell_SecondaryTrayWnd",     // Secondary taskbar
-        "Progman",                    // Desktop
-        "WorkerW",                    // Desktop worker
-        "Windows.UI.Core.CoreWindow", // Modern UI system windows
-        "NotifyIconOverflowWindow",   // Notification area overflow
-        "TopLevelWindowForOverflowXamlIsland", // System tray overflow
+        "Shell_TrayWnd",                           // Taskbar
+        "Shell_SecondaryTrayWnd",                  // Secondary taskbar
+        "Progman",                                 // Desktop
+        "WorkerW",                                 // Desktop worker
+        "Windows.UI.Core.CoreWindow",              // Modern UI system windows
+        "NotifyIconOverflowWindow",                // Notification area overflow
+        "TopLevelWindowForOverflowXamlIsland",     // System tray overflow
+        "Windows.UI.Input.InputSite.WindowClass",  // INPUT SITE - SYSTEM WINDOW
+        "ApplicationFrameWindow",                  // UWP app frame (check title separately)
+        "ForegroundStaging",                       // Windows staging window
     };
 
     private static readonly HashSet<string> IgnoredProcesses = new HashSet<string>
@@ -100,7 +108,8 @@ public class ForegroundWindowTracker : IDisposable
         "SearchHost.exe",
         "StartMenuExperienceHost.exe",
         "TextInputHost.exe",
-        "explorer.exe", // Sometimes gets focus during tray interactions
+        "SystemSettings.exe",
+        "LockApp.exe",
     };
 
     #endregion
@@ -256,26 +265,26 @@ public class ForegroundWindowTracker : IDisposable
         if (IgnoredClasses.Contains(classStr))
             return true;
 
+        // Get window title
+        StringBuilder title = new StringBuilder(256);
+        GetWindowText(hWnd, title, title.Capacity);
+        string titleStr = title.ToString();
+
         // Get process name
         uint processId;
         GetWindowThreadProcessId(hWnd, out processId);
-        IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
-        if (hProcess != IntPtr.Zero)
-        {
-            StringBuilder procName = new StringBuilder(256);
-            if (GetModuleBaseName(hProcess, IntPtr.Zero, procName, (uint)procName.Capacity) > 0)
-            {
-                string processName = procName.ToString();
-                CloseHandle(hProcess);
+        string processName = GetProcessName(processId);
 
-                if (IgnoredProcesses.Contains(processName))
-                    return true;
-            }
-            else
-            {
-                CloseHandle(hProcess);
-            }
+        // CRITICAL: Ignore Explorer.EXE windows without title (system windows)
+        if (processName == "Explorer.EXE" && string.IsNullOrWhiteSpace(titleStr))
+        {
+            Logger.Debug($"Ignoring Explorer.EXE system window without title: Class='{classStr}'");
+            return true;
         }
+
+        // Check ignored processes
+        if (IgnoredProcesses.Contains(processName))
+            return true;
 
         // Check window styles - ignore tool windows without WS_EX_APPWINDOW
         int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
@@ -287,7 +296,50 @@ public class ForegroundWindowTracker : IDisposable
         if (owner != IntPtr.Zero)
             return true;
 
+        // ADDITIONAL CHECK: Ignore windows without meaningful titles (likely system windows)
+        // Exception: some apps like terminals might have no title initially
+        if (string.IsNullOrWhiteSpace(titleStr))
+        {
+            // Allow certain processes to have empty titles
+            var allowedEmptyTitle = new[] { "WindowsTerminal.exe", "cmd.exe", "powershell.exe", "conhost.exe" };
+            bool isAllowed = false;
+            foreach (var allowed in allowedEmptyTitle)
+            {
+                if (processName.Equals(allowed, StringComparison.OrdinalIgnoreCase))
+                {
+                    isAllowed = true;
+                    break;
+                }
+            }
+
+            if (!isAllowed)
+            {
+                Logger.Debug($"Ignoring window without title: Class='{classStr}', Process='{processName}'");
+                return true;
+            }
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// Get process name from process ID
+    /// </summary>
+    private string GetProcessName(uint processId)
+    {
+        IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
+        if (hProcess != IntPtr.Zero)
+        {
+            StringBuilder procName = new StringBuilder(256);
+            if (GetModuleBaseName(hProcess, IntPtr.Zero, procName, (uint)procName.Capacity) > 0)
+            {
+                string name = procName.ToString();
+                CloseHandle(hProcess);
+                return name;
+            }
+            CloseHandle(hProcess);
+        }
+        return "Unknown";
     }
 
     /// <summary>
@@ -307,17 +359,7 @@ public class ForegroundWindowTracker : IDisposable
         uint processId;
         GetWindowThreadProcessId(hWnd, out processId);
 
-        string processName = "Unknown";
-        IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
-        if (hProcess != IntPtr.Zero)
-        {
-            StringBuilder procName = new StringBuilder(256);
-            if (GetModuleBaseName(hProcess, IntPtr.Zero, procName, (uint)procName.Capacity) > 0)
-            {
-                processName = procName.ToString();
-            }
-            CloseHandle(hProcess);
-        }
+        string processName = GetProcessName(processId);
 
         return $"HWND=0x{hWnd:X}, Title='{title}', Class='{className}', Process='{processName}' (PID={processId})";
     }

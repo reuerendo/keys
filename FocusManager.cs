@@ -72,7 +72,17 @@ public class FocusManager : IDisposable
             
             if (targetWindow != IntPtr.Zero)
             {
-                Logger.Info($"✓ Target window from tracker: {GetWindowInfo(targetWindow)}");
+                string info = GetWindowInfo(targetWindow);
+                Logger.Info($"✓ Target window from tracker: {info}");
+                
+                // Verify window has a meaningful title
+                StringBuilder title = new StringBuilder(256);
+                GetWindowText(targetWindow, title, title.Capacity);
+                if (string.IsNullOrWhiteSpace(title.ToString()))
+                {
+                    Logger.Warning("⚠ Target window has no title - might be a system window!");
+                }
+                
                 return targetWindow;
             }
             
