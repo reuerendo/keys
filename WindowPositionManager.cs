@@ -104,7 +104,8 @@ public class WindowPositionManager
 
             _window.AppWindow.Resize(new Windows.Graphics.SizeInt32(physicalWidth, physicalHeight));
 
-            // Apply scaling to root element
+            // Apply scaling to root element using ScaleTransform only
+            // Composition API will handle animations separately
             if (_window.Content is FrameworkElement rootElement)
             {
                 rootElement.Width = BASE_WIDTH;
@@ -112,21 +113,22 @@ public class WindowPositionManager
                 rootElement.HorizontalAlignment = HorizontalAlignment.Left;
                 rootElement.VerticalAlignment = VerticalAlignment.Top;
 
-                if (rootElement is Grid rootGrid && rootGrid.RenderTransform is ScaleTransform scaleTransform)
+                // Use simple ScaleTransform for scaling
+                // Don't use CompositeTransform as it conflicts with Composition API animations
+                if (Math.Abs(userScale - 1.0) > 0.001)
                 {
-                    scaleTransform.ScaleX = userScale;
-                    scaleTransform.ScaleY = userScale;
-                    Logger.Info($"Applied ScaleTransform to existing transform: {userScale}x");
-                }
-                else
-                {
-                    var transform = new ScaleTransform
+                    rootElement.RenderTransform = new ScaleTransform
                     {
                         ScaleX = userScale,
                         ScaleY = userScale
                     };
-                    rootElement.RenderTransform = transform;
-                    Logger.Info($"Created and applied new ScaleTransform: {userScale}x");
+                    Logger.Info($"Applied ScaleTransform: {userScale}x");
+                }
+                else
+                {
+                    // No transform needed for 1.0 scale
+                    rootElement.RenderTransform = null;
+                    Logger.Info("No transform needed (scale = 1.0)");
                 }
             }
         }

@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with focus preservation
-/// Ensures foreground application maintains focus when keyboard is shown
+/// Window visibility manager with focus preservation (no animations)
 /// </summary>
 public class WindowVisibilityManager
 {
@@ -28,7 +27,6 @@ public class WindowVisibilityManager
     private readonly WindowPositionManager _positionManager;
     private readonly KeyboardStateManager _stateManager;
     private readonly LayoutManager _layoutManager;
-    private readonly AutoShowManager _autoShowManager;
     private readonly FrameworkElement _rootElement;
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
@@ -40,7 +38,6 @@ public class WindowVisibilityManager
         WindowPositionManager positionManager,
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
-        AutoShowManager autoShowManager,
         FrameworkElement rootElement,
         BackspaceRepeatHandler backspaceHandler = null,
         TrayIcon trayIcon = null)
@@ -50,11 +47,12 @@ public class WindowVisibilityManager
         _positionManager = positionManager;
         _stateManager = stateManager;
         _layoutManager = layoutManager;
-        _autoShowManager = autoShowManager;
         _rootElement = rootElement;
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
+        
+        Logger.Info("WindowVisibilityManager initialized (no window animations)");
     }
 
     /// <summary>
@@ -66,16 +64,15 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window and preserve focus on foreground application
+    /// Show the window and preserve focus
     /// </summary>
-    /// <param name="preserveFocus">If true, attempts to maintain focus on current foreground window</param>
     public async void Show(bool preserveFocus = true)
     {
         Logger.Info($"Show called with preserveFocus={preserveFocus}");
         
         try
         {
-            // Save current foreground window before showing keyboard
+            // Save current foreground window
             if (preserveFocus)
             {
                 _focusManager.SaveForegroundWindow();
@@ -84,26 +81,25 @@ public class WindowVisibilityManager
             // Position window
             _positionManager?.PositionWindow(showWindow: false);
             
-            // Show without activation
+            // Show window without activation
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
             
             Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
 
-            // Restore focus to the saved window
+            // Restore focus
             if (preserveFocus && _focusManager.HasValidSavedWindow())
             {
-                // Small delay to ensure window is fully shown
-                await Task.Delay(10);
+                await Task.Delay(50);
                 
                 bool restored = await _focusManager.RestoreForegroundWindowAsync();
                 
                 if (restored)
                 {
-                    Logger.Info("Focus successfully preserved on foreground application");
+                    Logger.Info("Focus successfully preserved");
                 }
                 else
                 {
-                    Logger.Warning("Could not preserve focus - user may need to click target application");
+                    Logger.Warning("Could not preserve focus");
                 }
             }
         }
@@ -114,7 +110,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Show the window synchronously (for compatibility)
+    /// Show window synchronously
     /// </summary>
     public void ShowSync(bool preserveFocus = true)
     {
@@ -122,25 +118,30 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Hide the window to tray
+    /// Hide window
     /// </summary>
     public void Hide()
     {
+        if (!IsVisible())
+        {
+            Logger.Debug("Window already hidden");
+            return;
+        }
+
         try
         {
-            // Reset all modifiers before hiding
+            Logger.Info("Hiding window");
+            
+            // Reset modifiers
             ResetAllModifiers();
             
-            // Clear saved foreground window
+            // Clear saved foreground
             _focusManager.ClearSavedWindow();
             
             // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
             
-            // Notify AutoShowManager about hide (for cooldown)
-            _autoShowManager?.NotifyKeyboardHidden();
-            
-            Logger.Info("Window hidden");
+            Logger.Debug("Window hidden");
         }
         catch (Exception ex)
         {
@@ -149,7 +150,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Toggle window visibility with focus preservation
+    /// Toggle visibility
     /// </summary>
     public void Toggle()
     {
@@ -167,7 +168,6 @@ public class WindowVisibilityManager
 
     /// <summary>
     /// Force restore focus to saved foreground window
-    /// Useful when keyboard window accidentally gets focus
     /// </summary>
     public async Task<bool> RestoreFocusAsync()
     {
@@ -175,7 +175,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Check if keyboard currently has focus (shouldn't happen normally)
+    /// Check if keyboard currently has focus
     /// </summary>
     public bool HasFocus()
     {
@@ -183,7 +183,7 @@ public class WindowVisibilityManager
     }
 
     /// <summary>
-    /// Cleanup resources when window is closing
+    /// Cleanup resources
     /// </summary>
     public void Cleanup()
     {
@@ -191,27 +191,26 @@ public class WindowVisibilityManager
         {
             Logger.Info("WindowVisibilityManager cleanup started");
             
-            // Reset all modifiers before closing
+            // Reset modifiers
             ResetAllModifiers();
             
             // Clear saved window
             _focusManager.ClearSavedWindow();
             
-            // Dispose managed resources
+            // Dispose resources
             _backspaceHandler?.Dispose();
-            _autoShowManager?.Dispose();
             _trayIcon?.Dispose();
             
             Logger.Info("WindowVisibilityManager cleanup completed");
         }
         catch (Exception ex)
         {
-            Logger.Error("Error during WindowVisibilityManager cleanup", ex);
+            Logger.Error("Error during cleanup", ex);
         }
     }
 
     /// <summary>
-    /// Reset all modifier keys before hiding or closing
+    /// Reset all modifier keys
     /// </summary>
     private void ResetAllModifiers()
     {

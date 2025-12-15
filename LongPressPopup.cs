@@ -1,19 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages long-press popup panels with additional characters
+/// Manages long-press popup panels with additional characters and animations
 /// </summary>
 public class LongPressPopup
 {
     private const int LONG_PRESS_DELAY_MS = 300;
-    private const double POPUP_MARGIN = 8; // Margin from window edges
+    private const double POPUP_MARGIN = 8;
+    private const int ANIMATION_DURATION_MS = 150;
     
     private Popup _popup;
     private StackPanel _popupPanel;
@@ -21,6 +24,8 @@ public class LongPressPopup
     private Button _currentButton;
     private FrameworkElement _rootElement;
     private KeyboardStateManager _stateManager;
+    private Storyboard _showStoryboard;
+    private Storyboard _hideStoryboard;
     
     public event EventHandler<string> CharacterSelected;
     public bool IsPopupOpen => _popup?.IsOpen ?? false;
@@ -31,8 +36,9 @@ public class LongPressPopup
         _stateManager = stateManager;
         InitializePopup();
         InitializeLongPressTimer();
+        InitializeAnimations();
         
-        Logger.Info("LongPressPopup initialized");
+        Logger.Info("LongPressPopup initialized with animations");
     }
 
     private void InitializePopup()
@@ -45,7 +51,10 @@ public class LongPressPopup
             Background = new SolidColorBrush(Microsoft.UI.Colors.White),
             BorderBrush = new SolidColorBrush(Microsoft.UI.Colors.Gray),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4)
+            CornerRadius = new CornerRadius(4),
+            // Set initial state for animation
+            Opacity = 1,
+            RenderTransform = new CompositeTransform()
         };
 
         _popup = new Popup
@@ -57,11 +66,107 @@ public class LongPressPopup
         _popup.Closed += (s, e) =>
         {
             Logger.Debug("Popup closed event fired");
-            HidePopup();
+            // Just clear without animation on light dismiss
+            if (_popup.IsOpen)
+            {
+                _popup.IsOpen = false;
+                _popupPanel.Children.Clear();
+            }
         };
         
         Logger.Debug("Popup UI initialized");
     }
+
+	private void InitializeAnimations()
+	{
+		// Show animation - fade in + scale up + slide up
+		_showStoryboard = new Storyboard();
+		
+		var fadeIn = new DoubleAnimation
+		{
+			From = 0,
+			To = 1,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(fadeIn, _popupPanel);
+		Storyboard.SetTargetProperty(fadeIn, "Opacity");
+		
+		var scaleXIn = new DoubleAnimation
+		{
+			From = 0.8,
+			To = 1.0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(scaleXIn, _popupPanel);
+		Storyboard.SetTargetProperty(scaleXIn, "(UIElement.RenderTransform).(CompositeTransform.ScaleX)");
+		
+		var scaleYIn = new DoubleAnimation
+		{
+			From = 0.8,
+			To = 1.0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(scaleYIn, _popupPanel);
+		Storyboard.SetTargetProperty(scaleYIn, "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
+		
+		var slideIn = new DoubleAnimation
+		{
+			From = 10,
+			To = 0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(ANIMATION_DURATION_MS)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+		};
+		Storyboard.SetTarget(slideIn, _popupPanel);
+		Storyboard.SetTargetProperty(slideIn, "(UIElement.RenderTransform).(CompositeTransform.TranslateY)");
+		
+		_showStoryboard.Children.Add(fadeIn);
+		_showStoryboard.Children.Add(scaleXIn);
+		_showStoryboard.Children.Add(scaleYIn);
+		_showStoryboard.Children.Add(slideIn);
+		
+		// Hide animation - fade out + scale down
+		_hideStoryboard = new Storyboard();
+		
+		var fadeOut = new DoubleAnimation
+		{
+			To = 0,
+			Duration = new Duration(TimeSpan.FromMilliseconds(100)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+		};
+		Storyboard.SetTarget(fadeOut, _popupPanel);
+		Storyboard.SetTargetProperty(fadeOut, "Opacity");
+		
+		var scaleOut = new DoubleAnimation
+		{
+			To = 0.8,
+			Duration = new Duration(TimeSpan.FromMilliseconds(100)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+		};
+		Storyboard.SetTarget(scaleOut, _popupPanel);
+		Storyboard.SetTargetProperty(scaleOut, "(UIElement.RenderTransform).(CompositeTransform.ScaleX)");
+		
+		var scaleOutY = new DoubleAnimation
+		{
+			To = 0.8,
+			Duration = new Duration(TimeSpan.FromMilliseconds(100)),
+			EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+		};
+		Storyboard.SetTarget(scaleOutY, _popupPanel);
+		Storyboard.SetTargetProperty(scaleOutY, "(UIElement.RenderTransform).(CompositeTransform.ScaleY)");
+		
+		_hideStoryboard.Children.Add(fadeOut);
+		_hideStoryboard.Children.Add(scaleOut);
+		_hideStoryboard.Children.Add(scaleOutY);
+		
+		_hideStoryboard.Completed += (s, e) =>
+		{
+			_popup.IsOpen = false;
+			_popupPanel.Children.Clear();
+		};
+	}
 
     private void InitializeLongPressTimer()
     {
@@ -108,9 +213,26 @@ public class LongPressPopup
 
     public void HidePopup()
     {
-        if (_popup.IsOpen)
+        if (!_popup.IsOpen)
         {
-            Logger.Debug("Hiding popup");
+            Logger.Debug("Popup already hidden");
+            return;
+        }
+
+        Logger.Debug("Hiding popup with animation");
+        
+        try
+        {
+            // Stop any running show animation
+            _showStoryboard.Stop();
+            
+            // Start hide animation
+            _hideStoryboard.Begin();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Error during hide animation: {ex.Message}");
+            // Fallback - hide immediately
             _popup.IsOpen = false;
             _popupPanel.Children.Clear();
         }
@@ -149,17 +271,15 @@ public class LongPressPopup
 
         _popupPanel.Children.Clear();
 
-        // Check current modifier state - Shift should ONLY affect letters
+        // Check current modifier state
         bool isShiftActive = _stateManager.IsShiftActive || _stateManager.IsCapsLockActive;
         bool shouldCapitalize = isShiftActive && !(_stateManager.IsShiftActive && _stateManager.IsCapsLockActive);
 
         foreach (var option in options)
         {
-            // Determine which character to display and send
             string displayChar = option.Display;
             string valueChar = option.Value;
             
-            // Apply shift ONLY to letters
             if (option.IsLetter && shouldCapitalize)
             {
                 displayChar = option.DisplayShift;
@@ -173,16 +293,18 @@ public class LongPressPopup
                 Width = 48,
                 Height = 48,
                 FontSize = 14,
-				FontWeight = Microsoft.UI.Text.FontWeights.Medium
+                FontWeight = Microsoft.UI.Text.FontWeights.Medium
             };
 
+            // Add press animation to popup buttons
+            ButtonAnimationHelper.SetupPressAnimation(btn);
+            
             btn.Click += PopupButton_Click;
             _popupPanel.Children.Add(btn);
             
             Logger.Debug($"Added popup button: {displayChar} (value: {valueChar})");
         }
 
-        // Set XamlRoot for popup
         if (_rootElement?.XamlRoot != null)
         {
             _popup.XamlRoot = _rootElement.XamlRoot;
@@ -201,11 +323,11 @@ public class LongPressPopup
             double popupWidth = _popupPanel.DesiredSize.Width;
             double popupHeight = _popupPanel.DesiredSize.Height;
             
-            // Get button position relative to root element
+            // Get button position
             var transform = sourceButton.TransformToVisual(_rootElement);
             var buttonPosition = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
             
-            // Get root element (window) dimensions
+            // Get window dimensions
             double windowWidth = _rootElement.ActualWidth;
             double windowHeight = _rootElement.ActualHeight;
             
@@ -214,31 +336,27 @@ public class LongPressPopup
             // Calculate horizontal position
             double horizontalOffset = buttonPosition.X;
             
-            // Check if popup goes beyond right edge
             if (horizontalOffset + popupWidth > windowWidth - POPUP_MARGIN)
             {
                 horizontalOffset = windowWidth - popupWidth - POPUP_MARGIN;
                 Logger.Debug($"Popup adjusted to right edge: {horizontalOffset}");
             }
             
-            // Check if popup goes beyond left edge
             if (horizontalOffset < POPUP_MARGIN)
             {
                 horizontalOffset = POPUP_MARGIN;
                 Logger.Debug($"Popup adjusted to left edge: {horizontalOffset}");
             }
             
-            // Calculate vertical position - try to show above button first
-            double verticalOffset = buttonPosition.Y - popupHeight - 8; // 8px gap above button
+            // Calculate vertical position - try above button first
+            double verticalOffset = buttonPosition.Y - popupHeight - 8;
             
-            // Check if popup goes beyond top edge
             if (verticalOffset < POPUP_MARGIN)
             {
-                // Show below button instead
-                verticalOffset = buttonPosition.Y + sourceButton.ActualHeight + 8; // 8px gap below button
+                // Show below button
+                verticalOffset = buttonPosition.Y + sourceButton.ActualHeight + 8;
                 Logger.Debug($"Popup positioned below button: {verticalOffset}");
                 
-                // Check if it goes beyond bottom edge
                 if (verticalOffset + popupHeight > windowHeight - POPUP_MARGIN)
                 {
                     verticalOffset = windowHeight - popupHeight - POPUP_MARGIN;
@@ -249,9 +367,42 @@ public class LongPressPopup
             _popup.HorizontalOffset = horizontalOffset;
             _popup.VerticalOffset = verticalOffset;
 
+            // Set initial state for animation BEFORE opening popup
+            _popupPanel.Opacity = 0;
+            if (_popupPanel.RenderTransform is CompositeTransform transform2)
+            {
+                transform2.ScaleX = 0.8;
+                transform2.ScaleY = 0.8;
+                transform2.TranslateY = 10;
+            }
+
+            // Open popup
             _popup.IsOpen = true;
             
-            Logger.Info($"Popup opened at position X={horizontalOffset}, Y={verticalOffset}");
+            // Small delay to ensure popup is in visual tree before animating
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(10) };
+            timer.Tick += (s, e) =>
+            {
+                timer.Stop();
+                try
+                {
+                    _showStoryboard.Begin();
+                    Logger.Info($"Popup animation started at X={horizontalOffset}, Y={verticalOffset}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"Failed to start popup animation: {ex.Message}");
+                    // Fallback - show without animation
+                    _popupPanel.Opacity = 1;
+                    if (_popupPanel.RenderTransform is CompositeTransform t)
+                    {
+                        t.ScaleX = 1.0;
+                        t.ScaleY = 1.0;
+                        t.TranslateY = 0;
+                    }
+                }
+            };
+            timer.Start();
         }
         catch (Exception ex)
         {

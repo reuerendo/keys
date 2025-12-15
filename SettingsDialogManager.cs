@@ -13,7 +13,6 @@ public class SettingsDialogManager
     private readonly SettingsManager _settingsManager;
     private readonly LayoutManager _layoutManager;
     private readonly KeyboardStateManager _stateManager;
-    private readonly AutoShowManager _autoShowManager;
     private readonly WindowVisibilityManager _visibilityManager;
 
     public SettingsDialogManager(
@@ -21,14 +20,12 @@ public class SettingsDialogManager
         SettingsManager settingsManager,
         LayoutManager layoutManager,
         KeyboardStateManager stateManager,
-        AutoShowManager autoShowManager,
         WindowVisibilityManager visibilityManager)
     {
         _window = window;
         _settingsManager = settingsManager;
         _layoutManager = layoutManager;
         _stateManager = stateManager;
-        _autoShowManager = autoShowManager;
         _visibilityManager = visibilityManager;
     }
 
@@ -64,14 +61,6 @@ public class SettingsDialogManager
     /// </summary>
     private async void HandleSettingsChanges(SettingsDialog dialog)
     {
-        // Update auto-show setting immediately
-        if (dialog.RequiresAutoShowUpdate)
-        {
-            bool newAutoShowValue = _settingsManager.GetAutoShowKeyboard();
-            _autoShowManager.IsEnabled = newAutoShowValue;
-            Logger.Info($"AutoShow setting updated to: {newAutoShowValue}");
-        }
-        
         // Update layouts if changed (includes default layout)
         if (dialog.RequiresLayoutUpdate)
         {
