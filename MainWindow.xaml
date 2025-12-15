@@ -161,7 +161,9 @@
                     <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="!" Tag="!" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="?" Tag="?" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="↑" Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
+					<Button Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                        <FontIcon Glyph="&#xE650;" FontSize="20"/>
+                    </Button>
 					<Button Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
                         <FontIcon Glyph="&#xED58;" FontSize="20"/>
                     </Button>
@@ -176,9 +178,15 @@
                     <Button Content=" " Tag=" " Click="KeyButton_Click" Width="420" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="," Tag="," Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="." Tag="." Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="←" Tag="←" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="↓" Tag="↓" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="→" Tag="→" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
+					<Button Tag="←" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                        <FontIcon Glyph="&#xE652;" FontSize="20"/>
+                    </Button>
+					<Button Tag="↓" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                        <FontIcon Glyph="&#xE64F;" FontSize="20"/>
+                    </Button>
+					<Button Tag="→" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                        <FontIcon Glyph="&#xE651;" FontSize="20"/>
+                    </Button>
                 </StackPanel>
 
             </StackPanel>

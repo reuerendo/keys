@@ -41,6 +41,12 @@ public class FocusManager
     [DllImport("user32.dll")]
     private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetTopWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDesktopWindow();
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
@@ -64,6 +70,7 @@ public class FocusManager
 
     private const uint GW_OWNER = 4;
     private const uint GW_HWNDNEXT = 2;
+    private const uint GW_CHILD = 5;
     private const uint GW_HWNDFIRST = 0;
     private const uint PROCESS_QUERY_INFORMATION = 0x0400;
     private const uint PROCESS_VM_READ = 0x0010;
@@ -220,13 +227,25 @@ public class FocusManager
     {
         Logger.Info("Searching for best target window using Z-order...");
         
-        // Start from the topmost window
-        IntPtr hWnd = GetWindow(IntPtr.Zero, GW_HWNDFIRST);
+        // Start from the topmost window (GetTopWindow returns top-level window)
+        IntPtr hWnd = GetTopWindow(IntPtr.Zero);
         int checkedCount = 0;
+        
+        if (hWnd == IntPtr.Zero)
+        {
+            Logger.Warning("GetTopWindow returned NULL, trying desktop method");
+            // Fallback: get desktop and then its first child
+            IntPtr desktop = GetDesktopWindow();
+            if (desktop != IntPtr.Zero)
+            {
+                hWnd = GetWindow(desktop, GW_CHILD);
+            }
+        }
         
         while (hWnd != IntPtr.Zero && checkedCount < 100) // Safety limit
         {
             checkedCount++;
+            Logger.Debug($"Checking window #{checkedCount}: {GetWindowInfo(hWnd)}");
             
             if (!ShouldIgnoreWindow(hWnd))
             {
