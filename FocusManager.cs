@@ -61,12 +61,10 @@ public class FocusManager
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-    
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetTopWindow(IntPtr hWnd);
 
-    private const uint GW_HWNDNEXT = 2;
     private const uint GW_OWNER = 4;
+    private const uint GW_HWNDNEXT = 2;
+    private const uint GW_HWNDFIRST = 0;
     private const uint PROCESS_QUERY_INFORMATION = 0x0400;
     private const uint PROCESS_VM_READ = 0x0010;
     private const uint GA_ROOT = 2;
@@ -91,7 +89,6 @@ public class FocusManager
         "Progman",                 // Desktop
         "WorkerW",                 // Desktop worker
         "Windows.UI.Core.CoreWindow", // Modern UI system windows
-        "ApplicationFrameWindow",  // Some UWP containers (we'll check these specially)
     };
 
     private static readonly HashSet<string> IgnoredProcesses = new HashSet<string>
@@ -153,12 +150,6 @@ public class FocusManager
         if (hWnd == _keyboardWindowHandle)
             return true;
 
-        // Check if window is visible
-        if (!IsWindowVisible(hWnd))
-        {
-            return true;
-        }
-
         // Get class name
         StringBuilder className = new StringBuilder(256);
         GetClassName(hWnd, className, className.Capacity);
@@ -167,6 +158,7 @@ public class FocusManager
         // Check ignored classes
         if (IgnoredClasses.Contains(classStr))
         {
+            Logger.Debug($"Ignoring window with class '{classStr}'");
             return true;
         }
 
@@ -184,6 +176,7 @@ public class FocusManager
                 
                 if (IgnoredProcesses.Contains(processName))
                 {
+                    Logger.Debug($"Ignoring window from process '{processName}'");
                     return true;
                 }
             }
@@ -193,10 +186,26 @@ public class FocusManager
             }
         }
 
+        // Check if window is visible
+        if (!IsWindowVisible(hWnd))
+        {
+            Logger.Debug($"Ignoring invisible window");
+            return true;
+        }
+
         // Check window styles - ignore tool windows without WS_EX_APPWINDOW
         int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
         if ((exStyle & WS_EX_TOOLWINDOW) != 0 && (exStyle & WS_EX_APPWINDOW) == 0)
         {
+            Logger.Debug($"Ignoring tool window");
+            return true;
+        }
+
+        // Ignore windows with owners (probably dialogs/popups that aren't main windows)
+        IntPtr owner = GetWindow(hWnd, GW_OWNER);
+        if (owner != IntPtr.Zero)
+        {
+            Logger.Debug($"Ignoring window with owner (probably a dialog)");
             return true;
         }
 
@@ -204,91 +213,32 @@ public class FocusManager
     }
 
     /// <summary>
-    /// Check if window is a valid application window
-    /// More strict criteria than ShouldIgnoreWindow
-    /// </summary>
-    private bool IsValidApplicationWindow(IntPtr hWnd)
-    {
-        if (ShouldIgnoreWindow(hWnd))
-            return false;
-
-        // Must not have owner (owned windows are dialogs/popups)
-        IntPtr owner = GetWindow(hWnd, GW_OWNER);
-        if (owner != IntPtr.Zero)
-        {
-            Logger.Debug($"Window 0x{hWnd:X} has owner - likely a dialog");
-            return false;
-        }
-
-        // Check if it has WS_EX_APPWINDOW or no WS_EX_TOOLWINDOW
-        int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
-        bool hasAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
-        bool hasToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
-
-        // Valid if has APPWINDOW flag OR doesn't have TOOLWINDOW
-        if (!hasAppWindow && hasToolWindow)
-        {
-            Logger.Debug($"Window 0x{hWnd:X} is tool window without APPWINDOW");
-            return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Find the best target window using Z-order traversal
-    /// Returns the topmost visible application window
+    /// Find the best target window using Z-order (topmost windows first)
+    /// This respects the actual window stacking order, not random enumeration
     /// </summary>
     private IntPtr FindBestTargetWindow()
     {
-        Logger.Info("=== SEARCHING FOR TARGET WINDOW (Z-ORDER) ===");
+        Logger.Info("Searching for best target window using Z-order...");
         
         // Start from the topmost window
-        IntPtr hWnd = GetTopWindow(IntPtr.Zero);
-        int count = 0;
+        IntPtr hWnd = GetWindow(IntPtr.Zero, GW_HWNDFIRST);
+        int checkedCount = 0;
         
-        while (hWnd != IntPtr.Zero && count < 100)
+        while (hWnd != IntPtr.Zero && checkedCount < 100) // Safety limit
         {
-            count++;
+            checkedCount++;
             
-            if (IsValidApplicationWindow(hWnd))
+            if (!ShouldIgnoreWindow(hWnd))
             {
-                Logger.Info($"Found valid window #{count}: {GetWindowInfo(hWnd)}");
-                Logger.Info("=== END SEARCH ===");
+                Logger.Info($"Found target window (Z-order #{checkedCount}): {GetWindowInfo(hWnd)}");
                 return hWnd;
-            }
-            else if (!ShouldIgnoreWindow(hWnd))
-            {
-                // Window passes basic filter but not strict validation
-                Logger.Debug($"Window #{count} not ideal: {GetWindowInfo(hWnd)}");
             }
             
             // Move to next window in Z-order
             hWnd = GetWindow(hWnd, GW_HWNDNEXT);
         }
         
-        Logger.Warning($"No ideal window found after checking {count} windows");
-        
-        // Second pass: accept any non-ignored window
-        hWnd = GetTopWindow(IntPtr.Zero);
-        count = 0;
-        
-        while (hWnd != IntPtr.Zero && count < 100)
-        {
-            count++;
-            
-            if (!ShouldIgnoreWindow(hWnd))
-            {
-                Logger.Info($"Fallback: accepting window #{count}: {GetWindowInfo(hWnd)}");
-                Logger.Info("=== END SEARCH ===");
-                return hWnd;
-            }
-            
-            hWnd = GetWindow(hWnd, GW_HWNDNEXT);
-        }
-        
-        Logger.Warning("No valid window found at all");
-        Logger.Info("=== END SEARCH ===");
+        Logger.Warning($"No valid target window found after checking {checkedCount} windows");
         return IntPtr.Zero;
     }
 
@@ -308,7 +258,7 @@ public class FocusManager
             // Check if current foreground should be ignored
             if (ShouldIgnoreWindow(foreground))
             {
-                Logger.Warning($"Current foreground is system window - searching for real target");
+                Logger.Warning($"Current foreground is system/ignored window - using Z-order to find real target");
                 
                 // Find the best target window using Z-order
                 IntPtr targetWindow = FindBestTargetWindow();
@@ -316,7 +266,7 @@ public class FocusManager
                 if (targetWindow != IntPtr.Zero)
                 {
                     _savedForegroundWindow = targetWindow;
-                    Logger.Info($"✓ SAVED (smart detection): {GetWindowInfo(_savedForegroundWindow)}");
+                    Logger.Info($"✓ SAVED (Z-order detection): {GetWindowInfo(_savedForegroundWindow)}");
                 }
                 else
                 {
@@ -394,6 +344,9 @@ public class FocusManager
             // Method 2: Using AttachThreadInput
             success = TrySetForegroundWindowWithThreadAttach(targetWindow);
         }
+
+        // Give Windows time to process
+        await Task.Delay(10);
 
         IntPtr currentAfter = GetForegroundWindow();
         Logger.Info($"AFTER restore - Current: {GetWindowInfo(currentAfter)}");
