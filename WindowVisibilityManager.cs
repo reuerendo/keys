@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with focus preservation (no animations)
+/// Window visibility manager with focus preservation
 /// </summary>
 public class WindowVisibilityManager
 {
@@ -52,12 +52,9 @@ public class WindowVisibilityManager
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        Logger.Info("WindowVisibilityManager initialized (no window animations)");
+        Logger.Info("WindowVisibilityManager initialized with improved focus tracking");
     }
 
-    /// <summary>
-    /// Check if window is currently visible
-    /// </summary>
     public bool IsVisible()
     {
         return IsWindowVisible(_windowHandle);
@@ -72,7 +69,7 @@ public class WindowVisibilityManager
         
         try
         {
-            // Save current foreground window
+            // Save current foreground window (uses cache if foreground is system window)
             if (preserveFocus)
             {
                 _focusManager.SaveForegroundWindow();
@@ -109,16 +106,13 @@ public class WindowVisibilityManager
         }
     }
 
-    /// <summary>
-    /// Show window synchronously
-    /// </summary>
     public void ShowSync(bool preserveFocus = true)
     {
         Show(preserveFocus);
     }
 
     /// <summary>
-    /// Hide window
+    /// Hide window and update focus cache
     /// </summary>
     public void Hide()
     {
@@ -132,16 +126,19 @@ public class WindowVisibilityManager
         {
             Logger.Info("Hiding window");
             
+            // IMPORTANT: Update cache before hiding to remember current active window
+            _focusManager.UpdateLastValidAppWindow();
+            
             // Reset modifiers
             ResetAllModifiers();
             
-            // Clear saved foreground
+            // Clear saved foreground (but cache remains)
             _focusManager.ClearSavedWindow();
             
             // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
             
-            Logger.Debug("Window hidden");
+            Logger.Debug("Window hidden, focus cache updated");
         }
         catch (Exception ex)
         {
@@ -149,9 +146,6 @@ public class WindowVisibilityManager
         }
     }
 
-    /// <summary>
-    /// Toggle visibility
-    /// </summary>
     public void Toggle()
     {
         if (IsVisible())
@@ -166,25 +160,16 @@ public class WindowVisibilityManager
         }
     }
 
-    /// <summary>
-    /// Force restore focus to saved foreground window
-    /// </summary>
     public async Task<bool> RestoreFocusAsync()
     {
         return await _focusManager.RestoreForegroundWindowAsync();
     }
 
-    /// <summary>
-    /// Check if keyboard currently has focus
-    /// </summary>
     public bool HasFocus()
     {
         return _focusManager.IsKeyboardFocused();
     }
 
-    /// <summary>
-    /// Cleanup resources
-    /// </summary>
     public void Cleanup()
     {
         try
@@ -209,9 +194,6 @@ public class WindowVisibilityManager
         }
     }
 
-    /// <summary>
-    /// Reset all modifier keys
-    /// </summary>
     private void ResetAllModifiers()
     {
         Logger.Info("Resetting all modifiers");
