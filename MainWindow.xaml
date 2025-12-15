@@ -162,7 +162,9 @@
                     <Button Content="!" Tag="!" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="?" Tag="?" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
                     <Button Content="↑" Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="&amp;.." Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
+					<Button Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                        <FontIcon Glyph="&#xED58;" FontSize="20"/>
+                    </Button>
                 </StackPanel>
 
                 <!-- Row 5: Bottom row -->

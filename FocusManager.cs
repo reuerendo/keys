@@ -7,8 +7,8 @@ using System.Collections.Generic;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages focus preservation with smart window detection and caching
-/// Tracks last active application window to restore focus correctly
+/// Manages focus preservation with smart window detection
+/// Ignores system windows like taskbar/tray and finds real target applications
 /// </summary>
 public class FocusManager
 {
@@ -60,15 +60,13 @@ public class FocusManager
     private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
 
     [DllImport("user32.dll")]
-    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-    [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetTopWindow(IntPtr hWnd);
 
-    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
+    private const uint GW_HWNDNEXT = 2;
     private const uint GW_OWNER = 4;
-    private const uint GW_HWNDPREV = 3;
     private const uint PROCESS_QUERY_INFORMATION = 0x0400;
     private const uint PROCESS_VM_READ = 0x0010;
     private const uint GA_ROOT = 2;
@@ -83,17 +81,17 @@ public class FocusManager
 
     private readonly IntPtr _keyboardWindowHandle;
     private IntPtr _savedForegroundWindow = IntPtr.Zero;
-    private IntPtr _lastValidAppWindow = IntPtr.Zero; // Cache for last valid app window
     private readonly object _lockObject = new object();
 
+    // System windows to ignore
     private static readonly HashSet<string> IgnoredClasses = new HashSet<string>
     {
-        "Shell_TrayWnd",
-        "Shell_SecondaryTrayWnd",
-        "Progman",
-        "WorkerW",
-        "Windows.UI.Core.CoreWindow",
-        "ApplicationFrameWindow",
+        "Shell_TrayWnd",           // Taskbar
+        "Shell_SecondaryTrayWnd",  // Secondary taskbar
+        "Progman",                 // Desktop
+        "WorkerW",                 // Desktop worker
+        "Windows.UI.Core.CoreWindow", // Modern UI system windows
+        "ApplicationFrameWindow",  // Some UWP containers (we'll check these specially)
     };
 
     private static readonly HashSet<string> IgnoredProcesses = new HashSet<string>
@@ -108,6 +106,9 @@ public class FocusManager
         _keyboardWindowHandle = keyboardWindowHandle;
     }
 
+    /// <summary>
+    /// Get detailed information about a window
+    /// </summary>
     private string GetWindowInfo(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
@@ -140,24 +141,36 @@ public class FocusManager
         return $"HWND=0x{hWnd:X}, Title='{title}', Class='{className}', Process='{processName}' (PID={processId}), Visible={isVisible}, Owner=0x{owner:X}";
     }
 
+    /// <summary>
+    /// Check if window should be ignored (system windows, taskbar, etc.)
+    /// </summary>
     private bool ShouldIgnoreWindow(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
             return true;
 
+        // Ignore keyboard itself
         if (hWnd == _keyboardWindowHandle)
             return true;
 
+        // Check if window is visible
+        if (!IsWindowVisible(hWnd))
+        {
+            return true;
+        }
+
+        // Get class name
         StringBuilder className = new StringBuilder(256);
         GetClassName(hWnd, className, className.Capacity);
         string classStr = className.ToString();
 
+        // Check ignored classes
         if (IgnoredClasses.Contains(classStr))
         {
-            Logger.Debug($"Ignoring window with class '{classStr}'");
             return true;
         }
 
+        // Get process name
         uint processId;
         GetWindowThreadProcessId(hWnd, out processId);
         IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
@@ -171,7 +184,6 @@ public class FocusManager
                 
                 if (IgnoredProcesses.Contains(processName))
                 {
-                    Logger.Debug($"Ignoring window from process '{processName}'");
                     return true;
                 }
             }
@@ -181,16 +193,10 @@ public class FocusManager
             }
         }
 
-        if (!IsWindowVisible(hWnd))
-        {
-            Logger.Debug($"Ignoring invisible window");
-            return true;
-        }
-
+        // Check window styles - ignore tool windows without WS_EX_APPWINDOW
         int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
         if ((exStyle & WS_EX_TOOLWINDOW) != 0 && (exStyle & WS_EX_APPWINDOW) == 0)
         {
-            Logger.Debug($"Ignoring tool window");
             return true;
         }
 
@@ -198,109 +204,97 @@ public class FocusManager
     }
 
     /// <summary>
-    /// Find the best target window using improved Z-order search
-    /// Prioritizes windows that were recently foreground
+    /// Check if window is a valid application window
+    /// More strict criteria than ShouldIgnoreWindow
     /// </summary>
-    private IntPtr FindBestTargetWindow()
+    private bool IsValidApplicationWindow(IntPtr hWnd)
     {
-        IntPtr bestWindow = IntPtr.Zero;
-        IntPtr foreground = GetForegroundWindow();
-        
-        Logger.Debug("Searching for best target window...");
-        
-        // Strategy 1: If we have a cached valid window, try it first
-        if (_lastValidAppWindow != IntPtr.Zero && 
-            IsWindow(_lastValidAppWindow) && 
-            IsWindowVisible(_lastValidAppWindow) &&
-            !ShouldIgnoreWindow(_lastValidAppWindow))
-        {
-            Logger.Info($"Using cached last app window: {GetWindowInfo(_lastValidAppWindow)}");
-            return _lastValidAppWindow;
-        }
-        
-        // Strategy 2: Check window before current foreground in Z-order
-        if (foreground != IntPtr.Zero)
-        {
-            IntPtr prevWindow = GetWindow(foreground, GW_HWNDPREV);
-            int attempts = 0;
-            
-            while (prevWindow != IntPtr.Zero && attempts < 10)
-            {
-                if (!ShouldIgnoreWindow(prevWindow))
-                {
-                    StringBuilder title = new StringBuilder(256);
-                    GetWindowText(prevWindow, title, title.Capacity);
-                    
-                    if (title.Length > 0)
-                    {
-                        Logger.Info($"Found previous window in Z-order: {GetWindowInfo(prevWindow)}");
-                        return prevWindow;
-                    }
-                }
-                prevWindow = GetWindow(prevWindow, GW_HWNDPREV);
-                attempts++;
-            }
-        }
-        
-        // Strategy 3: Enumerate all windows and find first valid one with title
-        EnumWindows((hWnd, lParam) =>
-        {
-            if (!ShouldIgnoreWindow(hWnd))
-            {
-                StringBuilder title = new StringBuilder(256);
-                GetWindowText(hWnd, title, title.Capacity);
-                
-                if (title.Length > 0)
-                {
-                    bestWindow = hWnd;
-                    Logger.Info($"Found candidate window via enumeration: {GetWindowInfo(hWnd)}");
-                    return false;
-                }
-            }
-            return true;
-        }, IntPtr.Zero);
+        if (ShouldIgnoreWindow(hWnd))
+            return false;
 
-        // Strategy 4: If still nothing, try any valid window
-        if (bestWindow == IntPtr.Zero)
+        // Must not have owner (owned windows are dialogs/popups)
+        IntPtr owner = GetWindow(hWnd, GW_OWNER);
+        if (owner != IntPtr.Zero)
         {
-            EnumWindows((hWnd, lParam) =>
-            {
-                if (!ShouldIgnoreWindow(hWnd))
-                {
-                    bestWindow = hWnd;
-                    Logger.Info($"Found fallback window: {GetWindowInfo(hWnd)}");
-                    return false;
-                }
-                return true;
-            }, IntPtr.Zero);
+            Logger.Debug($"Window 0x{hWnd:X} has owner - likely a dialog");
+            return false;
         }
 
-        return bestWindow;
+        // Check if it has WS_EX_APPWINDOW or no WS_EX_TOOLWINDOW
+        int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
+        bool hasAppWindow = (exStyle & WS_EX_APPWINDOW) != 0;
+        bool hasToolWindow = (exStyle & WS_EX_TOOLWINDOW) != 0;
+
+        // Valid if has APPWINDOW flag OR doesn't have TOOLWINDOW
+        if (!hasAppWindow && hasToolWindow)
+        {
+            Logger.Debug($"Window 0x{hWnd:X} is tool window without APPWINDOW");
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
-    /// Update cached last valid application window
-    /// Call this periodically or when hiding keyboard
+    /// Find the best target window using Z-order traversal
+    /// Returns the topmost visible application window
     /// </summary>
-    public void UpdateLastValidAppWindow()
+    private IntPtr FindBestTargetWindow()
     {
-        lock (_lockObject)
+        Logger.Info("=== SEARCHING FOR TARGET WINDOW (Z-ORDER) ===");
+        
+        // Start from the topmost window
+        IntPtr hWnd = GetTopWindow(IntPtr.Zero);
+        int count = 0;
+        
+        while (hWnd != IntPtr.Zero && count < 100)
         {
-            IntPtr foreground = GetForegroundWindow();
+            count++;
             
-            if (foreground != IntPtr.Zero && 
-                foreground != _keyboardWindowHandle &&
-                !ShouldIgnoreWindow(foreground))
+            if (IsValidApplicationWindow(hWnd))
             {
-                _lastValidAppWindow = foreground;
-                Logger.Debug($"Updated last valid app window: {GetWindowInfo(_lastValidAppWindow)}");
+                Logger.Info($"Found valid window #{count}: {GetWindowInfo(hWnd)}");
+                Logger.Info("=== END SEARCH ===");
+                return hWnd;
             }
+            else if (!ShouldIgnoreWindow(hWnd))
+            {
+                // Window passes basic filter but not strict validation
+                Logger.Debug($"Window #{count} not ideal: {GetWindowInfo(hWnd)}");
+            }
+            
+            // Move to next window in Z-order
+            hWnd = GetWindow(hWnd, GW_HWNDNEXT);
         }
+        
+        Logger.Warning($"No ideal window found after checking {count} windows");
+        
+        // Second pass: accept any non-ignored window
+        hWnd = GetTopWindow(IntPtr.Zero);
+        count = 0;
+        
+        while (hWnd != IntPtr.Zero && count < 100)
+        {
+            count++;
+            
+            if (!ShouldIgnoreWindow(hWnd))
+            {
+                Logger.Info($"Fallback: accepting window #{count}: {GetWindowInfo(hWnd)}");
+                Logger.Info("=== END SEARCH ===");
+                return hWnd;
+            }
+            
+            hWnd = GetWindow(hWnd, GW_HWNDNEXT);
+        }
+        
+        Logger.Warning("No valid window found at all");
+        Logger.Info("=== END SEARCH ===");
+        return IntPtr.Zero;
     }
 
     /// <summary>
     /// Save the current foreground window before showing keyboard
-    /// WITH SMART DETECTION and cached window preference
+    /// WITH SMART DETECTION - ignores system windows and finds real target
     /// </summary>
     public void SaveForegroundWindow()
     {
@@ -311,46 +305,29 @@ public class FocusManager
             Logger.Info("=== FOCUS SAVE DIAGNOSTICS ===");
             Logger.Info($"Current foreground: {GetWindowInfo(foreground)}");
             
-            if (_lastValidAppWindow != IntPtr.Zero && 
-                IsWindow(_lastValidAppWindow) && 
-                IsWindowVisible(_lastValidAppWindow))
-            {
-                Logger.Info($"Cached last app window: {GetWindowInfo(_lastValidAppWindow)}");
-            }
-            
+            // Check if current foreground should be ignored
             if (ShouldIgnoreWindow(foreground))
             {
-                Logger.Warning($"Current foreground is system window");
+                Logger.Warning($"Current foreground is system window - searching for real target");
                 
-                // First try: use cached window if available
-                if (_lastValidAppWindow != IntPtr.Zero && 
-                    IsWindow(_lastValidAppWindow) && 
-                    IsWindowVisible(_lastValidAppWindow) &&
-                    !ShouldIgnoreWindow(_lastValidAppWindow))
+                // Find the best target window using Z-order
+                IntPtr targetWindow = FindBestTargetWindow();
+                
+                if (targetWindow != IntPtr.Zero)
                 {
-                    _savedForegroundWindow = _lastValidAppWindow;
-                    Logger.Info($"✓ SAVED (from cache): {GetWindowInfo(_savedForegroundWindow)}");
+                    _savedForegroundWindow = targetWindow;
+                    Logger.Info($"✓ SAVED (smart detection): {GetWindowInfo(_savedForegroundWindow)}");
                 }
                 else
                 {
-                    // Second try: search for best target
-                    IntPtr targetWindow = FindBestTargetWindow();
-                    
-                    if (targetWindow != IntPtr.Zero)
-                    {
-                        _savedForegroundWindow = targetWindow;
-                        _lastValidAppWindow = targetWindow; // Update cache
-                        Logger.Info($"✓ SAVED (smart detection): {GetWindowInfo(_savedForegroundWindow)}");
-                    }
-                    else
-                    {
-                        Logger.Warning("✗ No valid target window found");
-                        _savedForegroundWindow = IntPtr.Zero;
-                    }
+                    Logger.Warning("✗ No valid target window found");
+                    _savedForegroundWindow = IntPtr.Zero;
                 }
             }
             else
             {
+                // Foreground is a valid target window
+                // Get the root window (in case foreground is a child window)
                 IntPtr rootWindow = GetAncestor(foreground, GA_ROOT);
                 if (rootWindow != IntPtr.Zero && rootWindow != foreground && !ShouldIgnoreWindow(rootWindow))
                 {
@@ -363,9 +340,6 @@ public class FocusManager
                     _savedForegroundWindow = foreground;
                 }
                 
-                // Update cache with valid window
-                _lastValidAppWindow = _savedForegroundWindow;
-                
                 Logger.Info($"✓ SAVED (direct): {GetWindowInfo(_savedForegroundWindow)}");
             }
             
@@ -373,6 +347,9 @@ public class FocusManager
         }
     }
 
+    /// <summary>
+    /// Restore focus to the previously saved foreground window
+    /// </summary>
     public async Task<bool> RestoreForegroundWindowAsync()
     {
         IntPtr targetWindow;
@@ -406,12 +383,15 @@ public class FocusManager
         Logger.Info($"BEFORE restore - Current: {GetWindowInfo(currentBefore)}");
         Logger.Info($"BEFORE restore - Target: {GetWindowInfo(targetWindow)}");
 
+        // Try multiple methods to restore focus
         bool success = false;
 
+        // Method 1: Direct SetForegroundWindow
         success = TrySetForegroundWindow(targetWindow);
         
         if (!success)
         {
+            // Method 2: Using AttachThreadInput
             success = TrySetForegroundWindowWithThreadAttach(targetWindow);
         }
 
@@ -436,11 +416,17 @@ public class FocusManager
         return success && currentAfter == targetWindow;
     }
 
+    /// <summary>
+    /// Synchronous version of RestoreForegroundWindow for immediate use
+    /// </summary>
     public bool RestoreForegroundWindow()
     {
         return RestoreForegroundWindowAsync().GetAwaiter().GetResult();
     }
 
+    /// <summary>
+    /// Get the currently saved foreground window
+    /// </summary>
     public IntPtr GetSavedForegroundWindow()
     {
         lock (_lockObject)
@@ -449,6 +435,9 @@ public class FocusManager
         }
     }
 
+    /// <summary>
+    /// Check if we have a valid saved window
+    /// </summary>
     public bool HasValidSavedWindow()
     {
         lock (_lockObject)
@@ -459,6 +448,9 @@ public class FocusManager
         }
     }
 
+    /// <summary>
+    /// Clear the saved foreground window
+    /// </summary>
     public void ClearSavedWindow()
     {
         lock (_lockObject)
@@ -467,6 +459,9 @@ public class FocusManager
         }
     }
 
+    /// <summary>
+    /// Try to set foreground window directly
+    /// </summary>
     private bool TrySetForegroundWindow(IntPtr hWnd)
     {
         try
@@ -489,6 +484,10 @@ public class FocusManager
         }
     }
 
+    /// <summary>
+    /// Try to set foreground window using thread input attachment
+    /// This method can bypass some Windows restrictions
+    /// </summary>
     private bool TrySetForegroundWindowWithThreadAttach(IntPtr hWnd)
     {
         try
@@ -501,6 +500,7 @@ public class FocusManager
                 return false;
             }
 
+            // Attach our thread input to the target window's thread
             bool attached = AttachThreadInput(currentThreadId, targetThreadId, true);
             
             if (!attached)
@@ -511,7 +511,10 @@ public class FocusManager
 
             try
             {
+                // Try to bring window to top first
                 BringWindowToTop(hWnd);
+                
+                // Then set as foreground
                 bool result = SetForegroundWindow(hWnd);
                 
                 if (result)
@@ -527,6 +530,7 @@ public class FocusManager
             }
             finally
             {
+                // Always detach thread input
                 AttachThreadInput(currentThreadId, targetThreadId, false);
             }
         }
@@ -537,11 +541,17 @@ public class FocusManager
         }
     }
 
+    /// <summary>
+    /// Check if the keyboard window currently has focus
+    /// </summary>
     public bool IsKeyboardFocused()
     {
         return GetForegroundWindow() == _keyboardWindowHandle;
     }
 
+    /// <summary>
+    /// Restore focus with delay (for use after UI operations)
+    /// </summary>
     public async Task RestoreForegroundWindowWithDelayAsync(int delayMs = 50)
     {
         await Task.Delay(delayMs);
