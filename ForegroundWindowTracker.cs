@@ -87,8 +87,8 @@ public class ForegroundWindowTracker : IDisposable
 
     #region Ignored Windows Lists
 
-    // System window classes to ignore
-    private static readonly HashSet<string> IgnoredClasses = new HashSet<string>
+    // System window classes to ignore (NEVER track these)
+    private static readonly HashSet<string> AlwaysIgnoredClasses = new HashSet<string>
     {
         "Shell_TrayWnd",                           // Taskbar
         "Shell_SecondaryTrayWnd",                  // Secondary taskbar
@@ -98,8 +98,13 @@ public class ForegroundWindowTracker : IDisposable
         "NotifyIconOverflowWindow",                // Notification area overflow
         "TopLevelWindowForOverflowXamlIsland",     // System tray overflow
         "Windows.UI.Input.InputSite.WindowClass",  // INPUT SITE - SYSTEM WINDOW
-        "ApplicationFrameWindow",                  // UWP app frame (check title separately)
         "ForegroundStaging",                       // Windows staging window
+    };
+
+    // Classes that require additional checks (title, process, etc.)
+    private static readonly HashSet<string> ConditionallyIgnoredClasses = new HashSet<string>
+    {
+        "ApplicationFrameWindow",  // UWP app frame - check if it has meaningful title
     };
 
     private static readonly HashSet<string> IgnoredProcesses = new HashSet<string>
@@ -261,19 +266,34 @@ public class ForegroundWindowTracker : IDisposable
         GetClassName(hWnd, className, className.Capacity);
         string classStr = className.ToString();
 
-        // Check ignored classes
-        if (IgnoredClasses.Contains(classStr))
+        // ALWAYS ignore system windows (no exceptions)
+        if (AlwaysIgnoredClasses.Contains(classStr))
             return true;
 
-        // Get window title
+        // Get window title (needed for conditional checks)
         StringBuilder title = new StringBuilder(256);
         GetWindowText(hWnd, title, title.Capacity);
         string titleStr = title.ToString();
 
-        // Get process name
+        // Get process info
         uint processId;
         GetWindowThreadProcessId(hWnd, out processId);
         string processName = GetProcessName(processId);
+
+        // CONDITIONAL CHECK: ApplicationFrameWindow (UWP apps)
+        if (ConditionallyIgnoredClasses.Contains(classStr))
+        {
+            // UWP apps with meaningful titles should NOT be ignored
+            if (classStr == "ApplicationFrameWindow" && !string.IsNullOrWhiteSpace(titleStr))
+            {
+                Logger.Debug($"Accepting UWP app: Title='{titleStr}', Process='{processName}'");
+                return false; // DON'T ignore - this is a real UWP app
+            }
+            
+            // UWP apps without titles are likely system windows
+            Logger.Debug($"Ignoring UWP system window without title: Process='{processName}'");
+            return true;
+        }
 
         // CRITICAL: Ignore Explorer.EXE windows without title (system windows)
         if (processName == "Explorer.EXE" && string.IsNullOrWhiteSpace(titleStr))
