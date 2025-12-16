@@ -101,15 +101,37 @@ public class KeyboardEventCoordinator
                 break;
                 
             case "Lang":
-                _layoutManager.SwitchLanguage();
-                _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
-                _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+                // In symbol mode, both Lang and &.. buttons exit symbol mode
+                if (_layoutManager.IsSymbolMode)
+                {
+                    _layoutManager.ToggleSymbolMode();
+                    _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
+                    _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+                }
+                else
+                {
+                    // In letter mode, Lang switches language
+                    _layoutManager.SwitchLanguage();
+                    _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
+                    _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+                }
                 break;
                 
             case "&..":
-                _layoutManager.ToggleSymbolMode();
-                _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
-                _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+                // In symbol mode, both Lang and &.. buttons exit symbol mode
+                if (_layoutManager.IsSymbolMode)
+                {
+                    _layoutManager.ToggleSymbolMode();
+                    _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
+                    _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+                }
+                else
+                {
+                    // In letter mode, &.. enters symbol mode
+                    _layoutManager.ToggleSymbolMode();
+                    _layoutManager.UpdateKeyLabels(rootElement, _stateManager);
+                    _longPressPopup?.SetCurrentLayout(_layoutManager.CurrentLayout.Name);
+                }
                 break;
                 
             case "Backspace":

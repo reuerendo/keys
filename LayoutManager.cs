@@ -21,6 +21,7 @@ public class LayoutManager
     private bool _isSymbolMode;
 
     private Button _langButton;
+    private Button _symbolButton;
     private readonly SettingsManager _settingsManager;
 
     public KeyboardLayout CurrentLayout => _isSymbolMode ? _symbolLayout : _availableLayouts[_currentLayoutIndex];
@@ -160,6 +161,7 @@ public class LayoutManager
     {
         UpdateButtonLabelsRecursive(rootElement, stateManager);
         UpdateLangButtonLabel();
+        UpdateSymbolButtonLabel();
     }
 
     /// <summary>
@@ -175,7 +177,7 @@ public class LayoutManager
                 tag == "Ctrl" || tag == "Alt" || tag == "Enter" || 
                 tag == "Backspace" || tag == " ")
             {
-                // Don't update control keys except Lang button (handled separately)
+                // Don't update control keys except Lang and &.. buttons (handled separately)
             }
             else if (CurrentLayout.Keys.ContainsKey(tag))
             {
@@ -216,7 +218,7 @@ public class LayoutManager
     }
 
     /// <summary>
-    /// Update Lang button label with current layout code
+    /// Update Lang button label with current layout code or icon
     /// </summary>
     private void UpdateLangButtonLabel()
     {
@@ -226,7 +228,54 @@ public class LayoutManager
             return;
         }
         
-        _langButton.Content = _isSymbolMode ? "abc" : CurrentLayout.Code;
+        if (_isSymbolMode)
+        {
+            // In symbol mode, show icon to exit symbol mode
+            var fontIcon = new FontIcon
+            {
+                Glyph = "\uE8D3",
+                FontSize = 20
+            };
+            _langButton.Content = fontIcon;
+        }
+        else
+        {
+            // In letter mode, show current layout code
+            _langButton.Content = CurrentLayout.Code;
+        }
+    }
+
+    /// <summary>
+    /// Update &.. button label with icon
+    /// </summary>
+    private void UpdateSymbolButtonLabel()
+    {
+        if (_symbolButton == null)
+        {
+            // Lazy initialization will happen on first call
+            return;
+        }
+        
+        if (_isSymbolMode)
+        {
+            // In symbol mode, show icon to exit symbol mode
+            var fontIcon = new FontIcon
+            {
+                Glyph = "\uE8D3",
+                FontSize = 20
+            };
+            _symbolButton.Content = fontIcon;
+        }
+        else
+        {
+            // In letter mode, show symbols icon
+            var fontIcon = new FontIcon
+            {
+                Glyph = "\uED58",
+                FontSize = 20
+            };
+            _symbolButton.Content = fontIcon;
+        }
     }
 
     /// <summary>
@@ -235,7 +284,9 @@ public class LayoutManager
     public void InitializeLangButton(FrameworkElement rootElement)
     {
         FindLangButton(rootElement);
+        FindSymbolButton(rootElement);
         UpdateLangButtonLabel();
+        UpdateSymbolButtonLabel();
     }
 
     /// <summary>
@@ -263,6 +314,34 @@ public class LayoutManager
         else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
         {
             FindLangButton(scrollContent);
+        }
+    }
+
+    /// <summary>
+    /// Find &.. button in UI tree
+    /// </summary>
+    private void FindSymbolButton(FrameworkElement element)
+    {
+        if (_symbolButton != null) return;
+
+        if (element is Button btn && btn.Tag as string == "&..")
+        {
+            _symbolButton = btn;
+            return;
+        }
+
+        if (element is Panel panel)
+        {
+            foreach (var child in panel.Children)
+            {
+                if (child is FrameworkElement fe)
+                    FindSymbolButton(fe);
+                if (_symbolButton != null) return;
+            }
+        }
+        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+        {
+            FindSymbolButton(scrollContent);
         }
     }
 }
