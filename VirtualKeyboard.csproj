@@ -1,38 +1,26 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
-    <RootNamespace>VirtualKeyboard</RootNamespace>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Platforms>x64</Platforms>
-    <Platform>x64</Platform>
-    <PlatformTarget>x64</PlatformTarget>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <UseWinUI>true</UseWinUI>
-    <EnableMsixTooling>true</EnableMsixTooling>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <WindowsPackageType>None</WindowsPackageType>
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>false</PublishSingleFile>
-    <PublishTrimmed>false</PublishTrimmed>
-	<TrimMode>partial</TrimMode>
-	<PublishReadyToRun>true</PublishReadyToRun>
-  </PropertyGroup>
+<Project Sdk="Microsoft.NET.Sdk"> 
+  <PropertyGroup> 
+    <OutputType>WinExe</OutputType> 
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework> 
+    <UseWinUI>true</UseWinUI> 
+    <Nullable>enable</Nullable> 
+    <WindowsAppSDKVersion>1.5.240802000</WindowsAppSDKVersion> 
+    <PlatformTarget>x64</PlatformTarget> 
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers> 
+    <SelfContained>true</SelfContained> 
+    <PublishSingleFile>false</PublishSingleFile> 
+    <PublishTrimmed>false</PublishTrimmed> 
+    <ApplicationManifest>app.manifest</ApplicationManifest> 
+  </PropertyGroup> 
+
+  <ItemGroup> 
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" /> 
+    <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
+  </ItemGroup> 
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.5.240802000" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Manifest Include="$(ApplicationManifest)" />
-  </ItemGroup>
-  
-  <ItemGroup>
-    <Content Include="tray_icon.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+    <Content Include="tray_icon.ico"> 
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory> 
+    </Content> 
+  </ItemGroup> 
 </Project>
