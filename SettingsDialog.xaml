@@ -16,6 +16,59 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="700">
         <StackPanel Spacing="24" Padding="8">
             
+            <!-- Auto-Show Section -->
+            <StackPanel Spacing="12">
+                <TextBlock 
+                    Text="Автоматический показ" 
+                    FontSize="16" 
+                    FontWeight="SemiBold"/>
+                
+                <TextBlock 
+                    Text="Автоматически показывать клавиатуру при фокусе на текстовых полях" 
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    TextWrapping="Wrap"
+                    Margin="0,0,0,8"/>
+                
+                <ToggleSwitch 
+                    x:Name="AutoShowToggle"
+                    Header="Показывать при клике на текстовое поле"
+                    OffContent="Выключено"
+                    OnContent="Включено"
+                    Toggled="AutoShowToggle_Toggled"/>
+                
+                <Border 
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="12"
+                    Margin="0,8,0,0">
+                    <StackPanel Spacing="4">
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="ℹ️ "/>
+                            <Run Text="При включении этой опции клавиатура будет автоматически появляться при фокусе на текстовых полях в любом приложении"/>
+                        </TextBlock>
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="💡 "/>
+                            <Run Text="Поддерживаются текстовые поля в браузерах, Win32, UWP, WPF и WinUI приложениях"/>
+                        </TextBlock>
+                        <TextBlock 
+                            FontSize="12" 
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                            <Run Text="🔒 "/>
+                            <Run Text="При фокусе на поле для пароля клавиатура также будет показана"/>
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <!-- Separator -->
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+            
             <!-- Keyboard Layouts Section -->
             <StackPanel Spacing="12">
                 <TextBlock 
@@ -92,6 +145,9 @@
                     </StackPanel>
                 </Border>
             </StackPanel>
+            
+            <!-- Separator -->
+            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
             
             <!-- Keyboard Scale Section -->
             <StackPanel Spacing="12">
