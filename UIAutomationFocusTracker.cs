@@ -35,11 +35,6 @@ public class UIAutomationFocusTracker : IDisposable
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
 
-    /// <summary>
-    /// Constructor
-    /// </summary>
-    /// <param name="keyboardWindowHandle">Handle of the virtual keyboard window</param>
-    /// <param name="requireClickForAutoShow">If true, auto-show only triggers on actual mouse clicks</param>
     public UIAutomationFocusTracker(IntPtr keyboardWindowHandle, bool requireClickForAutoShow = true)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
@@ -49,7 +44,6 @@ public class UIAutomationFocusTracker : IDisposable
         {
             Logger.Info("Initializing UI Automation focus tracker with FlaUI...");
             
-            // Initialize mouse click detector if click filtering is enabled
             if (_requireClickForAutoShow)
             {
                 _clickDetector = new MouseClickDetector();
@@ -60,7 +54,6 @@ public class UIAutomationFocusTracker : IDisposable
                 Logger.Info("⚠️ Click detection disabled - auto-show on any focus change");
             }
             
-            // Create FlaUI UIA3 automation instance
             _automation = new UIA3Automation();
             
             if (_automation == null)
@@ -69,20 +62,13 @@ public class UIAutomationFocusTracker : IDisposable
                 return;
             }
 
-            Logger.Info("✅ FlaUI UIA3Automation instance created successfully");
-
-            // Register focus changed event with lambda
             _focusHandler = _automation.RegisterFocusChangedEvent(element =>
             {
                 OnFocusChanged(element);
             });
             
             _isInitialized = true;
-            Logger.Info("✅ UI Automation focus tracker initialized successfully with FlaUI");
-        }
-        catch (COMException comEx)
-        {
-            Logger.Error($"COM error initializing FlaUI: 0x{comEx.HResult:X8} - {comEx.Message}", comEx);
+            Logger.Info("✅ UI Automation focus tracker initialized successfully");
         }
         catch (Exception ex)
         {
@@ -91,9 +77,6 @@ public class UIAutomationFocusTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Handle focus changed event with click detection
-    /// </summary>
     private void OnFocusChanged(AutomationElement sender)
     {
         if (sender == null || !_isInitialized)
@@ -103,43 +86,28 @@ public class UIAutomationFocusTracker : IDisposable
         {
             try
             {
-                // Get window handle
                 var hwnd = sender.Properties.NativeWindowHandle.ValueOrDefault;
                 
-                // Ignore keyboard's own window
                 if (hwnd == _keyboardWindowHandle)
-                {
-                    Logger.Debug("Focus on keyboard itself - ignoring");
                     return;
-                }
 
-                // Get properties
                 var controlType = sender.Properties.ControlType.ValueOrDefault;
                 string className = sender.Properties.ClassName.ValueOrDefault ?? "";
                 string name = sender.Properties.Name.ValueOrDefault ?? "";
-                bool isPassword = sender.Properties.IsPassword.ValueOrDefault;
+                // Добавляем проверку на IsReadOnly, если свойство поддерживается, но это может быть медленно.
+                // Лучше полагаться на типы.
+                
                 bool isKeyboardFocusable = sender.Properties.IsKeyboardFocusable.ValueOrDefault;
                 
                 uint processId = 0;
-                try
-                {
-                    processId = (uint)sender.Properties.ProcessId.ValueOrDefault;
-                }
-                catch
-                {
-                    if (hwnd != IntPtr.Zero)
-                    {
-                        GetWindowThreadProcessId(hwnd, out processId);
-                    }
-                }
+                if (hwnd != IntPtr.Zero)
+                    GetWindowThreadProcessId(hwnd, out processId);
 
                 int controlTypeId = (int)controlType;
-                Logger.Debug($"Focus changed - Type: {controlTypeId}, Class: '{className}', Name: '{name}', Password: {isPassword}, Focusable: {isKeyboardFocusable}, PID: {processId}");
 
-                // Check if this is a text input control
+                // Основное изменение здесь: более строгая проверка
                 if (IsTextInputControl(controlType, className, isKeyboardFocusable))
                 {
-                    // If click detection is enabled, verify this was a user click
                     bool shouldTrigger = true;
                     
                     if (_requireClickForAutoShow && _clickDetector != null)
@@ -149,7 +117,11 @@ public class UIAutomationFocusTracker : IDisposable
                     
                     if (shouldTrigger)
                     {
-                        Logger.Info($"✅ Text input focused (user click) - Type: {controlType}, Class: '{className}', Name: '{name}', Password: {isPassword}");
+                        // Проверяем еще раз IsPassword только если решили показать, чтобы не тормозить на каждом клике
+                        bool isPassword = false;
+                        try { isPassword = sender.Properties.IsPassword.ValueOrDefault; } catch {}
+
+                        Logger.Info($"✅ Text input focused (user click) - Type: {controlType}, Class: '{className}', Name: '{name}'");
                         
                         var args = new TextInputFocusEventArgs
                         {
@@ -165,13 +137,11 @@ public class UIAutomationFocusTracker : IDisposable
                     }
                     else
                     {
-                        Logger.Debug($"⏭️ Text input focused (programmatic) - IGNORED - Type: {controlType}, Class: '{className}'");
+                        Logger.Debug($"⏭️ Text input focused (programmatic/out-of-bounds) - IGNORED - Type: {controlType}, Class: '{className}'");
                     }
                 }
                 else
                 {
-                    Logger.Debug($"Non-text input focused - Type: {controlType}");
-                    
                     var args = new FocusEventArgs
                     {
                         WindowHandle = hwnd,
@@ -189,30 +159,19 @@ public class UIAutomationFocusTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Check if focus change was initiated by a user click
-    /// </summary>
     private bool IsClickInitiatedFocus(AutomationElement element)
     {
         try
         {
-            // Check if there was a recent click
             if (!_clickDetector.WasRecentClick())
             {
-                Logger.Debug("❌ No recent click detected - focus change is programmatic");
+                Logger.Debug("❌ No recent click detected");
                 return false;
             }
 
-            // Get element bounds to verify click was inside
             var boundingRectangle = element.Properties.BoundingRectangle.ValueOrDefault;
-            
-            if (boundingRectangle.IsEmpty)
-            {
-                Logger.Warning("⚠️ Could not get element bounds - allowing auto-show");
-                return true; // If we can't get bounds, allow it (safer)
-            }
+            if (boundingRectangle.IsEmpty) return true; 
 
-            // Convert to Rectangle for easier checking
             var bounds = new Rectangle(
                 (int)boundingRectangle.X,
                 (int)boundingRectangle.Y,
@@ -220,133 +179,110 @@ public class UIAutomationFocusTracker : IDisposable
                 (int)boundingRectangle.Height
             );
 
-            // Check if click was inside element bounds
             bool wasClickInside = _clickDetector.WasRecentClickInBounds(bounds);
             
             if (wasClickInside)
-            {
-                Logger.Info("✅ Click detected inside text input - triggering auto-show");
-            }
+                Logger.Debug($"✅ Click detected INSIDE bounds ({bounds.X},{bounds.Y} {bounds.Width}x{bounds.Height})");
             else
-            {
-                Logger.Debug("❌ Click was outside element bounds - ignoring focus change");
-            }
+                Logger.Debug($"❌ Click detected OUTSIDE bounds ({bounds.X},{bounds.Y} {bounds.Width}x{bounds.Height})");
 
             return wasClickInside;
         }
         catch (Exception ex)
         {
             Logger.Error("Error checking click-initiated focus", ex);
-            // On error, allow auto-show (safer to show when unsure)
             return true;
         }
     }
 
     /// <summary>
-    /// Check if control is a text input control
+    /// Исправленная логика определения текстовых полей
     /// </summary>
     private bool IsTextInputControl(ControlType controlType, string className, bool isKeyboardFocusable)
     {
         if (!isKeyboardFocusable)
             return false;
 
-        // Check FlaUI control types
-        if (controlType == ControlType.Edit || controlType == ControlType.Document)
+        // 1. Стандартные поля ввода (TextBox, Edit)
+        if (controlType == ControlType.Edit)
             return true;
 
-        if (!string.IsNullOrEmpty(className))
+        string classLower = className?.ToLowerInvariant() ?? "";
+
+        // 2. ControlType.Document (Браузеры vs Word)
+        // В браузерах "Document" - это вся страница. Мы НЕ хотим срабатывать на неё.
+        // В Word "Document" - это область редактирования. Мы ХОТИМ срабатывать.
+        if (controlType == ControlType.Document)
         {
-            string classLower = className.ToLowerInvariant();
-            
-            if (classLower.Contains("edit") ||
-                classLower.Contains("textbox") ||
-                classLower.Contains("richedit") ||
-                classLower.Contains("scintilla") ||
-                classLower == "chrome_rendererwidgethosthwnd" ||
-                classLower == "intermediate d3d window")
+            // Если класс пустой - это почти всегда веб-контент браузера (Firefox/Edge так делают)
+            if (string.IsNullOrEmpty(classLower))
+                return false;
+
+            // Если класс явно браузерный - игнорируем Document (ждем клика именно в Edit внутри)
+            if (classLower.Contains("chrome") || 
+                classLower.Contains("mozilla") || 
+                classLower.Contains("edge") ||
+                classLower.Contains("webkit"))
             {
-                return true;
+                return false;
             }
+
+            // Для остальных (например, Word использует класс '_wwg' или 'opusapp') - разрешаем
+            return true;
+        }
+
+        // 3. Специфичные классы окон, которые ведут себя как текстовые поля, но имеют странные типы
+        if (classLower.Contains("edit") ||
+            classLower.Contains("richedit") || // WordPad, некоторые редакторы
+            classLower.Contains("scintilla") || // Notepad++
+            classLower.Contains("cmd") || // Командная строка
+            classLower == "consolewindowclass")
+        {
+            return true;
         }
 
         return false;
     }
 
-    /// <summary>
-    /// Enable or disable click requirement for auto-show
-    /// </summary>
     public void SetClickRequirement(bool requireClick)
     {
         lock (_lockObject)
         {
-            if (_requireClickForAutoShow == requireClick)
-                return;
-
+            if (_requireClickForAutoShow == requireClick) return;
             _requireClickForAutoShow = requireClick;
 
             if (requireClick && _clickDetector == null)
-            {
                 _clickDetector = new MouseClickDetector();
-                Logger.Info("🖱️ Click detection enabled");
-            }
             else if (!requireClick && _clickDetector != null)
             {
                 _clickDetector.Dispose();
                 _clickDetector = null;
-                Logger.Info("⚠️ Click detection disabled");
             }
         }
     }
 
     public void Dispose()
     {
-        if (_isDisposed)
-            return;
-
+        if (_isDisposed) return;
         _isDisposed = true;
 
         try
         {
-            if (_isInitialized && _focusHandler != null)
-            {
-                try
-                {
-                    // Dispose automatically unregisters the handler
-                    _focusHandler.Dispose();
-                    Logger.Info("Focus changed event handler removed");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("Failed to remove focus changed event handler", ex);
-                }
-            }
-
+            if (_isInitialized && _focusHandler != null) _focusHandler.Dispose();
             _clickDetector?.Dispose();
-            _clickDetector = null;
-
             _automation?.Dispose();
-            _automation = null;
-            _focusHandler = null;
-            _isInitialized = false;
-
-            Logger.Info("UI Automation focus tracker disposed");
         }
         catch (Exception ex)
         {
             Logger.Error("Error disposing UI Automation focus tracker", ex);
         }
-
         GC.SuppressFinalize(this);
     }
 
-    ~UIAutomationFocusTracker()
-    {
-        Dispose();
-    }
+    ~UIAutomationFocusTracker() => Dispose();
 }
 
-#region Event Args Classes
-
+// ... EventArgs classes останутся без изменений ...
 public class TextInputFocusEventArgs : EventArgs
 {
     public IntPtr WindowHandle { get; set; }
@@ -363,5 +299,3 @@ public class FocusEventArgs : EventArgs
     public int ControlType { get; set; }
     public string ClassName { get; set; }
 }
-
-#endregion
