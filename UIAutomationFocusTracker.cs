@@ -17,57 +17,14 @@ public class UIAutomationFocusTracker : IDisposable
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-    private const int WH_MOUSE_LL = 14;
-    private const int WM_LBUTTONDOWN = 0x0201;
-    private const int WM_RBUTTONDOWN = 0x0204;
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public int X;
-        public int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSLLHOOKSTRUCT
-    {
-        public POINT pt;
-        public uint mouseData;
-        public uint flags;
-        public uint time;
-        public IntPtr dwExtraInfo;
-    }
-
-    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
-
     #endregion
 
     private UIA3Automation _automation;
-    private IDisposable _focusHandler;
-    private IntPtr _mouseHook;
-    private LowLevelMouseProc _mouseHookDelegate;
-    private DateTime _lastMouseClick = DateTime.MinValue;
-    private POINT _lastClickPosition;
+    private IDisposable _focusHandler;  // FlaUI возвращает IDisposable
     private readonly IntPtr _keyboardWindowHandle;
     private readonly object _lockObject = new object();
     private bool _isDisposed = false;
     private bool _isInitialized = false;
-
-    // Timeout: показывать клавиатуру только если фокус изменился быстро после клика
-    private readonly TimeSpan _clickTimeout = TimeSpan.FromMilliseconds(200);
 
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
@@ -99,24 +56,6 @@ public class UIAutomationFocusTracker : IDisposable
             
             _isInitialized = true;
             Logger.Info("✅ UI Automation focus tracker initialized successfully with FlaUI");
-
-            // Install global mouse hook to track clicks
-            _mouseHookDelegate = MouseHookCallback;
-            using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
-            using (var curModule = curProcess.MainModule)
-            {
-                _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseHookDelegate, 
-                    GetModuleHandle(curModule.ModuleName), 0);
-            }
-
-            if (_mouseHook != IntPtr.Zero)
-            {
-                Logger.Info("✅ Mouse click tracking enabled");
-            }
-            else
-            {
-                Logger.Warning("Failed to install mouse hook - auto-show will trigger on any focus change");
-            }
         }
         catch (COMException comEx)
         {
@@ -127,28 +66,6 @@ public class UIAutomationFocusTracker : IDisposable
             Logger.Error("Failed to initialize UI Automation focus tracker", ex);
             _isInitialized = false;
         }
-    }
-
-    /// <summary>
-    /// Mouse hook callback - tracks mouse clicks with coordinates
-    /// </summary>
-    private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0)
-        {
-            int msg = wParam.ToInt32();
-            if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN)
-            {
-                // Get click coordinates
-                MSLLHOOKSTRUCT hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                _lastClickPosition = hookStruct.pt;
-                _lastMouseClick = DateTime.UtcNow;
-                
-                Logger.Debug($"Mouse click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) at {_lastMouseClick:HH:mm:ss.fff}");
-            }
-        }
-        
-        return CallNextHookEx(_mouseHook, nCode, wParam, lParam);
     }
 
     /// <summary>
@@ -199,39 +116,6 @@ public class UIAutomationFocusTracker : IDisposable
                 // Check if this is a text input control
                 if (IsTextInputControl(controlType, className, isKeyboardFocusable))
                 {
-                    // Check if focus changed due to user click
-                    var timeSinceLastClick = DateTime.UtcNow - _lastMouseClick;
-                    bool wasRecentClick = timeSinceLastClick <= _clickTimeout;
-
-                    if (!wasRecentClick)
-                    {
-                        Logger.Debug($"⏭️ Skipping auto-show: Focus changed programmatically (no recent click, {timeSinceLastClick.TotalMilliseconds:F0}ms since last click)");
-                        return;
-                    }
-
-                    // Check if click was inside element boundaries
-                    try
-                    {
-                        var boundingRect = sender.Properties.BoundingRectangle.ValueOrDefault;
-                        bool clickInsideBounds = 
-                            _lastClickPosition.X >= boundingRect.Left &&
-                            _lastClickPosition.X <= boundingRect.Right &&
-                            _lastClickPosition.Y >= boundingRect.Top &&
-                            _lastClickPosition.Y <= boundingRect.Bottom;
-
-                        if (!clickInsideBounds)
-                        {
-                            Logger.Debug($"⏭️ Skipping auto-show: Click at ({_lastClickPosition.X},{_lastClickPosition.Y}) was outside element bounds ({boundingRect.Left},{boundingRect.Top})-({boundingRect.Right},{boundingRect.Bottom})");
-                            return;
-                        }
-
-                        Logger.Debug($"🖱️ Click inside element bounds - triggering auto-show");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Debug($"Could not get element bounds: {ex.Message} - allowing auto-show");
-                    }
-
                     Logger.Info($"✅ Text input focused - Type: {controlType}, Class: '{className}', Name: '{name}', Password: {isPassword}");
                     
                     var args = new TextInputFocusEventArgs
@@ -320,18 +204,9 @@ public class UIAutomationFocusTracker : IDisposable
                 }
             }
 
-            // Remove mouse hook
-            if (_mouseHook != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(_mouseHook);
-                _mouseHook = IntPtr.Zero;
-                Logger.Info("Mouse hook removed");
-            }
-
             _automation?.Dispose();
             _automation = null;
             _focusHandler = null;
-            _mouseHookDelegate = null;
             _isInitialized = false;
 
             Logger.Info("UI Automation focus tracker disposed");
