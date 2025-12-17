@@ -62,6 +62,11 @@ public class MouseClickDetector : IDisposable
     /// </summary>
     public int ClickTimeWindowMs { get; set; } = 150;
 
+    /// <summary>
+    /// Event fired when a mouse click is detected
+    /// </summary>
+    public event EventHandler<Point> ClickDetected;
+
     public MouseClickDetector()
     {
         // Keep reference to prevent GC
@@ -112,13 +117,24 @@ public class MouseClickDetector : IDisposable
             if (msg == WM_LBUTTONDOWN)
             {
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
                 
                 lock (_lockObject)
                 {
                     _lastClickTime = DateTime.UtcNow;
-                    _lastClickPosition = new Point(hookStruct.pt.X, hookStruct.pt.Y);
+                    _lastClickPosition = clickPoint;
                     
                     Logger.Debug($"🖱️ Mouse click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
+                }
+
+                // Fire event for click detection
+                try
+                {
+                    ClickDetected?.Invoke(this, clickPoint);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("Error in ClickDetected event handler", ex);
                 }
             }
         }
