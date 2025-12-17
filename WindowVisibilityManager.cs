@@ -97,6 +97,9 @@ public class WindowVisibilityManager : IDisposable
                 // Create tracker with click requirement ENABLED (second parameter = true)
                 _uiAutomationTracker = new UIAutomationFocusTracker(_windowHandle, requireClickForAutoShow: true);
                 
+                // Provide visibility checker to avoid unnecessary UI Automation calls
+                _uiAutomationTracker.SetKeyboardVisibilityChecker(() => IsVisible());
+                
                 // Subscribe to events
                 _uiAutomationTracker.TextInputFocused += OnTextInputFocused;
                 _uiAutomationTracker.NonTextInputFocused += OnNonTextInputFocused;

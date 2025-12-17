@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Drawing;
+using System.Threading.Tasks;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
@@ -31,6 +32,13 @@ public class UIAutomationFocusTracker : IDisposable
     // Mouse click detector for filtering programmatic focus changes
     private MouseClickDetector _clickDetector;
     private bool _requireClickForAutoShow;
+    
+    // Flag to track if keyboard is visible (injected from outside)
+    private Func<bool> _isKeyboardVisible;
+    
+    // Debounce for click checks
+    private DateTime _lastClickCheckTime = DateTime.MinValue;
+    private const int CLICK_CHECK_DEBOUNCE_MS = 200;
 
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
@@ -80,18 +88,73 @@ public class UIAutomationFocusTracker : IDisposable
     }
 
     /// <summary>
+    /// Set keyboard visibility checker (to avoid unnecessary checks)
+    /// </summary>
+    public void SetKeyboardVisibilityChecker(Func<bool> isVisible)
+    {
+        _isKeyboardVisible = isVisible;
+    }
+
+    /// <summary>
     /// Handle mouse click - check if clicked element is a text input
     /// This handles the case when user clicks on an already-focused text field
+    /// IMPORTANT: Must be fast! UI Automation calls are async to not block mouse hook
     /// </summary>
     private void OnClickDetected(object sender, Point clickPosition)
     {
         if (!_isInitialized || !_requireClickForAutoShow)
             return;
 
+        // Fast check: if keyboard is already visible, skip
+        if (_isKeyboardVisible != null && _isKeyboardVisible())
+        {
+            return;
+        }
+
+        // Debounce: avoid multiple rapid checks
+        var now = DateTime.UtcNow;
+        lock (_lockObject)
+        {
+            var timeSinceLastCheck = (now - _lastClickCheckTime).TotalMilliseconds;
+            if (timeSinceLastCheck < CLICK_CHECK_DEBOUNCE_MS)
+            {
+                return;
+            }
+            _lastClickCheckTime = now;
+        }
+
+        // Run check asynchronously to not block mouse hook
+        Task.Run(() => CheckFocusedElementAsync(clickPosition));
+    }
+
+    /// <summary>
+    /// Async check of focused element (doesn't block mouse hook)
+    /// </summary>
+    private async Task CheckFocusedElementAsync(Point clickPosition)
+    {
         try
         {
-            // Get the currently focused element
-            var focusedElement = _automation.FocusedElement();
+            // Small delay to let focus stabilize
+            await Task.Delay(10);
+
+            // Double-check keyboard visibility after delay
+            if (_isKeyboardVisible != null && _isKeyboardVisible())
+            {
+                return;
+            }
+
+            AutomationElement focusedElement = null;
+            
+            // Try to get focused element with timeout
+            try
+            {
+                focusedElement = await Task.Run(() => _automation.FocusedElement());
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"Could not get focused element: {ex.Message}");
+                return;
+            }
             
             if (focusedElement == null)
                 return;
@@ -149,16 +212,12 @@ public class UIAutomationFocusTracker : IDisposable
                         
                         TextInputFocused?.Invoke(this, args);
                     }
-                    else
-                    {
-                        Logger.Debug($"Click at ({clickPosition.X},{clickPosition.Y}) outside focused element bounds");
-                    }
                 }
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Error handling click in focused element check", ex);
+            Logger.Debug($"Error in async focus check: {ex.Message}");
         }
     }
 
@@ -292,15 +351,13 @@ public class UIAutomationFocusTracker : IDisposable
         string classLower = className?.ToLowerInvariant() ?? "";
 
         // 2. ControlType.Document (Browsers vs Word)
-        // In browsers "Document" is the whole page. We DON'T want to trigger on it.
-        // In Word "Document" is the editing area. We DO want to trigger.
         if (controlType == ControlType.Document)
         {
-            // Empty class usually means browser web content (Firefox/Edge do this)
+            // Empty class usually means browser web content
             if (string.IsNullOrEmpty(classLower))
                 return false;
 
-            // If class is clearly browser-related - ignore Document (wait for click on Edit inside)
+            // Browser-related classes - ignore Document
             if (classLower.Contains("chrome") || 
                 classLower.Contains("mozilla") || 
                 classLower.Contains("edge") ||
@@ -309,15 +366,15 @@ public class UIAutomationFocusTracker : IDisposable
                 return false;
             }
 
-            // For others (e.g. Word uses class '_wwg' or 'opusapp') - allow
+            // For others (e.g. Word) - allow
             return true;
         }
 
-        // 3. Specific window classes that behave as text fields but have strange types
+        // 3. Specific window classes that behave as text fields
         if (classLower.Contains("edit") ||
-            classLower.Contains("richedit") || // WordPad, some editors
-            classLower.Contains("scintilla") || // Notepad++
-            classLower.Contains("cmd") || // Command prompt
+            classLower.Contains("richedit") ||
+            classLower.Contains("scintilla") ||
+            classLower.Contains("cmd") ||
             classLower == "consolewindowclass")
         {
             return true;
@@ -337,12 +394,14 @@ public class UIAutomationFocusTracker : IDisposable
             {
                 _clickDetector = new MouseClickDetector();
                 _clickDetector.ClickDetected += OnClickDetected;
+                Logger.Info("Click detection enabled");
             }
             else if (!requireClick && _clickDetector != null)
             {
                 _clickDetector.ClickDetected -= OnClickDetected;
                 _clickDetector.Dispose();
                 _clickDetector = null;
+                Logger.Info("Click detection disabled");
             }
         }
     }
