@@ -70,6 +70,13 @@ public class SettingsDialogManager
             Logger.Info("Keyboard layouts refreshed and default layout applied");
         }
         
+        // Update auto-show if changed
+        if (dialog.RequiresAutoShowUpdate)
+        {
+            _visibilityManager.UpdateAutoShowSetting();
+            Logger.Info("Auto-show setting updated");
+        }
+        
         // Handle restart if scale changed
         if (dialog.RequiresRestart)
         {

@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with real-time focus tracking
+/// Window visibility manager with real-time focus tracking and auto-show support
 /// </summary>
 public class WindowVisibilityManager : IDisposable
 {
@@ -31,7 +31,11 @@ public class WindowVisibilityManager : IDisposable
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
     private readonly FocusManager _focusManager;
+    private readonly SettingsManager _settingsManager;
+    
+    private UIAutomationFocusTracker _uiAutomationTracker;
     private bool _isDisposed = false;
+    private bool _autoShowEnabled = false;
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -40,6 +44,7 @@ public class WindowVisibilityManager : IDisposable
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
         FrameworkElement rootElement,
+        SettingsManager settingsManager,
         BackspaceRepeatHandler backspaceHandler = null,
         TrayIcon trayIcon = null)
     {
@@ -49,11 +54,134 @@ public class WindowVisibilityManager : IDisposable
         _stateManager = stateManager;
         _layoutManager = layoutManager;
         _rootElement = rootElement;
+        _settingsManager = settingsManager;
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        Logger.Info("WindowVisibilityManager initialized with real-time focus tracking");
+        // Initialize auto-show based on settings
+        InitializeAutoShow();
+        
+        Logger.Info("WindowVisibilityManager initialized with real-time focus tracking and auto-show support");
+    }
+
+    /// <summary>
+    /// Initialize auto-show functionality
+    /// </summary>
+    private void InitializeAutoShow()
+    {
+        _autoShowEnabled = _settingsManager.GetAutoShowOnTextInput();
+        
+        if (_autoShowEnabled)
+        {
+            EnableAutoShow();
+        }
+        
+        Logger.Info($"Auto-show initialized: {(_autoShowEnabled ? "Enabled" : "Disabled")}");
+    }
+
+    /// <summary>
+    /// Enable auto-show functionality
+    /// </summary>
+	private void EnableAutoShow()
+	{
+		if (_uiAutomationTracker == null)
+		{
+			try
+			{
+				Logger.Info("🔄 Creating UI Automation tracker...");
+				
+				_uiAutomationTracker = new UIAutomationFocusTracker(_windowHandle);
+				
+				// Подписываемся на события
+				_uiAutomationTracker.TextInputFocused += OnTextInputFocused;
+				_uiAutomationTracker.NonTextInputFocused += OnNonTextInputFocused;
+				
+				Logger.Info("✅ UI Automation tracker enabled for auto-show");
+			}
+			catch (Exception ex)
+			{
+				Logger.Error("❌ Failed to enable UI Automation tracker - auto-show will NOT work", ex);
+				_uiAutomationTracker = null; // Убеждаемся, что не оставляем частично инициализированный объект
+			}
+		}
+		else
+		{
+			Logger.Debug("UI Automation tracker already exists");
+		}
+	}
+
+    /// <summary>
+    /// Disable auto-show functionality
+    /// </summary>
+    private void DisableAutoShow()
+    {
+        if (_uiAutomationTracker != null)
+        {
+            _uiAutomationTracker.TextInputFocused -= OnTextInputFocused;
+            _uiAutomationTracker.NonTextInputFocused -= OnNonTextInputFocused;
+            _uiAutomationTracker.Dispose();
+            _uiAutomationTracker = null;
+            
+            Logger.Info("UI Automation tracker disabled");
+        }
+    }
+
+    /// <summary>
+    /// Update auto-show setting (called when settings change)
+    /// </summary>
+    public void UpdateAutoShowSetting()
+    {
+        bool newSetting = _settingsManager.GetAutoShowOnTextInput();
+        
+        if (newSetting == _autoShowEnabled)
+            return;
+        
+        _autoShowEnabled = newSetting;
+        
+        if (_autoShowEnabled)
+        {
+            EnableAutoShow();
+            Logger.Info("Auto-show enabled via settings");
+        }
+        else
+        {
+            DisableAutoShow();
+            Logger.Info("Auto-show disabled via settings");
+        }
+    }
+
+    /// <summary>
+    /// Handle text input focused event from UI Automation
+    /// </summary>
+	private async void OnTextInputFocused(object sender, TextInputFocusEventArgs e)
+	{
+		Logger.Info($"🎯 AUTO-SHOW TRIGGERED! Text input focused - Type: {e.ControlType}, Class: '{e.ClassName}', Password: {e.IsPassword}");
+		
+		// Don't auto-show if keyboard is already visible
+		if (IsVisible())
+		{
+			Logger.Debug("Keyboard already visible - skipping auto-show");
+			return;
+		}
+		
+		// Show keyboard with a small delay to ensure focus has fully transitioned
+		await Task.Delay(100);
+		
+		Logger.Info("📱 Showing keyboard automatically...");
+		
+		// Show keyboard with focus preservation
+		Show(preserveFocus: true);
+	}
+
+    /// <summary>
+    /// Handle non-text input focused event from UI Automation
+    /// </summary>
+    private void OnNonTextInputFocused(object sender, FocusEventArgs e)
+    {
+        // Currently we don't auto-hide on non-text focus
+        // User can manually hide keyboard if needed
+        Logger.Debug($"Non-text input focused - Type: {e.ControlType}, Class: '{e.ClassName}'");
     }
 
     /// <summary>
@@ -194,6 +322,9 @@ public class WindowVisibilityManager : IDisposable
             
             // Reset modifiers
             ResetAllModifiers();
+            
+            // Disable auto-show
+            DisableAutoShow();
             
             // Clear tracked window
             _focusManager.ClearTrackedWindow();

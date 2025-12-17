@@ -11,15 +11,18 @@ public sealed partial class SettingsDialog : ContentDialog
     private int _originalScale;
     private List<string> _originalLayouts;
     private string _originalDefaultLayout;
+    private bool _originalAutoShow;
     
     private bool _hasScaleChanges = false;
     private bool _hasLayoutChanges = false;
     private bool _hasDefaultLayoutChanges = false;
+    private bool _hasAutoShowChanges = false;
 
     private Dictionary<string, CheckBox> _layoutCheckBoxes = new Dictionary<string, CheckBox>();
 
     public bool RequiresRestart => _hasScaleChanges;
     public bool RequiresLayoutUpdate => _hasLayoutChanges || _hasDefaultLayoutChanges;
+    public bool RequiresAutoShowUpdate => _hasAutoShowChanges;
 
     public SettingsDialog(SettingsManager settingsManager)
     {
@@ -30,14 +33,17 @@ public sealed partial class SettingsDialog : ContentDialog
         _originalScale = _settingsManager.GetKeyboardScalePercent();
         _originalLayouts = new List<string>(_settingsManager.GetEnabledLayouts());
         _originalDefaultLayout = _settingsManager.GetDefaultLayout();
+        _originalAutoShow = _settingsManager.GetAutoShowOnTextInput();
         
         ScaleSlider.Value = _originalScale;
         UpdateScaleText(_originalScale);
         
+        AutoShowToggle.IsOn = _originalAutoShow;
+        
         InitializeLayoutCheckBoxes();
         InitializeDefaultLayoutComboBox();
         
-        Logger.Info($"Settings dialog opened. Scale: {_originalScale}%, Layouts: {string.Join(", ", _originalLayouts)}, Default: {_originalDefaultLayout}");
+        Logger.Info($"Settings dialog opened. Scale: {_originalScale}%, Layouts: {string.Join(", ", _originalLayouts)}, Default: {_originalDefaultLayout}, AutoShow: {_originalAutoShow}");
     }
 
     /// <summary>
@@ -168,6 +174,17 @@ public sealed partial class SettingsDialog : ContentDialog
     }
 
     /// <summary>
+    /// Handle auto-show toggle changed
+    /// </summary>
+    private void AutoShowToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        bool newValue = AutoShowToggle.IsOn;
+        _hasAutoShowChanges = (newValue != _originalAutoShow);
+        
+        Logger.Debug($"Auto-show toggle changed: {newValue} (original: {_originalAutoShow}, changed: {_hasAutoShowChanges})");
+    }
+
+    /// <summary>
     /// Get list of selected layout codes
     /// </summary>
     private List<string> GetSelectedLayouts()
@@ -207,6 +224,7 @@ public sealed partial class SettingsDialog : ContentDialog
         int newScale = (int)ScaleSlider.Value;
         var newLayouts = GetSelectedLayouts();
         string newDefaultLayout = (DefaultLayoutComboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? newLayouts[0];
+        bool newAutoShow = AutoShowToggle.IsOn;
         
         // Save scale setting
         if (newScale != _originalScale)
@@ -232,7 +250,15 @@ public sealed partial class SettingsDialog : ContentDialog
             Logger.Info($"Default layout changed from {_originalDefaultLayout} to {newDefaultLayout}");
         }
         
-        if (!_hasScaleChanges && !_hasLayoutChanges && !_hasDefaultLayoutChanges)
+        // Save auto-show setting
+        if (newAutoShow != _originalAutoShow)
+        {
+            _settingsManager.SetAutoShowOnTextInput(newAutoShow);
+            _hasAutoShowChanges = true;
+            Logger.Info($"Auto-show changed from {_originalAutoShow} to {newAutoShow}");
+        }
+        
+        if (!_hasScaleChanges && !_hasLayoutChanges && !_hasDefaultLayoutChanges && !_hasAutoShowChanges)
         {
             Logger.Info("Settings dialog closed. No changes made.");
         }
@@ -244,5 +270,6 @@ public sealed partial class SettingsDialog : ContentDialog
         _hasScaleChanges = false;
         _hasLayoutChanges = false;
         _hasDefaultLayoutChanges = false;
+        _hasAutoShowChanges = false;
     }
 }
