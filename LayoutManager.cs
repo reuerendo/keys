@@ -1,7 +1,5 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Text;
-using Microsoft.UI.Xaml.Media;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -200,31 +198,8 @@ public class LayoutManager
                     }
                 }
                 
-                // Get display text
-                string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
-                
-                // Check if content is already a TextBlock
-                if (btn.Content is TextBlock existingTextBlock)
-                {
-                    // Just update the text, preserve all styling
-                    existingTextBlock.Text = displayText;
-                }
-                else
-                {
-                    // Create new TextBlock with explicit Medium FontWeight
-                    var textBlock = new TextBlock
-                    {
-                        Text = displayText,
-                        FontWeight = FontWeights.Medium,
-                        FontSize = 14,
-                        TextAlignment = TextAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    };
-                    btn.Content = textBlock;
-                    
-                    Logger.Debug($"Updated button '{tag}' with text '{displayText}', FontWeight=Medium");
-                }
+                // For all other keys (numbers, symbols, etc.): ignore Shift completely
+                btn.Content = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
             }
         }
 
@@ -249,6 +224,7 @@ public class LayoutManager
     {
         if (_langButton == null)
         {
+            // Lazy initialization will happen on first call
             return;
         }
         
@@ -264,25 +240,8 @@ public class LayoutManager
         }
         else
         {
-            // Check if content is already a TextBlock
-            if (_langButton.Content is TextBlock existingTextBlock)
-            {
-                existingTextBlock.Text = CurrentLayout.Code;
-            }
-            else
-            {
-                // Create new TextBlock with Medium FontWeight
-                var textBlock = new TextBlock
-                {
-                    Text = CurrentLayout.Code,
-                    FontWeight = FontWeights.Medium,
-                    FontSize = 14,
-                    TextAlignment = TextAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center
-                };
-                _langButton.Content = textBlock;
-            }
+            // In letter mode, show current layout code
+            _langButton.Content = CurrentLayout.Code;
         }
     }
 
@@ -293,6 +252,7 @@ public class LayoutManager
     {
         if (_symbolButton == null)
         {
+            // Lazy initialization will happen on first call
             return;
         }
         
