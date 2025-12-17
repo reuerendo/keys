@@ -47,6 +47,8 @@ public class UIAutomationFocusTracker : IDisposable
             if (_requireClickForAutoShow)
             {
                 _clickDetector = new MouseClickDetector();
+                // Subscribe to click events to check focused element on every click
+                _clickDetector.ClickDetected += OnClickDetected;
                 Logger.Info("🖱️ Click detection enabled - auto-show only on user clicks");
             }
             else
@@ -77,6 +79,89 @@ public class UIAutomationFocusTracker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Handle mouse click - check if clicked element is a text input
+    /// This handles the case when user clicks on an already-focused text field
+    /// </summary>
+    private void OnClickDetected(object sender, Point clickPosition)
+    {
+        if (!_isInitialized || !_requireClickForAutoShow)
+            return;
+
+        try
+        {
+            // Get the currently focused element
+            var focusedElement = _automation.FocusedElement();
+            
+            if (focusedElement == null)
+                return;
+
+            var hwnd = focusedElement.Properties.NativeWindowHandle.ValueOrDefault;
+            
+            // Ignore clicks on keyboard window itself
+            if (hwnd == _keyboardWindowHandle)
+                return;
+
+            var controlType = focusedElement.Properties.ControlType.ValueOrDefault;
+            string className = focusedElement.Properties.ClassName.ValueOrDefault ?? "";
+            bool isKeyboardFocusable = focusedElement.Properties.IsKeyboardFocusable.ValueOrDefault;
+
+            // Check if the focused element is a text input
+            if (IsTextInputControl(controlType, className, isKeyboardFocusable))
+            {
+                // Check if click was inside the element bounds
+                var boundingRectangle = focusedElement.Properties.BoundingRectangle.ValueOrDefault;
+                
+                if (!boundingRectangle.IsEmpty)
+                {
+                    var bounds = new Rectangle(
+                        (int)boundingRectangle.X,
+                        (int)boundingRectangle.Y,
+                        (int)boundingRectangle.Width,
+                        (int)boundingRectangle.Height
+                    );
+
+                    if (bounds.Contains(clickPosition))
+                    {
+                        Logger.Info($"🎯 Click detected in already-focused text input - Type: {controlType}, Class: '{className}'");
+                        
+                        // Get additional properties
+                        string name = focusedElement.Properties.Name.ValueOrDefault ?? "";
+                        bool isPassword = false;
+                        try { isPassword = focusedElement.Properties.IsPassword.ValueOrDefault; } catch {}
+
+                        uint processId = 0;
+                        if (hwnd != IntPtr.Zero)
+                            GetWindowThreadProcessId(hwnd, out processId);
+
+                        int controlTypeId = (int)controlType;
+
+                        // Fire the TextInputFocused event
+                        var args = new TextInputFocusEventArgs
+                        {
+                            WindowHandle = hwnd,
+                            ControlType = controlTypeId,
+                            ClassName = className,
+                            Name = name,
+                            IsPassword = isPassword,
+                            ProcessId = processId
+                        };
+                        
+                        TextInputFocused?.Invoke(this, args);
+                    }
+                    else
+                    {
+                        Logger.Debug($"Click at ({clickPosition.X},{clickPosition.Y}) outside focused element bounds");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error handling click in focused element check", ex);
+        }
+    }
+
     private void OnFocusChanged(AutomationElement sender)
     {
         if (sender == null || !_isInitialized)
@@ -94,8 +179,6 @@ public class UIAutomationFocusTracker : IDisposable
                 var controlType = sender.Properties.ControlType.ValueOrDefault;
                 string className = sender.Properties.ClassName.ValueOrDefault ?? "";
                 string name = sender.Properties.Name.ValueOrDefault ?? "";
-                // Добавляем проверку на IsReadOnly, если свойство поддерживается, но это может быть медленно.
-                // Лучше полагаться на типы.
                 
                 bool isKeyboardFocusable = sender.Properties.IsKeyboardFocusable.ValueOrDefault;
                 
@@ -105,7 +188,6 @@ public class UIAutomationFocusTracker : IDisposable
 
                 int controlTypeId = (int)controlType;
 
-                // Основное изменение здесь: более строгая проверка
                 if (IsTextInputControl(controlType, className, isKeyboardFocusable))
                 {
                     bool shouldTrigger = true;
@@ -117,7 +199,7 @@ public class UIAutomationFocusTracker : IDisposable
                     
                     if (shouldTrigger)
                     {
-                        // Проверяем еще раз IsPassword только если решили показать, чтобы не тормозить на каждом клике
+                        // Check IsPassword only if we decided to show
                         bool isPassword = false;
                         try { isPassword = sender.Properties.IsPassword.ValueOrDefault; } catch {}
 
@@ -137,7 +219,7 @@ public class UIAutomationFocusTracker : IDisposable
                     }
                     else
                     {
-                        Logger.Debug($"⏭️ Text input focused (programmatic/out-of-bounds) - IGNORED - Type: {controlType}, Class: '{className}'");
+                        Logger.Debug($"⭐️ Text input focused (programmatic/out-of-bounds) - IGNORED - Type: {controlType}, Class: '{className}'");
                     }
                 }
                 else
@@ -196,29 +278,29 @@ public class UIAutomationFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Исправленная логика определения текстовых полей
+    /// Improved logic for determining text input controls
     /// </summary>
     private bool IsTextInputControl(ControlType controlType, string className, bool isKeyboardFocusable)
     {
         if (!isKeyboardFocusable)
             return false;
 
-        // 1. Стандартные поля ввода (TextBox, Edit)
+        // 1. Standard text input fields (TextBox, Edit)
         if (controlType == ControlType.Edit)
             return true;
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // 2. ControlType.Document (Браузеры vs Word)
-        // В браузерах "Document" - это вся страница. Мы НЕ хотим срабатывать на неё.
-        // В Word "Document" - это область редактирования. Мы ХОТИМ срабатывать.
+        // 2. ControlType.Document (Browsers vs Word)
+        // In browsers "Document" is the whole page. We DON'T want to trigger on it.
+        // In Word "Document" is the editing area. We DO want to trigger.
         if (controlType == ControlType.Document)
         {
-            // Если класс пустой - это почти всегда веб-контент браузера (Firefox/Edge так делают)
+            // Empty class usually means browser web content (Firefox/Edge do this)
             if (string.IsNullOrEmpty(classLower))
                 return false;
 
-            // Если класс явно браузерный - игнорируем Document (ждем клика именно в Edit внутри)
+            // If class is clearly browser-related - ignore Document (wait for click on Edit inside)
             if (classLower.Contains("chrome") || 
                 classLower.Contains("mozilla") || 
                 classLower.Contains("edge") ||
@@ -227,15 +309,15 @@ public class UIAutomationFocusTracker : IDisposable
                 return false;
             }
 
-            // Для остальных (например, Word использует класс '_wwg' или 'opusapp') - разрешаем
+            // For others (e.g. Word uses class '_wwg' or 'opusapp') - allow
             return true;
         }
 
-        // 3. Специфичные классы окон, которые ведут себя как текстовые поля, но имеют странные типы
+        // 3. Specific window classes that behave as text fields but have strange types
         if (classLower.Contains("edit") ||
-            classLower.Contains("richedit") || // WordPad, некоторые редакторы
+            classLower.Contains("richedit") || // WordPad, some editors
             classLower.Contains("scintilla") || // Notepad++
-            classLower.Contains("cmd") || // Командная строка
+            classLower.Contains("cmd") || // Command prompt
             classLower == "consolewindowclass")
         {
             return true;
@@ -252,9 +334,13 @@ public class UIAutomationFocusTracker : IDisposable
             _requireClickForAutoShow = requireClick;
 
             if (requireClick && _clickDetector == null)
+            {
                 _clickDetector = new MouseClickDetector();
+                _clickDetector.ClickDetected += OnClickDetected;
+            }
             else if (!requireClick && _clickDetector != null)
             {
+                _clickDetector.ClickDetected -= OnClickDetected;
                 _clickDetector.Dispose();
                 _clickDetector = null;
             }
@@ -268,8 +354,15 @@ public class UIAutomationFocusTracker : IDisposable
 
         try
         {
-            if (_isInitialized && _focusHandler != null) _focusHandler.Dispose();
-            _clickDetector?.Dispose();
+            if (_clickDetector != null)
+            {
+                _clickDetector.ClickDetected -= OnClickDetected;
+                _clickDetector.Dispose();
+            }
+            
+            if (_isInitialized && _focusHandler != null) 
+                _focusHandler.Dispose();
+            
             _automation?.Dispose();
         }
         catch (Exception ex)
@@ -282,7 +375,6 @@ public class UIAutomationFocusTracker : IDisposable
     ~UIAutomationFocusTracker() => Dispose();
 }
 
-// ... EventArgs classes останутся без изменений ...
 public class TextInputFocusEventArgs : EventArgs
 {
     public IntPtr WindowHandle { get; set; }

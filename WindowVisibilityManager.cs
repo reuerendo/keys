@@ -36,6 +36,9 @@ public class WindowVisibilityManager : IDisposable
     private UIAutomationFocusTracker _uiAutomationTracker;
     private bool _isDisposed = false;
     private bool _autoShowEnabled = false;
+    private readonly object _showLock = new object();
+    private DateTime _lastAutoShowTime = DateTime.MinValue;
+    private const int AUTO_SHOW_DEBOUNCE_MS = 300; // Prevent duplicate shows
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -83,46 +86,36 @@ public class WindowVisibilityManager : IDisposable
     /// <summary>
     /// Enable auto-show functionality
     /// </summary>
-	private void EnableAutoShow()
-	{
-		if (_uiAutomationTracker == null)
-		{
-			try
-			{
-				Logger.Info("🔄 Creating UI Automation tracker with CLICK DETECTION...");
-				
-				// Create tracker with click requirement ENABLED (second parameter = true)
-				_uiAutomationTracker = new UIAutomationFocusTracker(_windowHandle, requireClickForAutoShow: true);
-				
-				// Subscribe to events
-				_uiAutomationTracker.TextInputFocused += OnTextInputFocused;
-				_uiAutomationTracker.NonTextInputFocused += OnNonTextInputFocused;
-				
-				Logger.Info("✅ UI Automation tracker enabled with CLICK DETECTION for auto-show");
-				Logger.Info("   → Keyboard will show ONLY when you CLICK on a text field");
-				Logger.Info("   → Keyboard will NOT show on tab switches, new tabs, or Alt+Tab");
-			}
-			catch (Exception ex)
-			{
-				Logger.Error("❌ Failed to enable UI Automation tracker - auto-show will NOT work", ex);
-				_uiAutomationTracker = null;
-			}
-		}
-		else
-		{
-			Logger.Debug("UI Automation tracker already exists");
-		}
-	}
-	
-	/// <summary>
-	/// Toggle between click-only and all-focus auto-show modes
-	/// </summary>
-	/// <param name="clickOnly">If true, require mouse click. If false, show on any focus change.</param>
-	public void SetClickOnlyMode(bool clickOnly)
-	{
-		_uiAutomationTracker?.SetClickRequirement(clickOnly);
-		Logger.Info($"Click-only mode: {(clickOnly ? "ENABLED" : "DISABLED")}");
-	}
+    private void EnableAutoShow()
+    {
+        if (_uiAutomationTracker == null)
+        {
+            try
+            {
+                Logger.Info("🔄 Creating UI Automation tracker with CLICK DETECTION...");
+                
+                // Create tracker with click requirement ENABLED (second parameter = true)
+                _uiAutomationTracker = new UIAutomationFocusTracker(_windowHandle, requireClickForAutoShow: true);
+                
+                // Subscribe to events
+                _uiAutomationTracker.TextInputFocused += OnTextInputFocused;
+                _uiAutomationTracker.NonTextInputFocused += OnNonTextInputFocused;
+                
+                Logger.Info("✅ UI Automation tracker enabled with CLICK DETECTION for auto-show");
+                Logger.Info("   → Keyboard will show when you CLICK on ANY text field");
+                Logger.Info("   → Including already-focused fields!");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("❌ Failed to enable UI Automation tracker - auto-show will NOT work", ex);
+                _uiAutomationTracker = null;
+            }
+        }
+        else
+        {
+            Logger.Debug("UI Automation tracker already exists");
+        }
+    }
 
     /// <summary>
     /// Disable auto-show functionality
@@ -167,25 +160,38 @@ public class WindowVisibilityManager : IDisposable
     /// <summary>
     /// Handle text input focused event from UI Automation
     /// </summary>
-	private async void OnTextInputFocused(object sender, TextInputFocusEventArgs e)
-	{
-		Logger.Info($"🎯 AUTO-SHOW TRIGGERED! Text input focused - Type: {e.ControlType}, Class: '{e.ClassName}', Password: {e.IsPassword}");
-		
-		// Don't auto-show if keyboard is already visible
-		if (IsVisible())
-		{
-			Logger.Debug("Keyboard already visible - skipping auto-show");
-			return;
-		}
-		
-		// Show keyboard with a small delay to ensure focus has fully transitioned
-		await Task.Delay(100);
-		
-		Logger.Info("📱 Showing keyboard automatically...");
-		
-		// Show keyboard with focus preservation
-		Show(preserveFocus: true);
-	}
+    private async void OnTextInputFocused(object sender, TextInputFocusEventArgs e)
+    {
+        Logger.Info($"🎯 AUTO-SHOW TRIGGERED! Text input focused - Type: {e.ControlType}, Class: '{e.ClassName}', Password: {e.IsPassword}");
+        
+        lock (_showLock)
+        {
+            // Check if keyboard is already visible
+            if (IsVisible())
+            {
+                Logger.Debug("Keyboard already visible - skipping auto-show");
+                return;
+            }
+
+            // Debounce: prevent multiple rapid shows
+            var timeSinceLastShow = (DateTime.UtcNow - _lastAutoShowTime).TotalMilliseconds;
+            if (timeSinceLastShow < AUTO_SHOW_DEBOUNCE_MS)
+            {
+                Logger.Debug($"Auto-show debounced ({timeSinceLastShow:F0}ms since last show)");
+                return;
+            }
+
+            _lastAutoShowTime = DateTime.UtcNow;
+        }
+        
+        // Show keyboard with a small delay to ensure focus has fully transitioned
+        await Task.Delay(100);
+        
+        Logger.Info("📱 Showing keyboard automatically...");
+        
+        // Show keyboard with focus preservation
+        Show(preserveFocus: true);
+    }
 
     /// <summary>
     /// Handle non-text input focused event from UI Automation
@@ -233,7 +239,7 @@ public class WindowVisibilityManager : IDisposable
                 
                 if (restored)
                 {
-                    Logger.Info("✓ Focus successfully restored to tracked window");
+                    Logger.Info("✔ Focus successfully restored to tracked window");
                 }
                 else
                 {
