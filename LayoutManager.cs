@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Text;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -198,8 +199,13 @@ public class LayoutManager
                     }
                 }
                 
-                // For all other keys (numbers, symbols, etc.): ignore Shift completely
-                btn.Content = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
+                // Create TextBlock with Medium FontWeight to preserve button style
+                string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
+                btn.Content = new TextBlock
+                {
+                    Text = displayText,
+                    FontWeight = FontWeights.Medium
+                };
             }
         }
 
@@ -234,14 +240,19 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uE8D3",
-                FontSize = 20
+                FontSize = 12,
+                FontWeight = FontWeights.Medium
             };
             _langButton.Content = fontIcon;
         }
         else
         {
-            // In letter mode, show current layout code
-            _langButton.Content = CurrentLayout.Code;
+            // In letter mode, show current layout code with Medium FontWeight
+            _langButton.Content = new TextBlock
+            {
+                Text = CurrentLayout.Code,
+                FontWeight = FontWeights.Medium
+            };
         }
     }
 
@@ -262,7 +273,8 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uE8D3",
-                FontSize = 20
+                FontSize = 12,
+                FontWeight = FontWeights.Medium
             };
             _symbolButton.Content = fontIcon;
         }
@@ -272,7 +284,8 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uED58",
-                FontSize = 20
+                FontSize = 12,
+                FontWeight = FontWeights.Medium
             };
             _symbolButton.Content = fontIcon;
         }
