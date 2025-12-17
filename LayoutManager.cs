@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Text;
+using Microsoft.UI.Xaml.Media;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -199,13 +200,31 @@ public class LayoutManager
                     }
                 }
                 
-                // Create TextBlock with Medium FontWeight to preserve button style
+                // Get display text
                 string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
-                btn.Content = new TextBlock
+                
+                // Check if content is already a TextBlock
+                if (btn.Content is TextBlock existingTextBlock)
                 {
-                    Text = displayText,
-                    FontWeight = FontWeights.Medium
-                };
+                    // Just update the text, preserve all styling
+                    existingTextBlock.Text = displayText;
+                }
+                else
+                {
+                    // Create new TextBlock with explicit Medium FontWeight
+                    var textBlock = new TextBlock
+                    {
+                        Text = displayText,
+                        FontWeight = FontWeights.Medium,
+                        FontSize = 14,
+                        TextAlignment = TextAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    };
+                    btn.Content = textBlock;
+                    
+                    Logger.Debug($"Updated button '{tag}' with text '{displayText}', FontWeight=Medium");
+                }
             }
         }
 
@@ -230,7 +249,6 @@ public class LayoutManager
     {
         if (_langButton == null)
         {
-            // Lazy initialization will happen on first call
             return;
         }
         
@@ -240,19 +258,31 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uE8D3",
-                FontSize = 12,
-                FontWeight = FontWeights.Medium
+                FontSize = 14
             };
             _langButton.Content = fontIcon;
         }
         else
         {
-            // In letter mode, show current layout code with Medium FontWeight
-            _langButton.Content = new TextBlock
+            // Check if content is already a TextBlock
+            if (_langButton.Content is TextBlock existingTextBlock)
             {
-                Text = CurrentLayout.Code,
-                FontWeight = FontWeights.Medium
-            };
+                existingTextBlock.Text = CurrentLayout.Code;
+            }
+            else
+            {
+                // Create new TextBlock with Medium FontWeight
+                var textBlock = new TextBlock
+                {
+                    Text = CurrentLayout.Code,
+                    FontWeight = FontWeights.Medium,
+                    FontSize = 14,
+                    TextAlignment = TextAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                };
+                _langButton.Content = textBlock;
+            }
         }
     }
 
@@ -263,7 +293,6 @@ public class LayoutManager
     {
         if (_symbolButton == null)
         {
-            // Lazy initialization will happen on first call
             return;
         }
         
@@ -273,8 +302,7 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uE8D3",
-                FontSize = 12,
-                FontWeight = FontWeights.Medium
+                FontSize = 14
             };
             _symbolButton.Content = fontIcon;
         }
@@ -284,8 +312,7 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uED58",
-                FontSize = 12,
-                FontWeight = FontWeights.Medium
+                FontSize = 14
             };
             _symbolButton.Content = fontIcon;
         }
