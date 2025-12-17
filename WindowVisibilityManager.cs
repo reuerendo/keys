@@ -89,26 +89,39 @@ public class WindowVisibilityManager : IDisposable
 		{
 			try
 			{
-				Logger.Info("🔄 Creating UI Automation tracker...");
+				Logger.Info("🔄 Creating UI Automation tracker with CLICK DETECTION...");
 				
-				_uiAutomationTracker = new UIAutomationFocusTracker(_windowHandle);
+				// Create tracker with click requirement ENABLED (second parameter = true)
+				_uiAutomationTracker = new UIAutomationFocusTracker(_windowHandle, requireClickForAutoShow: true);
 				
-				// Подписываемся на события
+				// Subscribe to events
 				_uiAutomationTracker.TextInputFocused += OnTextInputFocused;
 				_uiAutomationTracker.NonTextInputFocused += OnNonTextInputFocused;
 				
-				Logger.Info("✅ UI Automation tracker enabled for auto-show");
+				Logger.Info("✅ UI Automation tracker enabled with CLICK DETECTION for auto-show");
+				Logger.Info("   → Keyboard will show ONLY when you CLICK on a text field");
+				Logger.Info("   → Keyboard will NOT show on tab switches, new tabs, or Alt+Tab");
 			}
 			catch (Exception ex)
 			{
 				Logger.Error("❌ Failed to enable UI Automation tracker - auto-show will NOT work", ex);
-				_uiAutomationTracker = null; // Убеждаемся, что не оставляем частично инициализированный объект
+				_uiAutomationTracker = null;
 			}
 		}
 		else
 		{
 			Logger.Debug("UI Automation tracker already exists");
 		}
+	}
+	
+	/// <summary>
+	/// Toggle between click-only and all-focus auto-show modes
+	/// </summary>
+	/// <param name="clickOnly">If true, require mouse click. If false, show on any focus change.</param>
+	public void SetClickOnlyMode(bool clickOnly)
+	{
+		_uiAutomationTracker?.SetClickRequirement(clickOnly);
+		Logger.Info($"Click-only mode: {(clickOnly ? "ENABLED" : "DISABLED")}");
 	}
 
     /// <summary>
