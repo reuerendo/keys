@@ -19,6 +19,7 @@ public sealed partial class MainWindow : Window
     private readonly SettingsManager _settingsManager;
     private readonly InteractiveRegionsManager _interactiveRegionsManager;
     private readonly ClipboardManager _clipboardManager;
+    private readonly ForegroundWindowTracker _foregroundTracker;
     
     private BackspaceRepeatHandler _backspaceHandler;
     private KeyboardEventCoordinator _eventCoordinator;
@@ -56,6 +57,7 @@ public sealed partial class MainWindow : Window
         _positionManager = new WindowPositionManager(this, _thisWindowHandle);
         _interactiveRegionsManager = new InteractiveRegionsManager(_thisWindowHandle, this);
         _clipboardManager = new ClipboardManager(_inputService);
+        _foregroundTracker = new ForegroundWindowTracker(_thisWindowHandle);
         
         // Configure window
         _positionManager.ConfigureWindowSize(_settingsManager.Settings.KeyboardScale);
@@ -112,8 +114,8 @@ public sealed partial class MainWindow : Window
             _stateManager,
             _layoutManager,
             rootElement,
-            _settingsManager,  // Pass settings manager for auto-show
-			_foregroundTracker,
+            _settingsManager,
+            _foregroundTracker,
             _backspaceHandler,
             _trayIcon
         );
@@ -317,6 +319,7 @@ public sealed partial class MainWindow : Window
             
             // Cleanup - this will properly dispose FocusManager and stop tracking
             _visibilityManager?.Cleanup();
+            _foregroundTracker?.Dispose();
             _styleManager?.RestoreWindowProc();
             
             Logger.Info("Application exiting");
@@ -333,12 +336,13 @@ public sealed partial class MainWindow : Window
         if (!_isClosing)
         {
             args.Handled = true;
-            _visibilityManager?.Hide(); // Will use animated hide
+            _visibilityManager?.Hide();
         }
         else
         {
             // Proper cleanup on actual close
             _visibilityManager?.Cleanup();
+            _foregroundTracker?.Dispose();
             _styleManager?.RestoreWindowProc();
         }
     }
