@@ -10,6 +10,7 @@ namespace VirtualKeyboard;
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
 /// Uses GetCurrentInputMessageSource for reliable hardware input detection in WinEvent context.
+/// Supports Surface touch/pen input which is injected by drivers but detected as IMO_HARDWARE.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -91,7 +92,7 @@ public class WinEventFocusTracker : IDisposable
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with GetCurrentInputMessageSource)");
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with Surface touch/pen support)");
         }
 
         // Subscribe to hardware click detector for "Already Focused" scenarios
@@ -121,21 +122,22 @@ public class WinEventFocusTracker : IDisposable
             // CRITICAL: If we require a click, do STRICT validation
             if (_requireClickForAutoShow)
             {
-                // Step 1: Check if there was a recent hardware click
+                // Step 1: Check if there was a recent click
                 if (_clickDetector == null || !_clickDetector.WasRecentHardwareClick())
                 {
-                    Logger.Debug("❌ Focus event: No recent hardware click - ignoring");
+                    Logger.Debug("❌ Focus event: No recent click - ignoring");
                     return;
                 }
                 
                 // Step 2: Verify focus change was caused by hardware input (not programmatic)
+                // This distinguishes real user input (touch/pen/mouse) from SendInput calls
                 if (!IsHardwareInputCausedFocus())
                 {
                     Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
                     return;
                 }
                 
-                Logger.Debug("✅ Focus event: Both hardware click AND hardware input source confirmed");
+                Logger.Debug("✅ Focus event: Both recent click AND hardware input source confirmed");
             }
 
             // Get the IAccessible object from the event
@@ -143,7 +145,7 @@ public class WinEventFocusTracker : IDisposable
             
             if (hr >= 0 && acc != null)
             {
-                // Verify hardware click was inside element bounds
+                // Verify click was inside element bounds
                 if (_requireClickForAutoShow && _clickDetector != null)
                 {
                     try
@@ -153,12 +155,12 @@ public class WinEventFocusTracker : IDisposable
                         
                         if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
                         {
-                            Logger.Debug($"❌ Hardware click was OUTSIDE element bounds - ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                            Logger.Debug($"❌ Click was OUTSIDE element bounds - ignoring. Bounds: ({l}, {t}, {w}x{h})");
                             Marshal.ReleaseComObject(acc);
                             return;
                         }
                         
-                        Logger.Debug($"✅ Hardware click was INSIDE element bounds ({l}, {t}, {w}x{h})");
+                        Logger.Debug($"✅ Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
                     }
                     catch (Exception ex)
                     {
@@ -196,13 +198,14 @@ public class WinEventFocusTracker : IDisposable
 
             Logger.Debug($"📍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
-            // ONLY accept hardware origin from mouse/touch/touchpad
+            // ONLY accept hardware origin from mouse/touch/touchpad/pen
             if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
             {
-                // Check device type
+                // Check device type - accept mouse, touch, touchpad, AND pen (Surface Pen)
                 if (source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
                     source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
-                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
+                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD ||
+                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN)
                 {
                     Logger.Debug($"✅ Confirmed HARDWARE input from {source.deviceType}");
                     return true;
@@ -242,7 +245,7 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Handles direct HARDWARE clicks to detect text fields that might ALREADY have focus
+    /// Handles direct clicks to detect text fields that might ALREADY have focus
     /// </summary>
     private void OnHardwareClickDetected(object sender, Point clickPoint)
     {
@@ -347,7 +350,7 @@ public class WinEventFocusTracker : IDisposable
                         Rectangle bounds = new Rectangle(l, t, w, h);
                         if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
                         {
-                            Logger.Debug($"Hardware click detected, but outside element bounds. Role: {role}");
+                            Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
                             return;
                         }
                     }
@@ -366,7 +369,7 @@ public class WinEventFocusTracker : IDisposable
                     name = name.Substring(0, 100) + "...";
                 }
 
-                Logger.Info($"{(isDirectClick ? "🖱️ Hardware Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
+                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
 
                 TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
                 {

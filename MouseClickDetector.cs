@@ -6,7 +6,8 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Global mouse click detector using low-level mouse hook.
-/// Uses dwExtraInfo to distinguish real user clicks from programmatic input.
+/// Records ALL clicks without filtering - actual hardware detection is done by GetCurrentInputMessageSource.
+/// Works correctly with Surface touch/pen input where clicks are injected by drivers.
 /// </summary>
 public class MouseClickDetector : IDisposable
 {
@@ -83,7 +84,7 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
-                Logger.Info("✅ Hardware mouse click detector initialized with LLMHF_INJECTED flag check");
+                Logger.Info("✅ Mouse click detector initialized (records all clicks for Surface touch/pen support)");
             }
         }
         catch (Exception ex)
@@ -105,7 +106,8 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Mouse hook callback - records ONLY hardware clicks
+    /// Mouse hook callback - records ALL clicks without filtering.
+    /// Filtering is done in WinEventFocusTracker using GetCurrentInputMessageSource.
     /// </summary>
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
@@ -119,32 +121,27 @@ public class MouseClickDetector : IDisposable
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
                 
-                // Check if this is a hardware click using dwExtraInfo
-                bool isHardwareClick = IsHardwareInput(hookStruct);
-                
-                if (isHardwareClick)
+                // Record ALL clicks - no filtering here
+                // On Surface devices, touch/pen are converted to mouse via SendInput,
+                // so LLMHF_INJECTED flag is set even for real user input.
+                // GetCurrentInputMessageSource in WinEventFocusTracker will distinguish properly.
+                lock (_lockObject)
                 {
-                    lock (_lockObject)
-                    {
-                        _lastHardwareClickTime = DateTime.UtcNow;
-                        _lastHardwareClickPosition = clickPoint;
-                        
-                        Logger.Debug($"🖱️ HARDWARE click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
-                    }
-
-                    // Fire event for hardware click detection
-                    try
-                    {
-                        HardwareClickDetected?.Invoke(this, clickPoint);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error("Error in HardwareClickDetected event handler", ex);
-                    }
+                    _lastHardwareClickTime = DateTime.UtcNow;
+                    _lastHardwareClickPosition = clickPoint;
+                    
+                    bool isInjected = (hookStruct.flags & 0x00000001) != 0;
+                    Logger.Debug($"🖱️ Click recorded at ({hookStruct.pt.X}, {hookStruct.pt.Y}) - Injected={isInjected}, dwExtraInfo=0x{hookStruct.dwExtraInfo.ToInt64():X}");
                 }
-                else
+
+                // Fire event for all clicks
+                try
                 {
-                    Logger.Debug($"🚫 PROGRAMMATIC click detected and IGNORED at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
+                    HardwareClickDetected?.Invoke(this, clickPoint);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("Error in HardwareClickDetected event handler", ex);
                 }
             }
         }
@@ -153,39 +150,8 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Check if click is from hardware device using LLMHF_INJECTED flag.
-    /// This is the ONLY reliable method in low-level mouse hook context.
-    /// dwExtraInfo cannot be trusted as real hardware can have any value.
-    /// </summary>
-    private bool IsHardwareInput(MSLLHOOKSTRUCT hookStruct)
-    {
-        try
-        {
-            // ONLY reliable check: LLMHF_INJECTED flag
-            // This flag is set by the system for ALL SendInput() calls
-            const uint LLMHF_INJECTED = 0x00000001;
-            
-            if ((hookStruct.flags & LLMHF_INJECTED) != 0)
-            {
-                Logger.Debug($"🚫 LLMHF_INJECTED flag set - rejecting (flags: 0x{hookStruct.flags:X})");
-                return false;
-            }
-            
-            // If LLMHF_INJECTED is NOT set, it's hardware input
-            long extraInfoValue = hookStruct.dwExtraInfo.ToInt64();
-            Logger.Debug($"✅ Hardware input confirmed (dwExtraInfo: 0x{extraInfoValue:X}, flags: 0x{hookStruct.flags:X})");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error checking input source", ex);
-            // On error, assume programmatic to be safe
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Check if a recent HARDWARE mouse click occurred within the time window
+    /// Check if a recent mouse click occurred within the time window.
+    /// Does not distinguish hardware vs programmatic - use GetCurrentInputMessageSource for that.
     /// </summary>
     public bool WasRecentHardwareClick()
     {
@@ -199,7 +165,7 @@ public class MouseClickDetector : IDisposable
             
             if (wasRecent)
             {
-                Logger.Debug($"✅ Recent hardware click confirmed ({timeSinceClick:F0}ms ago)");
+                Logger.Debug($"✅ Recent click confirmed ({timeSinceClick:F0}ms ago)");
             }
             
             return wasRecent;
@@ -207,10 +173,10 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Check if a recent hardware click occurred and was within the specified bounds
+    /// Check if a recent click occurred and was within the specified bounds
     /// </summary>
     /// <param name="bounds">Element bounds in screen coordinates</param>
-    /// <returns>True if click was recent, hardware, and inside bounds</returns>
+    /// <returns>True if click was recent and inside bounds</returns>
     public bool WasRecentHardwareClickInBounds(Rectangle bounds)
     {
         lock (_lockObject)
@@ -222,11 +188,11 @@ public class MouseClickDetector : IDisposable
             
             if (isInBounds)
             {
-                Logger.Debug($"✅ Hardware click at ({_lastHardwareClickPosition.X}, {_lastHardwareClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"✅ Click at ({_lastHardwareClickPosition.X}, {_lastHardwareClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
             }
             else
             {
-                Logger.Debug($"❌ Hardware click at ({_lastHardwareClickPosition.X}, {_lastHardwareClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"❌ Click at ({_lastHardwareClickPosition.X}, {_lastHardwareClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
             }
 
             return isInBounds;
@@ -234,7 +200,7 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Get information about the last hardware click
+    /// Get information about the last click
     /// </summary>
     public (DateTime time, Point position) GetLastHardwareClickInfo()
     {
@@ -253,7 +219,7 @@ public class MouseClickDetector : IDisposable
         {
             _lastHardwareClickTime = DateTime.MinValue;
             _lastHardwareClickPosition = Point.Empty;
-            Logger.Debug("Hardware click detector reset");
+            Logger.Debug("Click detector reset");
         }
     }
 
