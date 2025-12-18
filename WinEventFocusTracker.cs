@@ -3,8 +3,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-
-// Note: Removed 'using Accessibility;' as we now define IAccessible locally in NativeMethods
+using System.Linq;
 
 namespace VirtualKeyboard;
 
@@ -23,6 +22,24 @@ public class WinEventFocusTracker : IDisposable
     
     // Checks if the keyboard itself is visible
     private Func<bool> _isKeyboardVisible;
+
+    // Blacklist of processes that should never trigger auto-show
+    private static readonly string[] ProcessBlacklist = new[]
+    {
+        "explorer.exe",      // Windows Explorer
+        "searchhost.exe",    // Windows Search
+        "startmenuexperiencehost.exe"  // Start Menu
+    };
+
+    // Blacklist of window classes that should be excluded
+    private static readonly string[] ClassBlacklist = new[]
+    {
+        "syslistview32",     // List views (Explorer file list)
+        "directuihwnd",      // Explorer file dialogs
+        "cabinetwclass",     // Explorer windows
+        "workerw",           // Desktop worker
+        "progman"            // Program Manager
+    };
 
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
@@ -161,27 +178,49 @@ public class WinEventFocusTracker : IDisposable
     {
         try
         {
-            // 1. Check Role (using explicit method call for COM compatibility)
-            // accRole returns object, usually int
-            object roleObj = acc.get_accRole(childId);
-            int role = (roleObj is int r) ? r : 0;
-            
-            // 2. Get State
-            object stateObj = acc.get_accState(childId);
-            int state = (stateObj is int s) ? s : 0;
-            
-            bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0; // Password
+            // 1. Get Process ID and check blacklist
+            uint pid = 0;
+            if (hwnd != IntPtr.Zero)
+            {
+                NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+                
+                if (IsBlacklistedProcess(pid))
+                {
+                    Logger.Debug($"🚫 Ignoring focus in blacklisted process (PID: {pid})");
+                    return;
+                }
+            }
 
-            // 3. Get ClassName (Win32 API) - useful for specific exclusions/inclusions
+            // 2. Get ClassName and check blacklist
             string className = "";
             if (hwnd != IntPtr.Zero)
             {
                 StringBuilder sb = new StringBuilder(256);
                 NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
                 className = sb.ToString();
+                
+                if (IsBlacklistedClassName(className))
+                {
+                    Logger.Debug($"🚫 Ignoring focus in blacklisted window class: {className}");
+                    return;
+                }
             }
 
-            bool isText = IsTextInputRole(role, className);
+            // 3. Check Role
+            object roleObj = acc.get_accRole(childId);
+            int role = (roleObj is int r) ? r : 0;
+            
+            // 4. Get State
+            object stateObj = acc.get_accState(childId);
+            int state = (stateObj is int s) ? s : 0;
+            
+            bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
+            bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+            bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+            bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
+
+            // 5. Determine if this is a text input
+            bool isText = IsEditableTextInput(role, className, state, acc, childId);
 
             if (isText)
             {
@@ -192,27 +231,20 @@ public class WinEventFocusTracker : IDisposable
                     Rectangle bounds = new Rectangle(l, t, w, h);
                     if (!_clickDetector.WasRecentClickInBounds(bounds))
                     {
-                        Logger.Debug($"Click detected, but outside element bounds logic. Role: {role}");
+                        Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
                         return;
                     }
-                }
-
-                // Get Process ID
-                uint pid = 0;
-                if (hwnd != IntPtr.Zero)
-                {
-                    NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
                 }
                 
                 string name = "";
                 try { name = acc.get_accName(childId); } catch { }
 
-                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on Text Input - Role: {role}, Class: {className}, Name: {name}");
+                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}, State: Readonly={isReadonly}, Focusable={isFocusable}");
 
                 TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
                 {
                     WindowHandle = hwnd,
-                    ControlType = role, // Sending Role as ControlType
+                    ControlType = role,
                     ClassName = className,
                     Name = name,
                     IsPassword = isProtected,
@@ -221,12 +253,14 @@ public class WinEventFocusTracker : IDisposable
             }
             else
             {
-                 NonTextInputFocused?.Invoke(this, new FocusEventArgs
-                 {
-                     WindowHandle = hwnd,
-                     ControlType = role,
-                     ClassName = className
-                 });
+                Logger.Debug($"Not a text input - Role: {role}, Class: {className}, State: Readonly={isReadonly}, Focusable={isFocusable}");
+                
+                NonTextInputFocused?.Invoke(this, new FocusEventArgs
+                {
+                    WindowHandle = hwnd,
+                    ControlType = role,
+                    ClassName = className
+                });
             }
         }
         catch (Exception ex)
@@ -236,26 +270,148 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
-    private bool IsTextInputRole(int role, string className)
+    /// <summary>
+    /// Enhanced logic to determine if element is an editable text input
+    /// </summary>
+    private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
     {
-        // 1. Standard Text Roles
-        if (role == NativeMethods.ROLE_SYSTEM_TEXT) return true;
+        // CRITICAL: Exclude readonly elements
+        bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+        bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+        bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
 
-        // 2. Document Role (Word, Browsers often use this for content area)
-        if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT) return true;
+        // Exclude unavailable (disabled) elements
+        if (isUnavailable)
+        {
+            return false;
+        }
 
-        // 3. Check class names for legacy apps or specific controls that don't report role correctly
+        // CRITICAL: Non-focusable elements are NOT text inputs
+        // This filters out static text in lists (like Explorer file names)
+        if (!isFocusable)
+        {
+            Logger.Debug($"Element is not focusable (Role: {role})");
+            return false;
+        }
+
         string classLower = className?.ToLowerInvariant() ?? "";
-        
-        if (classLower.Contains("edit") || 
-            classLower.Contains("richedit") || 
-            classLower.Contains("cmd") || // Command Prompt
-            classLower.Contains("console")) 
+
+        // 1. Explicit Edit Controls (Win32 edit boxes)
+        if (classLower.Contains("edit") && !isReadonly)
+        {
+            // Verify it has a value or can accept input
+            try
+            {
+                string value = acc.get_accValue(childId);
+                // If it has accValue interface, it's likely editable
+                return true;
+            }
+            catch
+            {
+                // If no value interface, check role
+            }
+        }
+
+        // 2. RichEdit controls
+        if (classLower.Contains("richedit") && !isReadonly)
         {
             return true;
         }
-        
+
+        // 3. Console/Terminal windows
+        if (classLower.Contains("console") || classLower.Contains("cmd"))
+        {
+            return true;
+        }
+
+        // 4. ROLE_SYSTEM_TEXT - MUST be editable and focusable
+        if (role == NativeMethods.ROLE_SYSTEM_TEXT)
+        {
+            // CRITICAL: Static text is also ROLE_SYSTEM_TEXT but is readonly
+            if (isReadonly)
+            {
+                Logger.Debug($"ROLE_SYSTEM_TEXT but readonly - rejecting");
+                return false;
+            }
+
+            // Additional check: Try to get value interface
+            try
+            {
+                string value = acc.get_accValue(childId);
+                // Has value interface = likely editable
+                Logger.Debug($"ROLE_SYSTEM_TEXT with value interface - accepting");
+                return true;
+            }
+            catch
+            {
+                // No value interface on a text role = probably static text
+                Logger.Debug($"ROLE_SYSTEM_TEXT without value interface - rejecting");
+                return false;
+            }
+        }
+
+        // 5. Document Role (Word, Browsers) - only if editable
+        if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
+        {
+            return true;
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// Check if process is in blacklist
+    /// </summary>
+    private bool IsBlacklistedProcess(uint pid)
+    {
+        if (pid == 0) return false;
+
+        try
+        {
+            IntPtr hProcess = NativeMethods.OpenProcess(
+                NativeMethods.PROCESS_QUERY_INFORMATION | NativeMethods.PROCESS_VM_READ,
+                false,
+                pid);
+
+            if (hProcess == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                StringBuilder processName = new StringBuilder(1024);
+                uint size = NativeMethods.GetModuleFileNameEx(hProcess, IntPtr.Zero, processName, processName.Capacity);
+
+                if (size > 0)
+                {
+                    string fullPath = processName.ToString().ToLowerInvariant();
+                    string fileName = System.IO.Path.GetFileName(fullPath);
+                    
+                    return ProcessBlacklist.Any(blocked => fileName.Contains(blocked.ToLowerInvariant()));
+                }
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(hProcess);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error checking process blacklist: {ex.Message}");
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Check if window class is in blacklist
+    /// </summary>
+    private bool IsBlacklistedClassName(string className)
+    {
+        if (string.IsNullOrEmpty(className))
+            return false;
+
+        string classLower = className.ToLowerInvariant();
+        return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
     }
 
     public void UpdateAutoShowSetting(bool enabled)

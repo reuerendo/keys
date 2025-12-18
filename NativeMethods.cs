@@ -22,7 +22,10 @@ internal static class NativeMethods
 
     // Standard MSAA States
     public const int STATE_SYSTEM_FOCUSED = 0x00000004;
-    public const int STATE_SYSTEM_PROTECTED = 0x20000000; // Password field
+    public const int STATE_SYSTEM_FOCUSABLE = 0x00100000;  // Can receive focus
+    public const int STATE_SYSTEM_READONLY = 0x00000040;   // Read-only (not editable)
+    public const int STATE_SYSTEM_PROTECTED = 0x20000000;  // Password field
+    public const int STATE_SYSTEM_UNAVAILABLE = 0x00000001; // Disabled
 
     public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
@@ -46,6 +49,18 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern IntPtr WindowFromAccessibleObject(IAccessible pacc);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("psapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    public static extern uint GetModuleFileNameEx(IntPtr hProcess, IntPtr hModule, StringBuilder lpFilename, int nSize);
+
+    public const uint PROCESS_QUERY_INFORMATION = 0x0400;
+    public const uint PROCESS_VM_READ = 0x0010;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT
