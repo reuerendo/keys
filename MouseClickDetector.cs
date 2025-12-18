@@ -5,8 +5,8 @@ using System.Drawing;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Global mouse click detector using low-level mouse hook with hardware input detection.
-/// Uses GetCurrentInputMessageSource to reliably distinguish real user clicks from programmatic input.
+/// Global mouse click detector using low-level mouse hook.
+/// Uses dwExtraInfo to distinguish real user clicks from programmatic input.
 /// </summary>
 public class MouseClickDetector : IDisposable
 {
@@ -15,6 +15,9 @@ public class MouseClickDetector : IDisposable
     private const int WH_MOUSE_LL = 14;
     private const int WM_LBUTTONDOWN = 0x0201;
     private const int WM_RBUTTONDOWN = 0x0204;
+    
+    // Magic value used by SendInput to mark injected events
+    private static readonly IntPtr INJECTED_EXTRA_INFO = new IntPtr(0xFF515700);
     
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
@@ -59,7 +62,6 @@ public class MouseClickDetector : IDisposable
 
     /// <summary>
     /// Time window in milliseconds to consider focus change as click-initiated.
-    /// This is now a fallback - primary detection uses GetCurrentInputMessageSource.
     /// </summary>
     public int ClickTimeWindowMs { get; set; } = 150;
 
@@ -84,7 +86,7 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
-                Logger.Info("✅ Hardware mouse click detector initialized with GetCurrentInputMessageSource");
+                Logger.Info("✅ Hardware mouse click detector initialized with dwExtraInfo check");
             }
         }
         catch (Exception ex)
@@ -120,8 +122,8 @@ public class MouseClickDetector : IDisposable
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
                 
-                // CRITICAL: Check if this is a hardware click using GetCurrentInputMessageSource
-                bool isHardwareClick = IsHardwareInput();
+                // Check if this is a hardware click using dwExtraInfo
+                bool isHardwareClick = IsHardwareInput(hookStruct);
                 
                 if (isHardwareClick)
                 {
@@ -154,51 +156,46 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Check if current input is from hardware device using GetCurrentInputMessageSource
+    /// Check if click is from hardware device using dwExtraInfo and flags fields.
+    /// SendInput() typically sets dwExtraInfo to a magic value or leaves it as the value passed.
+    /// Real hardware events have dwExtraInfo = 0 or driver-specific values.
     /// </summary>
-    private bool IsHardwareInput()
+    private bool IsHardwareInput(MSLLHOOKSTRUCT hookStruct)
     {
         try
         {
-            bool success = NativeMethods.GetCurrentInputMessageSource(out NativeMethods.INPUT_MESSAGE_SOURCE source);
+            // MOST RELIABLE: Check LLMHF_INJECTED flag first
+            const uint LLMHF_INJECTED = 0x00000001;
+            if ((hookStruct.flags & LLMHF_INJECTED) != 0)
+            {
+                Logger.Debug($"🚫 LLMHF_INJECTED flag set - rejecting");
+                return false;
+            }
             
-            if (!success)
+            IntPtr extraInfo = hookStruct.dwExtraInfo;
+            long extraInfoValue = extraInfo.ToInt64();
+            
+            // Check for known injected event markers
+            if (extraInfo == INJECTED_EXTRA_INFO)
             {
-                Logger.Debug("GetCurrentInputMessageSource failed - assuming programmatic input");
+                Logger.Debug($"🚫 Known injection marker (dwExtraInfo: 0x{extraInfoValue:X})");
                 return false;
             }
-
-            // Log source information
-            Logger.Debug($"Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
-
-            // Check if origin is hardware
-            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+            
+            // Suspicious: very large values often indicate injection
+            if (extraInfoValue > 0x00FFFFFF && extraInfoValue != 0)
             {
-                // Hardware input - check if it's from mouse, touch, or touchpad
-                if (source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
-                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
-                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
-                {
-                    Logger.Debug($"✅ Confirmed HARDWARE input from {source.deviceType}");
-                    return true;
-                }
-            }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
-            {
-                Logger.Debug("🚫 Input is INJECTED (SendInput) - rejecting");
+                Logger.Debug($"🚫 Suspicious dwExtraInfo: 0x{extraInfoValue:X}");
                 return false;
             }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
-            {
-                Logger.Debug("🚫 Input is SYSTEM-generated - rejecting");
-                return false;
-            }
-
-            return false;
+            
+            Logger.Debug($"✅ Hardware input (dwExtraInfo: 0x{extraInfoValue:X}, flags: 0x{hookStruct.flags:X})");
+            return true;
         }
         catch (Exception ex)
         {
             Logger.Error("Error checking input source", ex);
+            // On error, assume programmatic to be safe
             return false;
         }
     }
