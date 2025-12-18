@@ -16,10 +16,11 @@ internal static class NativeMethods
     public const int OBJID_CLIENT = -4;
 
     // Standard MSAA Roles
-    public const int ROLE_SYSTEM_TEXT = 0x2A;
-    public const int ROLE_SYSTEM_DOCUMENT = 0x0F; // For Word/Browsers
-    public const int ROLE_SYSTEM_CLIENT = 0x0A;   // Generic client area
-    public const int ROLE_SYSTEM_COMBOBOX = 0x2E; // ComboBox (e.g., Firefox/Edge search bars)
+    public const int ROLE_SYSTEM_TEXT = 0x2A;          // Editable text
+    public const int ROLE_SYSTEM_DOCUMENT = 0x0F;      // Document (Word/Browsers)
+    public const int ROLE_SYSTEM_CLIENT = 0x0A;        // Client area (generic container)
+    public const int ROLE_SYSTEM_COMBOBOX = 0x2E;      // ComboBox (e.g., Firefox/Edge search bars)
+    public const int ROLE_SYSTEM_PANE = 0x10;          // Pane (generic grouping)
 
     // Standard MSAA States
     public const int STATE_SYSTEM_FOCUSED = 0x00000004;

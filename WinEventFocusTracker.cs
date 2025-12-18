@@ -41,6 +41,25 @@ public class WinEventFocusTracker : IDisposable
         "progman"            // Program Manager
     };
 
+    // Known text editor classes that should always trigger auto-show
+    private static readonly string[] EditorClassWhitelist = new[]
+    {
+        "scintilla",              // Notepad++, Sublime Text, etc.
+        "richedit",               // Rich Edit controls
+        "edit",                   // Standard edit controls
+        "akeleditwclass",         // AkelPad editor
+        "atlaxwin",               // Various editors
+        "vscodecontentcontrol"    // VS Code (if using native HWND)
+    };
+
+    // Known Chrome/Electron render widget classes
+    private static readonly string[] ChromeRenderClasses = new[]
+    {
+        "chrome_renderwidgethosthwnd",  // Chrome/Electron apps
+        "chrome_widgetwin_",             // Chrome widgets
+        "intermediate d3d window"        // Hardware accelerated Chrome
+    };
+
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
 
@@ -120,7 +139,7 @@ public class WinEventFocusTracker : IDisposable
                 if (_requireClickForAutoShow && _clickDetector != null)
                 {
                     try
-                {
+                    {
                         acc.accLocation(out int l, out int t, out int w, out int h, childId);
                         Rectangle bounds = new Rectangle(l, t, w, h);
                         clickInsideBounds = _clickDetector.WasRecentClickInBounds(bounds);
@@ -137,7 +156,7 @@ public class WinEventFocusTracker : IDisposable
                     catch (Exception ex)
                     {
                         Logger.Debug($"Could not verify bounds for focus event: {ex.Message}");
-                        // For comboboxes, bounds check might fail on parent - continue anyway
+                        // For some controls (combobox, editors), bounds check might fail - continue anyway
                     }
                 }
                 
@@ -217,7 +236,7 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
-            // 2. Get ClassName and check blacklist
+            // 2. Get ClassName and check blacklist/whitelist
             string className = "";
             if (hwnd != IntPtr.Zero)
             {
@@ -265,13 +284,19 @@ public class WinEventFocusTracker : IDisposable
                     }
                     catch
                     {
-                        // Bounds check failed - for comboboxes this is OK, continue
+                        // Bounds check failed - for certain controls this is OK, continue
                         Logger.Debug("Bounds check failed, but element is text input - continuing");
                     }
                 }
                 
                 string name = "";
                 try { name = acc.get_accName(childId); } catch { }
+
+                // Truncate very long names (like full file content in Scintilla)
+                if (name != null && name.Length > 100)
+                {
+                    name = name.Substring(0, 100) + "...";
+                }
 
                 Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}, State: Readonly={isReadonly}, Focusable={isFocusable}");
 
@@ -309,18 +334,71 @@ public class WinEventFocusTracker : IDisposable
     /// </summary>
     private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
     {
-        // CRITICAL: Exclude readonly elements
+        // CRITICAL: Exclude readonly and unavailable elements
         bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
         bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
         bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
 
-        // Exclude unavailable (disabled) elements
         if (isUnavailable)
         {
             return false;
         }
 
-        // CRITICAL: Non-focusable elements are NOT text inputs
+        string classLower = className?.ToLowerInvariant() ?? "";
+
+        // ===== WHITELIST: Known text editor classes =====
+        // These classes are ALWAYS text inputs when focused
+        if (IsEditorClass(classLower))
+        {
+            if (isReadonly)
+            {
+                Logger.Debug($"Editor class '{className}' but readonly - rejecting");
+                return false;
+            }
+            
+            Logger.Debug($"✅ Recognized editor class: {className}");
+            return true;
+        }
+
+        // ===== CHROME/ELECTRON APPS (Signal, Discord, VS Code, etc.) =====
+        if (IsChromeRenderClass(classLower))
+        {
+            // Chrome render widgets need special handling
+            // They often don't expose proper IAccessible, but we can infer from context
+            
+            // Check if it's focusable and has some indication of being an input
+            if (isFocusable)
+            {
+                // Try to get value - if it has value interface, likely an input
+                try
+                {
+                    string value = acc.get_accValue(childId);
+                    Logger.Debug($"✅ Chrome render widget has value interface - accepting");
+                    return true;
+                }
+                catch
+                {
+                    // No value interface
+                }
+
+                // Check for specific roles that might indicate input areas
+                const int ROLE_SYSTEM_PANE = 0x10;
+                if (role == ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
+                {
+                    // For Chrome/Electron, panes and client areas that are focusable
+                    // are often text input areas (like Signal message box)
+                    Logger.Debug($"✅ Chrome render widget with focusable pane/client - accepting");
+                    return true;
+                }
+            }
+            
+            Logger.Debug($"Chrome render widget but not detected as input");
+            return false;
+        }
+
+        // ===== STANDARD CHECKS =====
+        
+        // Non-focusable elements are NOT text inputs
         // This filters out static text in lists (like Explorer file names)
         if (!isFocusable)
         {
@@ -328,70 +406,93 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        string classLower = className?.ToLowerInvariant() ?? "";
-
         // 1. Explicit Edit Controls (Win32 edit boxes)
         if (classLower.Contains("edit") && !isReadonly)
         {
-            // Verify it has a value or can accept input
             try
             {
                 string value = acc.get_accValue(childId);
-                // If it has accValue interface, it's likely editable
                 return true;
             }
-            catch
-            {
-                // If no value interface, check role
-            }
+            catch { }
         }
 
-        // 2. RichEdit controls
-        if (classLower.Contains("richedit") && !isReadonly)
+        // 2. Console/Terminal windows
+        if (classLower.Contains("console") || classLower.Contains("cmd") || classLower.Contains("terminal"))
         {
             return true;
         }
 
-        // 3. Console/Terminal windows
-        if (classLower.Contains("console") || classLower.Contains("cmd"))
-        {
-            return true;
-        }
-
-        // 4. ROLE_SYSTEM_TEXT - MUST be editable and focusable
+        // 3. ROLE_SYSTEM_TEXT - MUST be editable and focusable
         if (role == NativeMethods.ROLE_SYSTEM_TEXT)
         {
-            // CRITICAL: Static text is also ROLE_SYSTEM_TEXT but is readonly
             if (isReadonly)
             {
                 Logger.Debug($"ROLE_SYSTEM_TEXT but readonly - rejecting");
                 return false;
             }
 
-            // Additional check: Try to get value interface
             try
             {
                 string value = acc.get_accValue(childId);
-                // Has value interface = likely editable
                 Logger.Debug($"ROLE_SYSTEM_TEXT with value interface - accepting");
                 return true;
             }
             catch
             {
-                // No value interface on a text role = probably static text
                 Logger.Debug($"ROLE_SYSTEM_TEXT without value interface - rejecting");
                 return false;
             }
         }
 
-        // 5. Document Role (Word, Browsers) - only if editable
+        // 4. Document Role (Word, Browsers) - only if editable
         if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
         {
             return true;
         }
 
+        // 5. CLIENT Role - for editors like Scintilla (Notepad++)
+        if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
+        {
+            // Client role is generic, need additional checks
+            
+            // If it's readonly, definitely not an input
+            if (isReadonly)
+            {
+                return false;
+            }
+
+            // Check if it has a name that looks like text content
+            // Scintilla puts the document content in the Name property
+            try
+            {
+                string name = acc.get_accName(childId);
+                if (!string.IsNullOrEmpty(name) && name.Length > 20)
+                {
+                    // Has substantial text content - likely an editor
+                    Logger.Debug($"✅ CLIENT role with text content (length: {name.Length}) - accepting");
+                    return true;
+                }
+            }
+            catch { }
+
+            // Check for value interface
+            try
+            {
+                string value = acc.get_accValue(childId);
+                if (value != null)
+                {
+                    Logger.Debug($"✅ CLIENT role with value interface - accepting");
+                    return true;
+                }
+            }
+            catch { }
+
+            Logger.Debug($"CLIENT role but no indicators of text input");
+            return false;
+        }
+
         // 6. COMBOBOX (0x2E) - Check if it has editable text child
-        // This covers Firefox search bar, Edge address bar, and similar controls
         const int ROLE_SYSTEM_COMBOBOX = 0x2E;
         if (role == ROLE_SYSTEM_COMBOBOX)
         {
@@ -401,19 +502,15 @@ public class WinEventFocusTracker : IDisposable
             try
             {
                 string value = acc.get_accValue(childId);
-                Logger.Debug($"COMBOBOX has value interface with value: '{value}' - accepting");
+                Logger.Debug($"COMBOBOX has value interface - accepting");
                 return true;
             }
-            catch
-            {
-                // No direct value, check children
-            }
+            catch { }
 
             // Check if it has editable text child
             try
             {
                 int childCount = acc.accChildCount;
-                Logger.Debug($"COMBOBOX has {childCount} children");
                 
                 if (childCount > 0)
                 {
@@ -433,9 +530,6 @@ public class WinEventFocusTracker : IDisposable
                                     int childState = (childStateObj is int cs) ? cs : 0;
                                     bool childReadonly = (childState & NativeMethods.STATE_SYSTEM_READONLY) != 0;
                                     
-                                    Logger.Debug($"COMBOBOX child {i}: Role={childRole}, Readonly={childReadonly}");
-                                    
-                                    // If child is editable text, accept the combobox
                                     if (childRole == NativeMethods.ROLE_SYSTEM_TEXT && !childReadonly)
                                     {
                                         Logger.Debug($"✅ COMBOBOX has editable text child - accepting");
@@ -453,17 +547,11 @@ public class WinEventFocusTracker : IDisposable
                                 }
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            Logger.Debug($"Error getting combobox child {i}: {ex.Message}");
-                        }
+                        catch { }
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Logger.Debug($"Error checking combobox children: {ex.Message}");
-            }
+            catch { }
             
             // Even if we can't check children, if it's focusable and not readonly, accept it
             if (!isReadonly)
@@ -472,11 +560,32 @@ public class WinEventFocusTracker : IDisposable
                 return true;
             }
             
-            Logger.Debug($"COMBOBOX rejected - no editable child found");
             return false;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Check if class name is a known text editor
+    /// </summary>
+    private bool IsEditorClass(string classLower)
+    {
+        if (string.IsNullOrEmpty(classLower))
+            return false;
+
+        return EditorClassWhitelist.Any(editor => classLower.Contains(editor));
+    }
+
+    /// <summary>
+    /// Check if class name is a Chrome/Electron render widget
+    /// </summary>
+    private bool IsChromeRenderClass(string classLower)
+    {
+        if (string.IsNullOrEmpty(classLower))
+            return false;
+
+        return ChromeRenderClasses.Any(chrome => classLower.Contains(chrome));
     }
 
     /// <summary>
@@ -557,7 +666,7 @@ public class WinEventFocusTracker : IDisposable
     }
 }
 
-// --- Restored Event Argument Classes ---
+// --- Event Argument Classes ---
 
 public class TextInputFocusEventArgs : EventArgs
 {
