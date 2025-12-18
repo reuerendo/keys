@@ -3,7 +3,8 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-using Accessibility;
+
+// Note: Removed 'using Accessibility;' as we now define IAccessible locally in NativeMethods
 
 namespace VirtualKeyboard;
 
@@ -93,7 +94,7 @@ public class WinEventFocusTracker : IDisposable
             }
 
             // Get the IAccessible object from the event
-            int hr = NativeMethods.AccessibleObjectFromEvent(hwnd, idObject, idChild, out IAccessible acc, out object childId);
+            int hr = NativeMethods.AccessibleObjectFromEvent(hwnd, idObject, idChild, out NativeMethods.IAccessible acc, out object childId);
             
             if (hr >= 0 && acc != null)
             {
@@ -124,7 +125,7 @@ public class WinEventFocusTracker : IDisposable
                 NativeMethods.POINT pt = new NativeMethods.POINT { X = clickPoint.X, Y = clickPoint.Y };
                 
                 // Get object directly under mouse
-                int hr = NativeMethods.AccessibleObjectFromPoint(pt, out IAccessible acc, out object childId);
+                int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
 
                 if (hr >= 0 && acc != null)
                 {
@@ -156,15 +157,19 @@ public class WinEventFocusTracker : IDisposable
     /// <summary>
     /// Core logic to determine if the object is a text input
     /// </summary>
-    private void ProcessAccessibleObject(IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
+    private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
     {
         try
         {
-            // 1. Check Role
-            int role = (int)acc.accRole[childId];
+            // 1. Check Role (using explicit method call for COM compatibility)
+            // accRole returns object, usually int
+            object roleObj = acc.get_accRole(childId);
+            int role = (roleObj is int r) ? r : 0;
             
             // 2. Get State
-            int state = (int)acc.accState[childId];
+            object stateObj = acc.get_accState(childId);
+            int state = (stateObj is int s) ? s : 0;
+            
             bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0; // Password
 
             // 3. Get ClassName (Win32 API) - useful for specific exclusions/inclusions
@@ -181,7 +186,6 @@ public class WinEventFocusTracker : IDisposable
             if (isText)
             {
                 // Double check bounds if it was a direct click (ensure we actually clicked INSIDE)
-                // AccessibleObjectFromPoint usually handles this, but for safety:
                 if (isDirectClick && _clickDetector != null)
                 {
                     acc.accLocation(out int l, out int t, out int w, out int h, childId);
@@ -201,7 +205,7 @@ public class WinEventFocusTracker : IDisposable
                 }
                 
                 string name = "";
-                try { name = acc.accName[childId]; } catch { }
+                try { name = acc.get_accName(childId); } catch { }
 
                 Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on Text Input - Role: {role}, Class: {className}, Name: {name}");
 
@@ -241,7 +245,7 @@ public class WinEventFocusTracker : IDisposable
         if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT) return true;
 
         // 3. Check class names for legacy apps or specific controls that don't report role correctly
-        string classLower = className.ToLowerInvariant();
+        string classLower = className?.ToLowerInvariant() ?? "";
         
         if (classLower.Contains("edit") || 
             classLower.Contains("richedit") || 
@@ -250,10 +254,6 @@ public class WinEventFocusTracker : IDisposable
         {
             return true;
         }
-
-        // Some modern UI frameworks use CLIENT role for custom text boxes, 
-        // but we should be careful not to enable it for everything.
-        // Usually, checking if it is "Focusable" happens outside, but here we assume focus event.
         
         return false;
     }
@@ -279,4 +279,23 @@ public class WinEventFocusTracker : IDisposable
             _clickDetector.ClickDetected -= OnClickDetected;
         }
     }
+}
+
+// --- Restored Event Argument Classes ---
+
+public class TextInputFocusEventArgs : EventArgs
+{
+    public IntPtr WindowHandle { get; set; }
+    public int ControlType { get; set; }
+    public string ClassName { get; set; }
+    public string Name { get; set; }
+    public bool IsPassword { get; set; }
+    public uint ProcessId { get; set; }
+}
+
+public class FocusEventArgs : EventArgs
+{
+    public IntPtr WindowHandle { get; set; }
+    public int ControlType { get; set; }
+    public string ClassName { get; set; }
 }

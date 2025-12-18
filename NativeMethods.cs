@@ -1,12 +1,12 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
-using Accessibility;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Native Win32 API and MSAA definitions
+/// Native Win32 API and MSAA definitions.
+/// Contains manual definition of IAccessible to avoid assembly dependencies.
 /// </summary>
 internal static class NativeMethods
 {
@@ -18,7 +18,7 @@ internal static class NativeMethods
     // Standard MSAA Roles
     public const int ROLE_SYSTEM_TEXT = 0x2A;
     public const int ROLE_SYSTEM_DOCUMENT = 0x0F; // For Word/Browsers
-    public const int ROLE_SYSTEM_CLIENT = 0x0A;   // Generic client area (sometimes used for custom edits)
+    public const int ROLE_SYSTEM_CLIENT = 0x0A;   // Generic client area
 
     // Standard MSAA States
     public const int STATE_SYSTEM_FOCUSED = 0x00000004;
@@ -52,5 +52,35 @@ internal static class NativeMethods
     {
         public int X;
         public int Y;
+    }
+
+    // --- Manual IAccessible Definition to avoid Reference Errors ---
+
+    [ComImport()]
+    [Guid("618736E0-3C3D-11CF-810C-00AA00389B71")]
+    [InterfaceType(ComInterfaceType.InterfaceIsDual)]
+    public interface IAccessible
+    {
+        [DispId(-5000)] IAccessible accParent { [return: MarshalAs(UnmanagedType.IDispatch)] get; }
+        [DispId(-5001)] int accChildCount { get; }
+        [DispId(-5002)] object get_accChild(object varChild);
+        [DispId(-5003)] string get_accName(object varChild);
+        [DispId(-5004)] string get_accValue(object varChild);
+        [DispId(-5005)] string get_accDescription(object varChild);
+        [DispId(-5006)] object get_accRole(object varChild);
+        [DispId(-5007)] object get_accState(object varChild);
+        [DispId(-5008)] string get_accHelp(object varChild);
+        [DispId(-5009)] int get_accHelpTopic(out string pszHelpFile, object varChild);
+        [DispId(-5010)] string get_accKeyboardShortcut(object varChild);
+        [DispId(-5011)] object accFocus { get; }
+        [DispId(-5012)] object accSelection { get; }
+        [DispId(-5013)] string get_accDefaultAction(object varChild);
+        [DispId(-5014)] void accSelect(int flagsSelect, object varChild);
+        [DispId(-5015)] void accLocation(out int pxLeft, out int pyTop, out int pcxWidth, out int pcyHeight, object varChild);
+        [DispId(-5016)] object accNavigate(int navDir, object varStart);
+        [DispId(-5017)] object accHitTest(int xLeft, int yTop);
+        [DispId(-5018)] void accDoDefaultAction(object varChild);
+        [DispId(-5003)] void set_accName(object varChild, string pszName);
+        [DispId(-5004)] void set_accValue(object varChild, string pszValue);
     }
 }
