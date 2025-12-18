@@ -9,7 +9,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
-/// Uses GetCurrentInputMessageSource for reliable hardware input detection in WinEvent context.
+/// Uses hybrid approach: relaxed LLMHF_INJECTED + dwExtraInfo filtering.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -91,7 +91,7 @@ public class WinEventFocusTracker : IDisposable
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with GetCurrentInputMessageSource)");
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with relaxed filtering)");
         }
 
         // Subscribe to hardware click detector for "Already Focused" scenarios
@@ -118,13 +118,13 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // ИЗМЕНЕНИЕ: Проверяем hardware input, но НЕ отклоняем при UNAVAILABLE
-            bool isHardwareInput = false;
+            // НОВЫЙ ПОДХОД: Проверяем только явные признаки программного ввода
+            bool isDefinitelyProgrammatic = false;
             bool hasRecentClick = false;
             
             if (_requireClickForAutoShow)
             {
-                // Проверяем источник ввода
+                // Проверяем GetCurrentInputMessageSource только для явных IMO_INJECTED/IMO_SYSTEM
                 var inputSource = CheckInputSource();
                 
                 if (inputSource == InputSourceType.DefinitelyProgrammatic)
@@ -136,27 +136,24 @@ public class WinEventFocusTracker : IDisposable
                 // Проверяем наличие недавнего клика мышью
                 hasRecentClick = _clickDetector?.WasRecentHardwareClick() ?? false;
                 
+                // Логика принятия решения:
+                // 1. Если GetCurrentInputMessageSource сказал "HARDWARE" - принимаем
+                // 2. Если UNAVAILABLE + есть недавний клик - принимаем
+                // 3. Если UNAVAILABLE + нет недавнего клика - ПРИНИМАЕМ ТОЖЕ (могут быть проблемы с hook)
+                
                 if (inputSource == InputSourceType.DefinitelyHardware)
                 {
-                    isHardwareInput = true;
-                    Logger.Debug("✅ Focus change confirmed as HARDWARE-initiated by GetCurrentInputMessageSource");
+                    Logger.Debug("✅ Focus change confirmed as HARDWARE by GetCurrentInputMessageSource");
                 }
                 else if (inputSource == InputSourceType.Unavailable && hasRecentClick)
                 {
-                    isHardwareInput = true;
-                    Logger.Debug("✅ Focus change assumed HARDWARE (UNAVAILABLE but recent click detected)");
+                    Logger.Debug("✅ Focus change assumed HARDWARE (UNAVAILABLE + recent click detected)");
                 }
                 else if (inputSource == InputSourceType.Unavailable && !hasRecentClick)
                 {
-                    // UNAVAILABLE без недавнего клика - вероятно клавиатурная навигация
-                    Logger.Debug("⚠️ Focus change with UNAVAILABLE source and no recent click - might be keyboard navigation, ignoring");
-                    return;
-                }
-                
-                if (!isHardwareInput)
-                {
-                    Logger.Debug("Focus change detected, but NOT caused by hardware input - ignoring");
-                    return;
+                    // ИЗМЕНЕНИЕ: Не отклоняем автоматически, проверяем контекст
+                    Logger.Debug("⚠️ Focus change with UNAVAILABLE source and NO recent click - checking if it's a text field anyway");
+                    // Продолжаем проверку - возможно это настоящий клик, который hook не поймал
                 }
             }
 
@@ -165,8 +162,8 @@ public class WinEventFocusTracker : IDisposable
             
             if (hr >= 0 && acc != null)
             {
-                // For focus events, verify hardware click was inside element bounds
-                bool clickInsideBounds = false;
+                // Проверяем bounds только если был зарегистрирован клик
+                bool clickInsideBounds = true; // По умолчанию true
                 
                 if (_requireClickForAutoShow && _clickDetector != null && hasRecentClick)
                 {
@@ -188,7 +185,6 @@ public class WinEventFocusTracker : IDisposable
                     catch (Exception ex)
                     {
                         Logger.Debug($"Could not verify bounds: {ex.Message}");
-                        // For some controls, bounds check might fail - continue anyway
                     }
                 }
                 
@@ -220,7 +216,7 @@ public class WinEventFocusTracker : IDisposable
             
             if (!success)
             {
-                Logger.Debug("GetCurrentInputMessageSource failed");
+                Logger.Debug("GetCurrentInputMessageSource failed - assuming UNAVAILABLE");
                 return InputSourceType.Unavailable;
             }
 
@@ -229,13 +225,13 @@ public class WinEventFocusTracker : IDisposable
             // Определенно программный ввод - отклоняем
             if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
             {
-                Logger.Debug("🚫 Input is INJECTED (SendInput)");
+                Logger.Debug("🚫 Input is INJECTED (SendInput) - definitely programmatic");
                 return InputSourceType.DefinitelyProgrammatic;
             }
             
             if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
             {
-                Logger.Debug("🚫 Input is SYSTEM-generated");
+                Logger.Debug("🚫 Input is SYSTEM-generated - definitely programmatic");
                 return InputSourceType.DefinitelyProgrammatic;
             }
 
@@ -250,10 +246,10 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
-            // UNAVAILABLE - полагаемся на MouseClickDetector
+            // UNAVAILABLE - может быть как клавиатура, так и проблемы с определением
             if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
-                Logger.Debug("⚠️ Input source UNAVAILABLE - checking MouseClickDetector");
+                Logger.Debug("⚠️ Input source UNAVAILABLE - might be hardware that wasn't detected properly");
                 return InputSourceType.Unavailable;
             }
 
