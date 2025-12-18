@@ -9,7 +9,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
-/// Enhanced for Chrome/Edge with relaxed bounds checking and optimized role detection.
+/// Enhanced for Chrome/Edge with relaxed bounds checking.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -326,57 +326,77 @@ public class WinEventFocusTracker : IDisposable
             return true;
         }
 
-        // Optimized Chrome/Electron detection logic
+        // Enhanced Chrome/Electron detection
         if (IsChromeRenderClass(classLower))
         {
             Logger.Debug($"Detected Chrome render class: {className}, Role: {role}, Focusable: {isFocusable}, Readonly: {isReadonly}");
             
-            // 1. If strict readonly, it's definitely not an input (unless browser bug, but safer to reject)
+            // CRITICAL: Chrome pages are often ROLE_SYSTEM_DOCUMENT with Readonly=True
+            // Real text inputs are Readonly=False
             if (isReadonly)
             {
-                Logger.Debug($"Chrome widget is readonly - rejecting");
+                Logger.Debug($"Chrome widget is readonly - rejecting (not an input field)");
                 return false;
             }
-
-            // NOTE: We do NOT check isFocusable here. Edge/Chrome often reports Focusable=False
-            // for the inner render widget when the main window is focused.
-
-            // 2. Check for Value pattern (Text content).
-            // Even an empty string return indicates the control supports text value retrieval.
-            try
+            
+            if (isFocusable)
             {
-                string value = acc.get_accValue(childId);
-                Logger.Debug($"✅ Chrome widget has value interface - accepting");
-                return true;
-            }
-            catch { }
+                // Try value interface - but must NOT be readonly
+                try
+                {
+                    string value = acc.get_accValue(childId);
+                    Logger.Debug($"✅ Chrome widget has value interface and is NOT readonly - accepting");
+                    return true;
+                }
+                catch { }
 
-            // 3. Relaxed Role Check
-            // Role 16 (ROLE_SYSTEM_CLIENT) is the standard Chrome render container.
-            // Role 15 (ROLE_SYSTEM_DOCUMENT) is often used for contentEditable areas.
-            if (role == NativeMethods.ROLE_SYSTEM_TEXT || 
-                role == NativeMethods.ROLE_SYSTEM_CLIENT || 
-                role == NativeMethods.ROLE_SYSTEM_COMBOBOX)
-            {
-                Logger.Debug($"✅ Chrome widget with input-compatible role ({role}) - accepting");
-                return true;
+                // Check for input-related roles (TEXT only, not DOCUMENT for Chrome)
+                const int ROLE_SYSTEM_PANE = 0x10;
+                if (role == ROLE_SYSTEM_PANE || 
+                    role == NativeMethods.ROLE_SYSTEM_CLIENT ||
+                    role == NativeMethods.ROLE_SYSTEM_TEXT)
+                {
+                    Logger.Debug($"✅ Chrome widget with input role ({role}) and NOT readonly - accepting");
+                    return true;
+                }
+                
+                // For Chrome DOCUMENT role - only accept if we can verify it's actually editable
+                if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT)
+                {
+                    // Check if it has editable descendants or contentEditable
+                    try
+                    {
+                        string name = acc.get_accName(childId);
+                        // If it has a generic page name like "Новая вкладка", it's NOT an input
+                        if (name != null && (name.Contains("вкладка") || name.Contains("tab") || name.Contains("page")))
+                        {
+                            Logger.Debug($"Chrome DOCUMENT with generic page name '{name}' - rejecting");
+                            return false;
+                        }
+                    }
+                    catch { }
+                    
+                    // Only accept DOCUMENT if it has value interface (contentEditable)
+                    try
+                    {
+                        string value = acc.get_accValue(childId);
+                        if (value != null)
+                        {
+                            Logger.Debug($"✅ Chrome DOCUMENT with value interface - accepting as contentEditable");
+                            return true;
+                        }
+                    }
+                    catch { }
+                    
+                    Logger.Debug($"Chrome DOCUMENT without value interface - rejecting");
+                    return false;
+                }
             }
             
-            // 4. Special handling for Document role
-            // Since we already checked !isReadonly above, a writable Document is likely an editor (e.g. Google Docs)
-            if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT)
-            {
-                // Optional: Check name to avoid generic background pages if needed, 
-                // but !Readonly is usually a good enough signal for a focused element.
-                Logger.Debug($"✅ Chrome DOCUMENT and not Readonly - accepting as contentEditable");
-                return true;
-            }
-            
-            Logger.Debug($"Chrome widget rejected - Role: {role}");
+            Logger.Debug($"Chrome render widget but not detected as input");
             return false;
         }
 
-        // Standard Windows controls logic
         if (!isFocusable)
         {
             Logger.Debug($"Element is not focusable (Role: {role})");
