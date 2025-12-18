@@ -149,8 +149,7 @@ public class ChromeAccessibilityEnabler : IDisposable
 /// Minimal IAccessible implementation just to satisfy Chrome's detection
 /// </summary>
 [ComVisible(true)]
-[Guid("618736E0-3C3D-11CF-810C-00AA00389B71")]
-[InterfaceType(ComInterfaceType.InterfaceIsDual)]
+[ClassInterface(ClassInterfaceType.None)]
 internal class MinimalAccessibleStub : NativeMethods.IAccessible
 {
     // Only implement what's absolutely necessary for Chrome detection
