@@ -51,7 +51,7 @@ public class MouseClickDetector : IDisposable
     #endregion
 
     private IntPtr _hookId = IntPtr.Zero;
-    private LowLevelMouseProc _hookProc;
+    private LowLevelMouseProc _hookProc; // CRITICAL: Keep strong reference to prevent GC
     private DateTime _lastClickTime = DateTime.MinValue;
     private Point _lastClickPosition = Point.Empty;
     private readonly object _lockObject = new object();
@@ -59,8 +59,9 @@ public class MouseClickDetector : IDisposable
 
     /// <summary>
     /// Time window in milliseconds to consider focus change as click-initiated
+    /// FIXED: Increased from 150ms to 300ms for Chrome/Electron apps
     /// </summary>
-    public int ClickTimeWindowMs { get; set; } = 150;
+    public int ClickTimeWindowMs { get; set; } = 300;
 
     /// <summary>
     /// Event fired when a mouse click is detected
@@ -69,11 +70,11 @@ public class MouseClickDetector : IDisposable
 
     public MouseClickDetector()
     {
-        // Keep reference to prevent GC
-        _hookProc = HookCallback;
-        
         try
         {
+            // CRITICAL: Keep reference to prevent GC
+            _hookProc = HookCallback;
+            
             _hookId = SetHook(_hookProc);
             
             if (_hookId == IntPtr.Zero)
@@ -83,6 +84,8 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
+                // Keep delegate alive
+                GC.KeepAlive(_hookProc);
                 Logger.Info("✅ Mouse click detector initialized successfully");
             }
         }
@@ -97,49 +100,91 @@ public class MouseClickDetector : IDisposable
     /// </summary>
     private IntPtr SetHook(LowLevelMouseProc proc)
     {
-        using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
-        using (var curModule = curProcess.MainModule)
+        try
         {
-            return SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+            using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
+            using (var curModule = curProcess.MainModule)
+            {
+                if (curModule == null)
+                {
+                    Logger.Error("Cannot get current module for mouse hook");
+                    return IntPtr.Zero;
+                }
+
+                return SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Error setting up mouse hook: {ex.Message}", ex);
+            return IntPtr.Zero;
         }
     }
 
     /// <summary>
     /// Mouse hook callback - records click events
+    /// CRITICAL: Must not throw exceptions - wraps everything in try-catch
     /// </summary>
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0)
+        try
         {
-            int msg = wParam.ToInt32();
-            
-            // Track left button clicks only
-            if (msg == WM_LBUTTONDOWN)
-            {
-                var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
-                
-                lock (_lockObject)
-                {
-                    _lastClickTime = DateTime.UtcNow;
-                    _lastClickPosition = clickPoint;
-                    
-                    Logger.Debug($"🖱️ Mouse click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
-                }
+            if (_isDisposed)
+                return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
-                // Fire event for click detection
-                try
+            if (nCode >= 0)
+            {
+                int msg = wParam.ToInt32();
+                
+                // Track left button clicks only
+                if (msg == WM_LBUTTONDOWN)
                 {
-                    ClickDetected?.Invoke(this, clickPoint);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("Error in ClickDetected event handler", ex);
+                    try
+                    {
+                        var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
+                        var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
+                        
+                        lock (_lockObject)
+                        {
+                            _lastClickTime = DateTime.UtcNow;
+                            _lastClickPosition = clickPoint;
+                        }
+                        
+                        Logger.Debug($"🖱️ Mouse click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
+
+                        // Fire event - wrapped in try-catch to prevent handler exceptions from crashing
+                        try
+                        {
+                            ClickDetected?.Invoke(this, clickPoint);
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("CRITICAL: Exception in ClickDetected event handler", ex);
+                            // Continue - don't let handler exception crash the hook
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error($"Error processing mouse click: {ex.Message}", ex);
+                    }
                 }
             }
         }
+        catch (Exception ex)
+        {
+            // CRITICAL: Never let exceptions escape from hook callback
+            Logger.Error($"CRITICAL: Unhandled exception in mouse hook callback: {ex.Message}", ex);
+        }
 
-        return CallNextHookEx(_hookId, nCode, wParam, lParam);
+        // Always call next hook
+        try
+        {
+            return CallNextHookEx(_hookId, nCode, wParam, lParam);
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
     }
 
     /// <summary>
@@ -147,13 +192,21 @@ public class MouseClickDetector : IDisposable
     /// </summary>
     public bool WasRecentClick()
     {
-        lock (_lockObject)
+        try
         {
-            if (_lastClickTime == DateTime.MinValue)
-                return false;
+            lock (_lockObject)
+            {
+                if (_lastClickTime == DateTime.MinValue)
+                    return false;
 
-            var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
-            return timeSinceClick <= ClickTimeWindowMs;
+                var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
+                return timeSinceClick <= ClickTimeWindowMs;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Error in WasRecentClick: {ex.Message}", ex);
+            return false;
         }
     }
 
@@ -164,23 +217,31 @@ public class MouseClickDetector : IDisposable
     /// <returns>True if click was recent and inside bounds</returns>
     public bool WasRecentClickInBounds(Rectangle bounds)
     {
-        lock (_lockObject)
+        try
         {
-            if (!WasRecentClick())
-                return false;
-
-            bool isInBounds = bounds.Contains(_lastClickPosition);
-            
-            if (isInBounds)
+            lock (_lockObject)
             {
-                Logger.Debug($"✅ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
-            }
-            else
-            {
-                Logger.Debug($"❌ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
-            }
+                if (!WasRecentClick())
+                    return false;
 
-            return isInBounds;
+                bool isInBounds = bounds.Contains(_lastClickPosition);
+                
+                if (isInBounds)
+                {
+                    Logger.Debug($"✅ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                }
+                else
+                {
+                    Logger.Debug($"❌ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                }
+
+                return isInBounds;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error($"Error in WasRecentClickInBounds: {ex.Message}", ex);
+            return false;
         }
     }
 
@@ -233,6 +294,9 @@ public class MouseClickDetector : IDisposable
                 
                 _hookId = IntPtr.Zero;
             }
+
+            // Keep delegate alive until disposal is complete
+            GC.KeepAlive(_hookProc);
         }
         catch (Exception ex)
         {
