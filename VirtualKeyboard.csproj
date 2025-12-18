@@ -25,6 +25,10 @@
     <!-- Windows App SDK - обновлено до 1.8 -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.251106002" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <Reference Include="Accessibility" />
+  </ItemGroup>
 
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
