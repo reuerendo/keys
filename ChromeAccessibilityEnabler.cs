@@ -86,7 +86,10 @@ public class ChromeAccessibilityEnabler : IDisposable
                     
                     // Marshal to COM and return
                     IntPtr pAcc = Marshal.GetIUnknownForObject(accStub);
-                    IntPtr result = LresultFromObject(ref IID_IAccessible, wParam, pAcc);
+                    
+                    // Local copy of GUID for ref parameter
+                    Guid iidAccessible = new Guid("{618736E0-3C3D-11CF-810C-00AA00389B71}");
+                    IntPtr result = LresultFromObject(ref iidAccessible, wParam, pAcc);
                     
                     Marshal.Release(pAcc);
                     
