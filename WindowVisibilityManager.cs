@@ -156,17 +156,6 @@ public class WindowVisibilityManager : IDisposable
 		}
 	}
 
-	/// <summary>
-	/// Called when foreground window changes - proactively stimulate Chrome accessibility
-	/// </summary>
-	private void OnForegroundWindowChangedForChrome(object sender, IntPtr newForegroundWindow)
-	{
-		if (_chromeEnabler != null)
-		{
-			_chromeEnabler.OnForegroundWindowChanged(newForegroundWindow);
-		}
-	}
-
     public void UpdateAutoShowSetting()
     {
         bool newSetting = _settingsManager.GetAutoShowOnTextInput();
