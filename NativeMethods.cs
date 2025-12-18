@@ -21,7 +21,6 @@ internal static class NativeMethods
     public const int ROLE_SYSTEM_CLIENT = 0x0A;        // Client area (generic container)
     public const int ROLE_SYSTEM_COMBOBOX = 0x2E;      // ComboBox (e.g., Firefox/Edge search bars)
     public const int ROLE_SYSTEM_PANE = 0x10;          // Pane (generic grouping)
-    public const int ROLE_SYSTEM_GROUPING = 0x14;      // FIXED: Grouping (Signal, Discord, Chrome apps)
 
     // Standard MSAA States
     public const int STATE_SYSTEM_FOCUSED = 0x00000004;
@@ -29,7 +28,6 @@ internal static class NativeMethods
     public const int STATE_SYSTEM_READONLY = 0x00000040;   // Read-only (not editable)
     public const int STATE_SYSTEM_PROTECTED = 0x20000000;  // Password field
     public const int STATE_SYSTEM_UNAVAILABLE = 0x00000001; // Disabled
-    public const int STATE_SYSTEM_COLLAPSED = 0x00000400;  // Collapsed/minimized
 
     public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 

@@ -8,6 +8,7 @@ namespace VirtualKeyboard;
 /// <summary>
 /// Window visibility manager with real-time focus tracking and auto-show support.
 /// Refactored to use WinEventFocusTracker (Native MSAA) instead of FlaUI.
+/// Includes Chrome accessibility enabler for Chromium-based browsers.
 /// </summary>
 public class WindowVisibilityManager : IDisposable
 {
@@ -34,9 +35,10 @@ public class WindowVisibilityManager : IDisposable
     private readonly FocusManager _focusManager;
     private readonly SettingsManager _settingsManager;
     
-    // Changed: Use new lightweight tracker
+    // Focus tracking and Chrome support
     private WinEventFocusTracker _focusTracker;
     private MouseClickDetector _clickDetector;
+    private ChromeAccessibilityEnabler _chromeEnabler;
     
     private bool _isDisposed = false;
     private bool _autoShowEnabled = false;
@@ -66,11 +68,23 @@ public class WindowVisibilityManager : IDisposable
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        // Init Mouse Click Detector once here
+        // Initialize Chrome accessibility enabler FIRST
+        // This ensures Chrome will enable accessibility API before we start tracking
+        try 
+        {
+            _chromeEnabler = new ChromeAccessibilityEnabler(windowHandle);
+            Logger.Info("✅ Chrome accessibility enabler initialized");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to initialize Chrome accessibility enabler", ex);
+        }
+        
+        // Initialize Mouse Click Detector
         try 
         {
             _clickDetector = new MouseClickDetector();
-            Logger.Info("MouseClickDetector initialized in WindowVisibilityManager");
+            Logger.Info("✅ MouseClickDetector initialized");
         }
         catch (Exception ex)
         {
@@ -79,7 +93,7 @@ public class WindowVisibilityManager : IDisposable
 
         InitializeAutoShow();
         
-        Logger.Info("WindowVisibilityManager initialized with lightweight IAccessible tracking");
+        Logger.Info("WindowVisibilityManager initialized with Chrome support and IAccessible tracking");
     }
 
     private void InitializeAutoShow()
@@ -102,7 +116,7 @@ public class WindowVisibilityManager : IDisposable
         {
             try
             {
-                Logger.Info("🔄 Creating WinEvent Focus Tracker...");
+                Logger.Info("📄 Creating WinEvent Focus Tracker...");
                 
                 if (_clickDetector == null) _clickDetector = new MouseClickDetector();
 
@@ -159,7 +173,6 @@ public class WindowVisibilityManager : IDisposable
 
     private async void OnTextInputFocused(object sender, TextInputFocusEventArgs e)
     {
-        // Event args are compatible, just logic check
         Logger.Info($"🎯 AUTO-SHOW TRIGGERED! ControlType: {e.ControlType}, Class: '{e.ClassName}'");
         
         lock (_showLock)
@@ -257,8 +270,9 @@ public class WindowVisibilityManager : IDisposable
             _focusManager.ClearTrackedWindow();
             _focusManager?.Dispose();
             
-            // Dispose click detector last
+            // Dispose in reverse order of creation
             _clickDetector?.Dispose();
+            _chromeEnabler?.Dispose();
             
             _backspaceHandler?.Dispose();
             _trayIcon?.Dispose();

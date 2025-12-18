@@ -10,7 +10,6 @@ namespace VirtualKeyboard;
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
 /// Replaces the heavy UI Automation approach while maintaining strict click-to-show logic.
-/// FIXED: Enhanced support for Chrome/Electron apps (Signal, Discord, VS Code, Edge)
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -147,44 +146,21 @@ public class WinEventFocusTracker : IDisposable
                         
                         if (!clickInsideBounds)
                         {
-                            // FIXED: For collapsed/minimized states, bounds might be wrong - skip check
-                            object stateObj = acc.get_accState(childId);
-                            int state = (stateObj is int s) ? s : 0;
-                            
-                            if ((state & NativeMethods.STATE_SYSTEM_COLLAPSED) != 0)
-                            {
-                                Logger.Debug($"⚠️ Element is collapsed, ignoring bounds check. Bounds: ({l}, {t}, {w}x{h})");
-                                clickInsideBounds = true;
-                            }
-                            else
-                            {
-                                Logger.Debug($"Focus event: Click was OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
-                                Marshal.ReleaseComObject(acc);
-                                return;
-                            }
+                            Logger.Debug($"Focus event: Click was OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                            Marshal.ReleaseComObject(acc);
+                            return;
                         }
-                        else
-                        {
-                            Logger.Debug($"✅ Focus event: Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
-                        }
+                        
+                        Logger.Debug($"✅ Focus event: Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
                     }
                     catch (Exception ex)
                     {
                         Logger.Debug($"Could not verify bounds for focus event: {ex.Message}");
-                        // For some controls (combobox, editors, Chrome apps), bounds check might fail - continue anyway
-                        clickInsideBounds = true;
+                        // For some controls (combobox, editors), bounds check might fail - continue anyway
                     }
                 }
-                else
-                {
-                    clickInsideBounds = true;
-                }
                 
-                if (clickInsideBounds)
-                {
-                    ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
-                }
-                
+                ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
                 Marshal.ReleaseComObject(acc);
             }
         }
@@ -288,14 +264,6 @@ public class WinEventFocusTracker : IDisposable
             bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
             bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
 
-            // FIXED: Enhanced debug logging for Chrome apps
-            if (IsChromeRenderClass(className?.ToLowerInvariant() ?? ""))
-            {
-                Logger.Debug($"🔍 Chrome App Element: Role={role}, State=0x{state:X}, " +
-                           $"Focusable={isFocusable}, Readonly={isReadonly}, " +
-                           $"Protected={isProtected}, Class={className}");
-            }
-
             // 5. Determine if this is a text input
             bool isText = IsEditableTextInput(role, className, state, acc, childId);
 
@@ -363,7 +331,6 @@ public class WinEventFocusTracker : IDisposable
 
     /// <summary>
     /// Enhanced logic to determine if element is an editable text input
-    /// FIXED: Added support for ROLE_SYSTEM_GROUPING (Signal, Discord)
     /// </summary>
     private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
     {
@@ -394,12 +361,12 @@ public class WinEventFocusTracker : IDisposable
         }
 
         // ===== CHROME/ELECTRON APPS (Signal, Discord, VS Code, etc.) =====
-        // FIXED: Enhanced detection with GROUPING role support
         if (IsChromeRenderClass(classLower))
         {
             // Chrome render widgets need special handling
             // They often don't expose proper IAccessible, but we can infer from context
             
+            // Check if it's focusable and has some indication of being an input
             if (isFocusable)
             {
                 // Try to get value - if it has value interface, likely an input
@@ -414,15 +381,9 @@ public class WinEventFocusTracker : IDisposable
                     // No value interface
                 }
 
-                // FIXED: Check for GROUPING role (Signal, Discord message boxes)
-                if (role == NativeMethods.ROLE_SYSTEM_GROUPING)
-                {
-                    Logger.Debug($"✅ Chrome render GROUPING (Signal/Discord) - accepting");
-                    return true;
-                }
-
                 // Check for specific roles that might indicate input areas
-                if (role == NativeMethods.ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
+                const int ROLE_SYSTEM_PANE = 0x10;
+                if (role == ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
                 {
                     // For Chrome/Electron, panes and client areas that are focusable
                     // are often text input areas (like Signal message box)
@@ -431,7 +392,7 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
             
-            Logger.Debug($"Chrome render widget but not detected as input (Role: {role})");
+            Logger.Debug($"Chrome render widget but not detected as input");
             return false;
         }
 
@@ -532,7 +493,8 @@ public class WinEventFocusTracker : IDisposable
         }
 
         // 6. COMBOBOX (0x2E) - Check if it has editable text child
-        if (role == NativeMethods.ROLE_SYSTEM_COMBOBOX)
+        const int ROLE_SYSTEM_COMBOBOX = 0x2E;
+        if (role == ROLE_SYSTEM_COMBOBOX)
         {
             Logger.Debug($"COMBOBOX detected - checking for editable child");
             
@@ -599,41 +561,6 @@ public class WinEventFocusTracker : IDisposable
             }
             
             return false;
-        }
-
-        // FIXED: 7. GROUPING (0x14) - Used by Chrome apps like Signal, Discord
-        // This is a critical addition for modern web-based apps
-        if (role == NativeMethods.ROLE_SYSTEM_GROUPING)
-        {
-            // Must be focusable and not readonly
-            if (!isFocusable || isReadonly)
-            {
-                Logger.Debug($"GROUPING but not focusable or readonly");
-                return false;
-            }
-
-            // Check if it has value interface
-            try
-            {
-                string value = acc.get_accValue(childId);
-                if (value != null)
-                {
-                    Logger.Debug($"✅ GROUPING with value interface - accepting");
-                    return true;
-                }
-            }
-            catch { }
-
-            // For Chrome apps, focusable GROUPING is often a text input
-            if (IsChromeRenderClass(classLower))
-            {
-                Logger.Debug($"✅ Chrome GROUPING focusable - accepting");
-                return true;
-            }
-
-            // Generic focusable grouping might be a text input (give it a chance)
-            Logger.Debug($"⚠️ Generic focusable GROUPING - accepting with caution");
-            return true;
         }
 
         return false;
