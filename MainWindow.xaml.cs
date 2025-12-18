@@ -113,6 +113,7 @@ public sealed partial class MainWindow : Window
             _layoutManager,
             rootElement,
             _settingsManager,  // Pass settings manager for auto-show
+			_foregroundTracker,
             _backspaceHandler,
             _trayIcon
         );

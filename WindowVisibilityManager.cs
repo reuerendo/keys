@@ -54,6 +54,7 @@ public class WindowVisibilityManager : IDisposable
         LayoutManager layoutManager,
         FrameworkElement rootElement,
         SettingsManager settingsManager,
+		ForegroundWindowTracker foregroundTracker,
         BackspaceRepeatHandler backspaceHandler = null,
         TrayIcon trayIcon = null)
     {
@@ -64,6 +65,7 @@ public class WindowVisibilityManager : IDisposable
         _layoutManager = layoutManager;
         _rootElement = rootElement;
         _settingsManager = settingsManager;
+		_foregroundTracker = foregroundTracker;
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
