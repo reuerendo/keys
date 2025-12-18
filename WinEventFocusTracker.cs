@@ -1,236 +1,653 @@
 using System;
-using System.Runtime.InteropServices;
 using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Linq;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Global mouse click detector with extended time window for Chrome/Edge
+/// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
+/// Enhanced for Chrome/Edge with relaxed bounds checking and optimized role detection.
 /// </summary>
-public class MouseClickDetector : IDisposable
+public class WinEventFocusTracker : IDisposable
 {
-    #region P/Invoke
-
-    private const int WH_MOUSE_LL = 14;
-    private const int WM_LBUTTONDOWN = 0x0201;
-    private const int WM_RBUTTONDOWN = 0x0204;
-    
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public int X;
-        public int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct MSLLHOOKSTRUCT
-    {
-        public POINT pt;
-        public uint mouseData;
-        public uint flags;
-        public uint time;
-        public IntPtr dwExtraInfo;
-    }
-
-    private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-    #endregion
-
-    private IntPtr _hookId = IntPtr.Zero;
-    private LowLevelMouseProc _hookProc;
-    private DateTime _lastClickTime = DateTime.MinValue;
-    private Point _lastClickPosition = Point.Empty;
-    private readonly object _lockObject = new object();
+    private readonly IntPtr _keyboardWindowHandle;
+    private readonly MouseClickDetector _clickDetector;
+    private NativeMethods.WinEventDelegate _winEventProc;
+    private IntPtr _hookHandle = IntPtr.Zero;
+    private bool _requireClickForAutoShow;
     private bool _isDisposed = false;
+    
+    private Func<bool> _isKeyboardVisible;
 
-    /// <summary>
-    /// Extended time window for Chrome/Edge (they need time to build accessibility tree).
-    /// Increased to 5000ms to handle severe lag in multi-process browsers.
-    /// </summary>
-    public int ClickTimeWindowMs { get; set; } = 5000;
-
-    /// <summary>
-    /// Event fired when a mouse click is detected
-    /// </summary>
-    public event EventHandler<Point> ClickDetected;
-
-    public MouseClickDetector()
+    private static readonly string[] ProcessBlacklist = new[]
     {
-        // Keep reference to prevent GC
-        _hookProc = HookCallback;
+        "explorer.exe",
+        "searchhost.exe",
+        "startmenuexperiencehost.exe"
+    };
+
+    private static readonly string[] ClassBlacklist = new[]
+    {
+        "syslistview32",
+        "directuihwnd",
+        "cabinetwclass",
+        "workerw",
+        "progman"
+    };
+
+    private static readonly string[] EditorClassWhitelist = new[]
+    {
+        "scintilla",
+        "richedit",
+        "edit",
+        "akeleditwclass",
+        "atlaxwin",
+        "vscodecontentcontrol"
+    };
+
+    private static readonly string[] ChromeRenderClasses = new[]
+    {
+        "chrome_renderwidgethosthwnd",
+        "chrome_widgetwin_",
+        "intermediate d3d window"
+    };
+
+    public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
+    public event EventHandler<FocusEventArgs> NonTextInputFocused;
+
+    public WinEventFocusTracker(IntPtr keyboardWindowHandle, MouseClickDetector clickDetector, bool requireClickForAutoShow = true)
+    {
+        _keyboardWindowHandle = keyboardWindowHandle;
+        _clickDetector = clickDetector;
+        _requireClickForAutoShow = requireClickForAutoShow;
+
+        Initialize();
+    }
+
+    private void Initialize()
+    {
+        _winEventProc = new NativeMethods.WinEventDelegate(WinEventProc);
+        _hookHandle = NativeMethods.SetWinEventHook(
+            NativeMethods.EVENT_OBJECT_FOCUS, 
+            NativeMethods.EVENT_OBJECT_FOCUS, 
+            IntPtr.Zero, 
+            _winEventProc, 
+            0, 
+            0, 
+            NativeMethods.WINEVENT_OUTOFCONTEXT);
+
+        if (_hookHandle == IntPtr.Zero)
+        {
+            Logger.Error("Failed to install WinEvent hook");
+        }
+        else
+        {
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS)");
+        }
+
+        if (_clickDetector != null)
+        {
+            _clickDetector.ClickDetected += OnClickDetected;
+        }
+    }
+
+    public void SetKeyboardVisibilityChecker(Func<bool> isVisible)
+    {
+        _isKeyboardVisible = isVisible;
+    }
+
+    private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+    {
+        if (_isDisposed) return;
         
+        if (hwnd == _keyboardWindowHandle) return;
+
         try
         {
-            _hookId = SetHook(_hookProc);
-            
-            if (_hookId == IntPtr.Zero)
+            if (_requireClickForAutoShow && _clickDetector != null)
             {
-                int error = Marshal.GetLastWin32Error();
-                Logger.Error($"Failed to set mouse hook. Error code: {error}");
+                if (!_clickDetector.WasRecentClick())
+                {
+                    Logger.Debug("Focus changed, but no recent click detected. Ignoring.");
+                    return;
+                }
             }
-            else
+
+            int hr = NativeMethods.AccessibleObjectFromEvent(hwnd, idObject, idChild, out NativeMethods.IAccessible acc, out object childId);
+            
+            if (hr >= 0 && acc != null)
             {
-                Logger.Info($"✅ Mouse click detector initialized ({ClickTimeWindowMs}ms window for Chrome/Edge)");
+                // For Chrome/Edge, bounds checking is unreliable due to multi-process architecture
+                bool isChromeWidget = IsChromeWindow(hwnd);
+                bool clickInsideBounds = false;
+                
+                if (_requireClickForAutoShow && _clickDetector != null && !isChromeWidget)
+                {
+                    // Only check bounds for non-Chrome windows
+                    try
+                    {
+                        acc.accLocation(out int l, out int t, out int w, out int h, childId);
+                        Rectangle bounds = new Rectangle(l, t, w, h);
+                        clickInsideBounds = _clickDetector.WasRecentClickInBounds(bounds);
+                        
+                        if (!clickInsideBounds)
+                        {
+                            Logger.Debug($"Focus event: Click OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                            Marshal.ReleaseComObject(acc);
+                            return;
+                        }
+                        
+                        Logger.Debug($"✅ Focus event: Click INSIDE element bounds ({l}, {t}, {w}x{h})");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Debug($"Could not verify bounds for focus event: {ex.Message}");
+                    }
+                }
+                else if (isChromeWidget)
+                {
+                    Logger.Debug("✅ Chrome/Edge window - skipping bounds check due to multi-process architecture");
+                }
+                
+                ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
+                Marshal.ReleaseComObject(acc);
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to initialize mouse click detector", ex);
+            Logger.Error("Error in WinEventProc", ex);
         }
     }
 
-    private IntPtr SetHook(LowLevelMouseProc proc)
+    private void OnClickDetected(object sender, Point clickPoint)
     {
-        using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
-        using (var curModule = curProcess.MainModule)
-        {
-            return SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
-        }
-    }
+        if (_isDisposed || !_requireClickForAutoShow) return;
 
-    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0)
+        if (_isKeyboardVisible != null && _isKeyboardVisible()) return;
+
+        Task.Run(() =>
         {
-            int msg = wParam.ToInt32();
-            
-            if (msg == WM_LBUTTONDOWN)
+            try
             {
-                var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
+                NativeMethods.POINT pt = new NativeMethods.POINT { X = clickPoint.X, Y = clickPoint.Y };
                 
-                lock (_lockObject)
-                {
-                    _lastClickTime = DateTime.UtcNow;
-                    _lastClickPosition = clickPoint;
-                    
-                    Logger.Debug($"🖱️ Mouse click at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
-                }
+                int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
 
-                try
+                if (hr >= 0 && acc != null)
                 {
-                    ClickDetected?.Invoke(this, clickPoint);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("Error in ClickDetected event handler", ex);
+                    IntPtr hwnd = IntPtr.Zero;
+                    try
+                    {
+                        hwnd = NativeMethods.WindowFromAccessibleObject(acc);
+                    }
+                    catch { }
+
+                    if (hwnd != _keyboardWindowHandle)
+                    {
+                         ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: true);
+                    }
+
+                    Marshal.ReleaseComObject(acc);
                 }
             }
-        }
-
-        return CallNextHookEx(_hookId, nCode, wParam, lParam);
-    }
-
-    public bool WasRecentClick()
-    {
-        lock (_lockObject)
-        {
-            if (_lastClickTime == DateTime.MinValue)
-                return false;
-
-            var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
-            bool isRecent = timeSinceClick <= ClickTimeWindowMs;
-            
-            if (!isRecent)
+            catch (Exception ex)
             {
-                Logger.Debug($"Click was {timeSinceClick:F0}ms ago (window: {ClickTimeWindowMs}ms) - too old");
+                Logger.Error("Error checking object at click point", ex);
             }
-            
-            return isRecent;
-        }
+        });
     }
 
-    public bool WasRecentClickInBounds(Rectangle bounds)
+    private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
     {
-        lock (_lockObject)
+        try
         {
-            if (!WasRecentClick())
-                return false;
-
-            bool isInBounds = bounds.Contains(_lastClickPosition);
-            
-            var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
-            
-            if (isInBounds)
+            uint pid = 0;
+            if (hwnd != IntPtr.Zero)
             {
-                Logger.Debug($"✅ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) {timeSinceClick:F0}ms ago is inside bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+                
+                if (IsBlacklistedProcess(pid))
+                {
+                    Logger.Debug($"🚫 Ignoring focus in blacklisted process (PID: {pid})");
+                    return;
+                }
+            }
+
+            string className = "";
+            if (hwnd != IntPtr.Zero)
+            {
+                StringBuilder sb = new StringBuilder(256);
+                NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
+                className = sb.ToString();
+                
+                if (IsBlacklistedClassName(className))
+                {
+                    Logger.Debug($"🚫 Ignoring focus in blacklisted window class: {className}");
+                    return;
+                }
+            }
+
+            object roleObj = acc.get_accRole(childId);
+            int role = (roleObj is int r) ? r : 0;
+            
+            object stateObj = acc.get_accState(childId);
+            int state = (stateObj is int s) ? s : 0;
+            
+            bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
+            bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+            bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+            bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
+
+            bool isText = IsEditableTextInput(role, className, state, acc, childId);
+
+            if (isText)
+            {
+                if (isDirectClick && _clickDetector != null)
+                {
+                    try
+                    {
+                        acc.accLocation(out int l, out int t, out int w, out int h, childId);
+                        Rectangle bounds = new Rectangle(l, t, w, h);
+                        if (!_clickDetector.WasRecentClickInBounds(bounds))
+                        {
+                            Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        Logger.Debug("Bounds check failed, but element is text input - continuing");
+                    }
+                }
+                
+                string name = "";
+                try { name = acc.get_accName(childId); } catch { }
+
+                if (name != null && name.Length > 100)
+                {
+                    name = name.Substring(0, 100) + "...";
+                }
+
+                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}, State: Readonly={isReadonly}, Focusable={isFocusable}");
+
+                TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+                {
+                    WindowHandle = hwnd,
+                    ControlType = role,
+                    ClassName = className,
+                    Name = name,
+                    IsPassword = isProtected,
+                    ProcessId = pid
+                });
             }
             else
             {
-                Logger.Debug($"❌ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) {timeSinceClick:F0}ms ago is OUTSIDE bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"Not a text input - Role: {role}, Class: {className}, State: Readonly={isReadonly}, Focusable={isFocusable}");
+                
+                NonTextInputFocused?.Invoke(this, new FocusEventArgs
+                {
+                    WindowHandle = hwnd,
+                    ControlType = role,
+                    ClassName = className
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error processing accessible object: {ex.Message}");
+        }
+    }
+
+    private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
+    {
+        bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+        bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+        bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
+
+        if (isUnavailable)
+        {
+            return false;
+        }
+
+        string classLower = className?.ToLowerInvariant() ?? "";
+
+        if (IsEditorClass(classLower))
+        {
+            if (isReadonly)
+            {
+                Logger.Debug($"Editor class '{className}' but readonly - rejecting");
+                return false;
+            }
+            
+            Logger.Debug($"✅ Recognized editor class: {className}");
+            return true;
+        }
+
+        // Optimized Chrome/Electron detection logic
+        if (IsChromeRenderClass(classLower))
+        {
+            Logger.Debug($"Detected Chrome render class: {className}, Role: {role}, Focusable: {isFocusable}, Readonly: {isReadonly}");
+            
+            // 1. If strict readonly, it's definitely not an input (unless browser bug, but safer to reject)
+            if (isReadonly)
+            {
+                Logger.Debug($"Chrome widget is readonly - rejecting");
+                return false;
             }
 
-            return isInBounds;
+            // NOTE: We do NOT check isFocusable here. Edge/Chrome often reports Focusable=False
+            // for the inner render widget when the main window is focused.
+
+            // 2. Check for Value pattern (Text content).
+            // Even an empty string return indicates the control supports text value retrieval.
+            try
+            {
+                string value = acc.get_accValue(childId);
+                Logger.Debug($"✅ Chrome widget has value interface - accepting");
+                return true;
+            }
+            catch { }
+
+            // 3. Relaxed Role Check
+            // Role 16 (ROLE_SYSTEM_CLIENT) is the standard Chrome render container.
+            // Role 15 (ROLE_SYSTEM_DOCUMENT) is often used for contentEditable areas.
+            if (role == NativeMethods.ROLE_SYSTEM_TEXT || 
+                role == NativeMethods.ROLE_SYSTEM_CLIENT || 
+                role == NativeMethods.ROLE_SYSTEM_COMBOBOX)
+            {
+                Logger.Debug($"✅ Chrome widget with input-compatible role ({role}) - accepting");
+                return true;
+            }
+            
+            // 4. Special handling for Document role
+            // Since we already checked !isReadonly above, a writable Document is likely an editor (e.g. Google Docs)
+            if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT)
+            {
+                // Optional: Check name to avoid generic background pages if needed, 
+                // but !Readonly is usually a good enough signal for a focused element.
+                Logger.Debug($"✅ Chrome DOCUMENT and not Readonly - accepting as contentEditable");
+                return true;
+            }
+            
+            Logger.Debug($"Chrome widget rejected - Role: {role}");
+            return false;
+        }
+
+        // Standard Windows controls logic
+        if (!isFocusable)
+        {
+            Logger.Debug($"Element is not focusable (Role: {role})");
+            return false;
+        }
+
+        if (classLower.Contains("edit") && !isReadonly)
+        {
+            try
+            {
+                string value = acc.get_accValue(childId);
+                return true;
+            }
+            catch { }
+        }
+
+        if (classLower.Contains("console") || classLower.Contains("cmd") || classLower.Contains("terminal"))
+        {
+            return true;
+        }
+
+        if (role == NativeMethods.ROLE_SYSTEM_TEXT)
+        {
+            if (isReadonly)
+            {
+                Logger.Debug($"ROLE_SYSTEM_TEXT but readonly - rejecting");
+                return false;
+            }
+
+            try
+            {
+                string value = acc.get_accValue(childId);
+                Logger.Debug($"ROLE_SYSTEM_TEXT with value interface - accepting");
+                return true;
+            }
+            catch
+            {
+                Logger.Debug($"ROLE_SYSTEM_TEXT without value interface - rejecting");
+                return false;
+            }
+        }
+
+        if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
+        {
+            return true;
+        }
+
+        if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
+        {
+            if (isReadonly)
+            {
+                return false;
+            }
+
+            try
+            {
+                string name = acc.get_accName(childId);
+                if (!string.IsNullOrEmpty(name) && name.Length > 20)
+                {
+                    Logger.Debug($"✅ CLIENT role with text content (length: {name.Length}) - accepting");
+                    return true;
+                }
+            }
+            catch { }
+
+            try
+            {
+                string value = acc.get_accValue(childId);
+                if (value != null)
+                {
+                    Logger.Debug($"✅ CLIENT role with value interface - accepting");
+                    return true;
+                }
+            }
+            catch { }
+
+            Logger.Debug($"CLIENT role but no indicators of text input");
+            return false;
+        }
+
+        const int ROLE_SYSTEM_COMBOBOX = 0x2E;
+        if (role == ROLE_SYSTEM_COMBOBOX)
+        {
+            Logger.Debug($"COMBOBOX detected - checking for editable child");
+            
+            try
+            {
+                string value = acc.get_accValue(childId);
+                Logger.Debug($"COMBOBOX has value interface - accepting");
+                return true;
+            }
+            catch { }
+
+            try
+            {
+                int childCount = acc.accChildCount;
+                
+                if (childCount > 0)
+                {
+                    for (int i = 0; i < childCount; i++)
+                    {
+                        try
+                        {
+                            object child = acc.get_accChild(i + 1);
+                            if (child is NativeMethods.IAccessible childAcc)
+                            {
+                                try
+                                {
+                                    object childRoleObj = childAcc.get_accRole(0);
+                                    int childRole = (childRoleObj is int cr) ? cr : 0;
+                                    
+                                    object childStateObj = childAcc.get_accState(0);
+                                    int childState = (childStateObj is int cs) ? cs : 0;
+                                    bool childReadonly = (childState & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+                                    
+                                    if (childRole == NativeMethods.ROLE_SYSTEM_TEXT && !childReadonly)
+                                    {
+                                        Logger.Debug($"✅ COMBOBOX has editable text child - accepting");
+                                        Marshal.ReleaseComObject(childAcc);
+                                        return true;
+                                    }
+                                    
+                                    Marshal.ReleaseComObject(childAcc);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.Debug($"Error checking combobox child: {ex.Message}");
+                                    if (childAcc != null)
+                                        Marshal.ReleaseComObject(childAcc);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            
+            if (!isReadonly)
+            {
+                Logger.Debug($"COMBOBOX is focusable and not readonly - accepting");
+                return true;
+            }
+            
+            return false;
+        }
+
+        return false;
+    }
+
+    private bool IsEditorClass(string classLower)
+    {
+        if (string.IsNullOrEmpty(classLower))
+            return false;
+
+        return EditorClassWhitelist.Any(editor => classLower.Contains(editor));
+    }
+
+    private bool IsChromeRenderClass(string classLower)
+    {
+        if (string.IsNullOrEmpty(classLower))
+            return false;
+
+        return ChromeRenderClasses.Any(chrome => classLower.Contains(chrome));
+    }
+
+    private bool IsChromeWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return false;
+        
+        try
+        {
+            StringBuilder className = new StringBuilder(256);
+            NativeMethods.GetClassName(hwnd, className, className.Capacity);
+            string classStr = className.ToString().ToLowerInvariant();
+            
+            return classStr.Contains("chrome_widgetwin") || 
+                   classStr.Contains("chrome_renderwidget") ||
+                   classStr.Contains("intermediate d3d window");
+        }
+        catch
+        {
+            return false;
         }
     }
 
-    public (DateTime time, Point position) GetLastClickInfo()
+    private bool IsBlacklistedProcess(uint pid)
     {
-        lock (_lockObject)
+        if (pid == 0) return false;
+
+        try
         {
-            return (_lastClickTime, _lastClickPosition);
+            IntPtr hProcess = NativeMethods.OpenProcess(
+                NativeMethods.PROCESS_QUERY_INFORMATION | NativeMethods.PROCESS_VM_READ,
+                false,
+                pid);
+
+            if (hProcess == IntPtr.Zero)
+                return false;
+
+            try
+            {
+                StringBuilder processName = new StringBuilder(1024);
+                uint size = NativeMethods.GetModuleFileNameEx(hProcess, IntPtr.Zero, processName, processName.Capacity);
+
+                if (size > 0)
+                {
+                    string fullPath = processName.ToString().ToLowerInvariant();
+                    string fileName = System.IO.Path.GetFileName(fullPath);
+                    
+                    return ProcessBlacklist.Any(blocked => fileName.Contains(blocked.ToLowerInvariant()));
+                }
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(hProcess);
+            }
         }
+        catch (Exception ex)
+        {
+            Logger.Debug($"Error checking process blacklist: {ex.Message}");
+        }
+
+        return false;
     }
 
-    public void Reset()
+    private bool IsBlacklistedClassName(string className)
     {
-        lock (_lockObject)
-        {
-            _lastClickTime = DateTime.MinValue;
-            _lastClickPosition = Point.Empty;
-            Logger.Debug("Click detector reset");
-        }
+        if (string.IsNullOrEmpty(className))
+            return false;
+
+        string classLower = className.ToLowerInvariant();
+        return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
+    }
+
+    public void UpdateAutoShowSetting(bool enabled)
+    {
+        _requireClickForAutoShow = enabled;
     }
 
     public void Dispose()
     {
-        if (_isDisposed)
-            return;
-
+        if (_isDisposed) return;
         _isDisposed = true;
 
-        try
+        if (_hookHandle != IntPtr.Zero)
         {
-            if (_hookId != IntPtr.Zero)
-            {
-                bool success = UnhookWindowsHookEx(_hookId);
-                
-                if (success)
-                {
-                    Logger.Info("Mouse hook removed successfully");
-                }
-                else
-                {
-                    int error = Marshal.GetLastWin32Error();
-                    Logger.Warning($"Failed to remove mouse hook. Error code: {error}");
-                }
-                
-                _hookId = IntPtr.Zero;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error removing mouse hook", ex);
+            NativeMethods.UnhookWinEvent(_hookHandle);
+            _hookHandle = IntPtr.Zero;
         }
 
-        GC.SuppressFinalize(this);
+        if (_clickDetector != null)
+        {
+            _clickDetector.ClickDetected -= OnClickDetected;
+        }
     }
+}
 
-    ~MouseClickDetector()
-    {
-        Dispose();
-    }
+public class TextInputFocusEventArgs : EventArgs
+{
+    public IntPtr WindowHandle { get; set; }
+    public int ControlType { get; set; }
+    public string ClassName { get; set; }
+    public string Name { get; set; }
+    public bool IsPassword { get; set; }
+    public uint ProcessId { get; set; }
+}
+
+public class FocusEventArgs : EventArgs
+{
+    public IntPtr WindowHandle { get; set; }
+    public int ControlType { get; set; }
+    public string ClassName { get; set; }
 }
