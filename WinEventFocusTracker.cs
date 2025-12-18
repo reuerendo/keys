@@ -120,7 +120,7 @@ public class WinEventFocusTracker : IDisposable
                 if (_requireClickForAutoShow && _clickDetector != null)
                 {
                     try
-                    {
+                {
                         acc.accLocation(out int l, out int t, out int w, out int h, childId);
                         Rectangle bounds = new Rectangle(l, t, w, h);
                         clickInsideBounds = _clickDetector.WasRecentClickInBounds(bounds);
@@ -137,8 +137,7 @@ public class WinEventFocusTracker : IDisposable
                     catch (Exception ex)
                     {
                         Logger.Debug($"Could not verify bounds for focus event: {ex.Message}");
-                        Marshal.ReleaseComObject(acc);
-                        return;
+                        // For comboboxes, bounds check might fail on parent - continue anyway
                     }
                 }
                 
@@ -254,12 +253,20 @@ public class WinEventFocusTracker : IDisposable
                 // Double check bounds if it was a direct click (ensure we actually clicked INSIDE)
                 if (isDirectClick && _clickDetector != null)
                 {
-                    acc.accLocation(out int l, out int t, out int w, out int h, childId);
-                    Rectangle bounds = new Rectangle(l, t, w, h);
-                    if (!_clickDetector.WasRecentClickInBounds(bounds))
+                    try
                     {
-                        Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
-                        return;
+                        acc.accLocation(out int l, out int t, out int w, out int h, childId);
+                        Rectangle bounds = new Rectangle(l, t, w, h);
+                        if (!_clickDetector.WasRecentClickInBounds(bounds))
+                        {
+                            Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
+                            return;
+                        }
+                    }
+                    catch
+                    {
+                        // Bounds check failed - for comboboxes this is OK, continue
+                        Logger.Debug("Bounds check failed, but element is text input - continuing");
                     }
                 }
                 
@@ -381,6 +388,92 @@ public class WinEventFocusTracker : IDisposable
         if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
         {
             return true;
+        }
+
+        // 6. COMBOBOX (0x2E) - Check if it has editable text child
+        // This covers Firefox search bar, Edge address bar, and similar controls
+        const int ROLE_SYSTEM_COMBOBOX = 0x2E;
+        if (role == ROLE_SYSTEM_COMBOBOX)
+        {
+            Logger.Debug($"COMBOBOX detected - checking for editable child");
+            
+            // Check if the combobox itself has value interface (editable)
+            try
+            {
+                string value = acc.get_accValue(childId);
+                Logger.Debug($"COMBOBOX has value interface with value: '{value}' - accepting");
+                return true;
+            }
+            catch
+            {
+                // No direct value, check children
+            }
+
+            // Check if it has editable text child
+            try
+            {
+                int childCount = acc.accChildCount;
+                Logger.Debug($"COMBOBOX has {childCount} children");
+                
+                if (childCount > 0)
+                {
+                    for (int i = 0; i < childCount; i++)
+                    {
+                        try
+                        {
+                            object child = acc.get_accChild(i + 1);
+                            if (child is NativeMethods.IAccessible childAcc)
+                            {
+                                try
+                                {
+                                    object childRoleObj = childAcc.get_accRole(0);
+                                    int childRole = (childRoleObj is int cr) ? cr : 0;
+                                    
+                                    object childStateObj = childAcc.get_accState(0);
+                                    int childState = (childStateObj is int cs) ? cs : 0;
+                                    bool childReadonly = (childState & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+                                    
+                                    Logger.Debug($"COMBOBOX child {i}: Role={childRole}, Readonly={childReadonly}");
+                                    
+                                    // If child is editable text, accept the combobox
+                                    if (childRole == NativeMethods.ROLE_SYSTEM_TEXT && !childReadonly)
+                                    {
+                                        Logger.Debug($"✅ COMBOBOX has editable text child - accepting");
+                                        Marshal.ReleaseComObject(childAcc);
+                                        return true;
+                                    }
+                                    
+                                    Marshal.ReleaseComObject(childAcc);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Logger.Debug($"Error checking combobox child: {ex.Message}");
+                                    if (childAcc != null)
+                                        Marshal.ReleaseComObject(childAcc);
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Debug($"Error getting combobox child {i}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"Error checking combobox children: {ex.Message}");
+            }
+            
+            // Even if we can't check children, if it's focusable and not readonly, accept it
+            if (!isReadonly)
+            {
+                Logger.Debug($"COMBOBOX is focusable and not readonly - accepting");
+                return true;
+            }
+            
+            Logger.Debug($"COMBOBOX rejected - no editable child found");
+            return false;
         }
 
         return false;
