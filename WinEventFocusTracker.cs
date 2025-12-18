@@ -118,22 +118,44 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // CRITICAL: If we require a click, verify this focus change was caused by HARDWARE input
+            // ИЗМЕНЕНИЕ: Проверяем hardware input, но НЕ отклоняем при UNAVAILABLE
+            bool isHardwareInput = false;
+            bool hasRecentClick = false;
+            
             if (_requireClickForAutoShow)
             {
-                // Check using GetCurrentInputMessageSource (works in WinEvent context!)
-                if (!IsHardwareInputCausedFocus())
+                // Проверяем источник ввода
+                var inputSource = CheckInputSource();
+                
+                if (inputSource == InputSourceType.DefinitelyProgrammatic)
                 {
-                    Logger.Debug("Focus change detected, but NOT caused by hardware input - ignoring");
+                    Logger.Debug("🚫 Focus change is DEFINITELY programmatic (IMO_INJECTED/IMO_SYSTEM) - ignoring");
                     return;
                 }
                 
-                Logger.Debug("✅ Focus change confirmed as HARDWARE-initiated");
+                // Проверяем наличие недавнего клика мышью
+                hasRecentClick = _clickDetector?.WasRecentHardwareClick() ?? false;
                 
-                // Additional check: was there a recent hardware click?
-                if (_clickDetector != null && !_clickDetector.WasRecentHardwareClick())
+                if (inputSource == InputSourceType.DefinitelyHardware)
                 {
-                    Logger.Debug("No recent hardware click detected - ignoring focus change");
+                    isHardwareInput = true;
+                    Logger.Debug("✅ Focus change confirmed as HARDWARE-initiated by GetCurrentInputMessageSource");
+                }
+                else if (inputSource == InputSourceType.Unavailable && hasRecentClick)
+                {
+                    isHardwareInput = true;
+                    Logger.Debug("✅ Focus change assumed HARDWARE (UNAVAILABLE but recent click detected)");
+                }
+                else if (inputSource == InputSourceType.Unavailable && !hasRecentClick)
+                {
+                    // UNAVAILABLE без недавнего клика - вероятно клавиатурная навигация
+                    Logger.Debug("⚠️ Focus change with UNAVAILABLE source and no recent click - might be keyboard navigation, ignoring");
+                    return;
+                }
+                
+                if (!isHardwareInput)
+                {
+                    Logger.Debug("Focus change detected, but NOT caused by hardware input - ignoring");
                     return;
                 }
             }
@@ -146,7 +168,7 @@ public class WinEventFocusTracker : IDisposable
                 // For focus events, verify hardware click was inside element bounds
                 bool clickInsideBounds = false;
                 
-                if (_requireClickForAutoShow && _clickDetector != null)
+                if (_requireClickForAutoShow && _clickDetector != null && hasRecentClick)
                 {
                     try
                     {
@@ -180,11 +202,17 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
+    private enum InputSourceType
+    {
+        DefinitelyHardware,    // IMO_HARDWARE с MOUSE/TOUCH/TOUCHPAD
+        DefinitelyProgrammatic, // IMO_INJECTED или IMO_SYSTEM
+        Unavailable            // IMO_UNAVAILABLE (неопределенный)
+    }
+
     /// <summary>
-    /// Check if the current focus change was caused by hardware input.
-    /// This works in WinEvent context because we're called in the thread of the focused window.
+    /// Проверяет источник ввода, возвращая категорию вместо bool
     /// </summary>
-    private bool IsHardwareInputCausedFocus()
+    private InputSourceType CheckInputSource()
     {
         try
         {
@@ -192,48 +220,49 @@ public class WinEventFocusTracker : IDisposable
             
             if (!success)
             {
-                Logger.Debug("GetCurrentInputMessageSource failed - assuming programmatic");
-                return false;
+                Logger.Debug("GetCurrentInputMessageSource failed");
+                return InputSourceType.Unavailable;
             }
 
             Logger.Debug($"Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
-            // Check if origin is hardware
+            // Определенно программный ввод - отклоняем
+            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+            {
+                Logger.Debug("🚫 Input is INJECTED (SendInput)");
+                return InputSourceType.DefinitelyProgrammatic;
+            }
+            
+            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
+            {
+                Logger.Debug("🚫 Input is SYSTEM-generated");
+                return InputSourceType.DefinitelyProgrammatic;
+            }
+
+            // Определенно аппаратный ввод
             if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
             {
-                // Hardware input from mouse, touch, or touchpad
                 if (source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
                     source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
                     source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
                 {
-                    Logger.Debug($"✅ Confirmed HARDWARE input from {source.deviceType}");
-                    return true;
+                    return InputSourceType.DefinitelyHardware;
                 }
             }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+
+            // UNAVAILABLE - полагаемся на MouseClickDetector
+            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
-                Logger.Debug("🚫 Input is INJECTED (SendInput) - rejecting");
-                return false;
-            }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
-            {
-                Logger.Debug("🚫 Input is SYSTEM-generated - rejecting");
-                return false;
-            }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
-            {
-                Logger.Debug("⚠️ Input source UNAVAILABLE - might be keyboard or programmatic");
-                // UNAVAILABLE can mean keyboard input or the API couldn't determine
-                // In this case, rely on MouseClickDetector's recent click check
-                return _clickDetector?.WasRecentHardwareClick() ?? false;
+                Logger.Debug("⚠️ Input source UNAVAILABLE - checking MouseClickDetector");
+                return InputSourceType.Unavailable;
             }
 
-            return false;
+            return InputSourceType.Unavailable;
         }
         catch (Exception ex)
         {
             Logger.Error("Error checking input source", ex);
-            return false;
+            return InputSourceType.Unavailable;
         }
     }
 
