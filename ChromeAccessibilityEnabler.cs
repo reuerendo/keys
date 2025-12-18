@@ -44,12 +44,6 @@ public class ChromeAccessibilityEnabler : IDisposable
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
     
-    [DllImport("user32.dll")]
-    private static extern int GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-    
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-    
     private static readonly Guid IID_IAccessible = new Guid("{618736E0-3C3D-11CF-810C-00AA00389B71}");
     
     public ChromeAccessibilityEnabler(IntPtr windowHandle)
@@ -64,9 +58,6 @@ public class ChromeAccessibilityEnabler : IDisposable
         if (success)
         {
             Logger.Info("✅ Chrome accessibility enabler installed");
-            
-            // Proactively stimulate Chrome/Edge to build accessibility tree
-            ProactivelyStimulateChromeAccessibility();
         }
         else
         {
@@ -76,32 +67,26 @@ public class ChromeAccessibilityEnabler : IDisposable
     }
     
     /// <summary>
-    /// Proactively send WM_GETOBJECT to Chrome render widgets to force accessibility tree creation
-    /// This reduces the delay between click and focus event in Chrome/Edge
+    /// Called when foreground window changes - proactively stimulate Chrome accessibility
     /// </summary>
-    private void ProactivelyStimulateChromeAccessibility()
+    public void OnForegroundWindowChanged(IntPtr newForegroundWindow)
     {
+        if (_isDisposed || newForegroundWindow == IntPtr.Zero || newForegroundWindow == _windowHandle)
+            return;
+        
         try
         {
-            IntPtr foreground = GetForegroundWindow();
-            if (foreground == IntPtr.Zero || foreground == _windowHandle)
-                return;
-            
-            // Check if foreground window is Chrome/Edge
-            uint pid = 0;
-            GetWindowThreadProcessId(foreground, out pid);
-            
             StringBuilder className = new StringBuilder(256);
-            GetClassName(foreground, className, className.Capacity);
+            GetClassName(newForegroundWindow, className, className.Capacity);
             string classStr = className.ToString().ToLowerInvariant();
             
-            // Chrome/Edge main window classes
+            // Check if this is a Chrome/Edge window
             if (classStr.Contains("chrome_widgetwin"))
             {
                 Logger.Info($"🎯 Detected Chrome/Edge window - proactively stimulating accessibility");
                 
                 // Find Chrome_RenderWidgetHostHWND child window
-                IntPtr renderWidget = FindChromeRenderWidget(foreground);
+                IntPtr renderWidget = FindChromeRenderWidget(newForegroundWindow);
                 
                 if (renderWidget != IntPtr.Zero)
                 {
@@ -122,7 +107,7 @@ public class ChromeAccessibilityEnabler : IDisposable
         }
         catch (Exception ex)
         {
-            Logger.Error("Error stimulating Chrome accessibility", ex);
+            Logger.Debug($"Error in OnForegroundWindowChanged: {ex.Message}");
         }
     }
     
@@ -135,7 +120,7 @@ public class ChromeAccessibilityEnabler : IDisposable
         string[] renderWidgetClasses = new[]
         {
             "Chrome_RenderWidgetHostHWND",
-            "Chrome_RenderWidgetHostHWND1",  // Edge sometimes uses this
+            "Chrome_RenderWidgetHostHWND1",
             "Intermediate D3D Window"
         };
         
@@ -222,32 +207,6 @@ public class ChromeAccessibilityEnabler : IDisposable
         }
         
         return DefSubclassProc(hWnd, msg, wParam, lParam);
-    }
-    
-    /// <summary>
-    /// Call this when foreground window changes to proactively prepare accessibility
-    /// </summary>
-    public void OnForegroundWindowChanged(IntPtr newForegroundWindow)
-    {
-        if (_isDisposed || newForegroundWindow == IntPtr.Zero || newForegroundWindow == _windowHandle)
-            return;
-        
-        try
-        {
-            StringBuilder className = new StringBuilder(256);
-            GetClassName(newForegroundWindow, className, className.Capacity);
-            string classStr = className.ToString().ToLowerInvariant();
-            
-            if (classStr.Contains("chrome_widgetwin"))
-            {
-                Logger.Debug("Foreground changed to Chrome/Edge - stimulating accessibility");
-                ProactivelyStimulateChromeAccessibility();
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error in OnForegroundWindowChanged: {ex.Message}");
-        }
     }
     
     public void Dispose()
