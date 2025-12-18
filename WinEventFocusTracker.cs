@@ -99,8 +99,7 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // If we require a click, check if a click happened recently
-            // This filters out programmatic focus changes (Alt+Tab, app launch, code triggers)
+            // CRITICAL: If we require a click, check if click was recent
             if (_requireClickForAutoShow && _clickDetector != null)
             {
                 if (!_clickDetector.WasRecentClick())
@@ -115,6 +114,34 @@ public class WinEventFocusTracker : IDisposable
             
             if (hr >= 0 && acc != null)
             {
+                // CRITICAL: For focus events, verify click was inside element bounds
+                bool clickInsideBounds = false;
+                
+                if (_requireClickForAutoShow && _clickDetector != null)
+                {
+                    try
+                    {
+                        acc.accLocation(out int l, out int t, out int w, out int h, childId);
+                        Rectangle bounds = new Rectangle(l, t, w, h);
+                        clickInsideBounds = _clickDetector.WasRecentClickInBounds(bounds);
+                        
+                        if (!clickInsideBounds)
+                        {
+                            Logger.Debug($"Focus event: Click was OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                            Marshal.ReleaseComObject(acc);
+                            return;
+                        }
+                        
+                        Logger.Debug($"✅ Focus event: Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Debug($"Could not verify bounds for focus event: {ex.Message}");
+                        Marshal.ReleaseComObject(acc);
+                        return;
+                    }
+                }
+                
                 ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
                 Marshal.ReleaseComObject(acc);
             }
