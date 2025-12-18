@@ -22,11 +22,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.231115000" />
-    </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="Accessibility" />
+    <!-- Windows App SDK - обновлено до 1.8 -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.251106002" />
   </ItemGroup>
 
   <ItemGroup>
