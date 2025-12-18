@@ -9,7 +9,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
-/// Replaces the heavy UI Automation approach while maintaining strict click-to-show logic.
+/// Uses hardware input detection via GetCurrentInputMessageSource for reliable click-to-show logic.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -91,13 +91,13 @@ public class WinEventFocusTracker : IDisposable
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS)");
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with hardware detection)");
         }
 
-        // 2. Subscribe to click detector specifically for "Already Focused" scenarios
+        // 2. Subscribe to hardware click detector for "Already Focused" scenarios
         if (_clickDetector != null)
         {
-            _clickDetector.ClickDetected += OnClickDetected;
+            _clickDetector.HardwareClickDetected += OnHardwareClickDetected;
         }
     }
 
@@ -118,12 +118,12 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // CRITICAL: If we require a click, check if click was recent
+            // CRITICAL: If we require a click, check if HARDWARE click was recent
             if (_requireClickForAutoShow && _clickDetector != null)
             {
-                if (!_clickDetector.WasRecentClick())
+                if (!_clickDetector.WasRecentHardwareClick())
                 {
-                    Logger.Debug("Focus changed, but no recent click detected. Ignoring.");
+                    Logger.Debug("Focus changed, but no recent HARDWARE click detected. Ignoring.");
                     return;
                 }
             }
@@ -133,7 +133,7 @@ public class WinEventFocusTracker : IDisposable
             
             if (hr >= 0 && acc != null)
             {
-                // CRITICAL: For focus events, verify click was inside element bounds
+                // CRITICAL: For focus events, verify hardware click was inside element bounds
                 bool clickInsideBounds = false;
                 
                 if (_requireClickForAutoShow && _clickDetector != null)
@@ -142,16 +142,16 @@ public class WinEventFocusTracker : IDisposable
                     {
                         acc.accLocation(out int l, out int t, out int w, out int h, childId);
                         Rectangle bounds = new Rectangle(l, t, w, h);
-                        clickInsideBounds = _clickDetector.WasRecentClickInBounds(bounds);
+                        clickInsideBounds = _clickDetector.WasRecentHardwareClickInBounds(bounds);
                         
                         if (!clickInsideBounds)
                         {
-                            Logger.Debug($"Focus event: Click was OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                            Logger.Debug($"Focus event: Hardware click was OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
                             Marshal.ReleaseComObject(acc);
                             return;
                         }
                         
-                        Logger.Debug($"✅ Focus event: Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
+                        Logger.Debug($"✅ Focus event: Hardware click was INSIDE element bounds ({l}, {t}, {w}x{h})");
                     }
                     catch (Exception ex)
                     {
@@ -171,9 +171,9 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Handles direct clicks to detect text fields that might ALREADY have focus
+    /// Handles direct HARDWARE clicks to detect text fields that might ALREADY have focus
     /// </summary>
-    private void OnClickDetected(object sender, Point clickPoint)
+    private void OnHardwareClickDetected(object sender, Point clickPoint)
     {
         if (_isDisposed || !_requireClickForAutoShow) return;
 
@@ -191,7 +191,7 @@ public class WinEventFocusTracker : IDisposable
 
                 if (hr >= 0 && acc != null)
                 {
-                    // For OnClick, we need to find the HWND because AccessibleObjectFromPoint doesn't give it directly
+                    // For OnClick, we need to find the HWND
                     IntPtr hwnd = IntPtr.Zero;
                     try
                     {
@@ -211,7 +211,7 @@ public class WinEventFocusTracker : IDisposable
             }
             catch (Exception ex)
             {
-                Logger.Error("Error checking object at click point", ex);
+                Logger.Error("Error checking object at hardware click point", ex);
             }
         });
     }
@@ -276,9 +276,9 @@ public class WinEventFocusTracker : IDisposable
                     {
                         acc.accLocation(out int l, out int t, out int w, out int h, childId);
                         Rectangle bounds = new Rectangle(l, t, w, h);
-                        if (!_clickDetector.WasRecentClickInBounds(bounds))
+                        if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
                         {
-                            Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
+                            Logger.Debug($"Hardware click detected, but outside element bounds. Role: {role}");
                             return;
                         }
                     }
@@ -298,7 +298,7 @@ public class WinEventFocusTracker : IDisposable
                     name = name.Substring(0, 100) + "...";
                 }
 
-                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}, State: Readonly={isReadonly}, Focusable={isFocusable}");
+                Logger.Info($"{(isDirectClick ? "🖱️ Hardware Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}, State: Readonly={isReadonly}, Focusable={isFocusable}");
 
                 TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
                 {
@@ -661,8 +661,10 @@ public class WinEventFocusTracker : IDisposable
 
         if (_clickDetector != null)
         {
-            _clickDetector.ClickDetected -= OnClickDetected;
+            _clickDetector.HardwareClickDetected -= OnHardwareClickDetected;
         }
+
+        Logger.Info("WinEventFocusTracker disposed");
     }
 }
 

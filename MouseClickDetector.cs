@@ -5,8 +5,8 @@ using System.Drawing;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Global mouse click detector using low-level mouse hook
-/// Tracks mouse clicks to distinguish user clicks from programmatic focus changes
+/// Global mouse click detector using low-level mouse hook with hardware input detection.
+/// Uses GetCurrentInputMessageSource to reliably distinguish real user clicks from programmatic input.
 /// </summary>
 public class MouseClickDetector : IDisposable
 {
@@ -52,20 +52,21 @@ public class MouseClickDetector : IDisposable
 
     private IntPtr _hookId = IntPtr.Zero;
     private LowLevelMouseProc _hookProc;
-    private DateTime _lastClickTime = DateTime.MinValue;
-    private Point _lastClickPosition = Point.Empty;
+    private DateTime _lastHardwareClickTime = DateTime.MinValue;
+    private Point _lastHardwareClickPosition = Point.Empty;
     private readonly object _lockObject = new object();
     private bool _isDisposed = false;
 
     /// <summary>
-    /// Time window in milliseconds to consider focus change as click-initiated
+    /// Time window in milliseconds to consider focus change as click-initiated.
+    /// This is now a fallback - primary detection uses GetCurrentInputMessageSource.
     /// </summary>
     public int ClickTimeWindowMs { get; set; } = 150;
 
     /// <summary>
-    /// Event fired when a mouse click is detected
+    /// Event fired when a HARDWARE mouse click is detected
     /// </summary>
-    public event EventHandler<Point> ClickDetected;
+    public event EventHandler<Point> HardwareClickDetected;
 
     public MouseClickDetector()
     {
@@ -83,7 +84,7 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
-                Logger.Info("✅ Mouse click detector initialized successfully");
+                Logger.Info("✅ Hardware mouse click detector initialized with GetCurrentInputMessageSource");
             }
         }
         catch (Exception ex)
@@ -105,7 +106,7 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Mouse hook callback - records click events
+    /// Mouse hook callback - records ONLY hardware clicks
     /// </summary>
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
@@ -119,22 +120,32 @@ public class MouseClickDetector : IDisposable
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
                 
-                lock (_lockObject)
+                // CRITICAL: Check if this is a hardware click using GetCurrentInputMessageSource
+                bool isHardwareClick = IsHardwareInput();
+                
+                if (isHardwareClick)
                 {
-                    _lastClickTime = DateTime.UtcNow;
-                    _lastClickPosition = clickPoint;
-                    
-                    Logger.Debug($"🖱️ Mouse click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
-                }
+                    lock (_lockObject)
+                    {
+                        _lastHardwareClickTime = DateTime.UtcNow;
+                        _lastHardwareClickPosition = clickPoint;
+                        
+                        Logger.Debug($"🖱️ HARDWARE click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
+                    }
 
-                // Fire event for click detection
-                try
-                {
-                    ClickDetected?.Invoke(this, clickPoint);
+                    // Fire event for hardware click detection
+                    try
+                    {
+                        HardwareClickDetected?.Invoke(this, clickPoint);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error("Error in HardwareClickDetected event handler", ex);
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    Logger.Error("Error in ClickDetected event handler", ex);
+                    Logger.Debug($"🚫 PROGRAMMATIC click detected and IGNORED at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
                 }
             }
         }
@@ -143,41 +154,98 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Check if a recent mouse click occurred within the time window
+    /// Check if current input is from hardware device using GetCurrentInputMessageSource
     /// </summary>
-    public bool WasRecentClick()
+    private bool IsHardwareInput()
     {
-        lock (_lockObject)
+        try
         {
-            if (_lastClickTime == DateTime.MinValue)
+            bool success = NativeMethods.GetCurrentInputMessageSource(out NativeMethods.INPUT_MESSAGE_SOURCE source);
+            
+            if (!success)
+            {
+                Logger.Debug("GetCurrentInputMessageSource failed - assuming programmatic input");
                 return false;
+            }
 
-            var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
-            return timeSinceClick <= ClickTimeWindowMs;
+            // Log source information
+            Logger.Debug($"Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
+
+            // Check if origin is hardware
+            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+            {
+                // Hardware input - check if it's from mouse, touch, or touchpad
+                if (source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
+                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
+                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
+                {
+                    Logger.Debug($"✅ Confirmed HARDWARE input from {source.deviceType}");
+                    return true;
+                }
+            }
+            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+            {
+                Logger.Debug("🚫 Input is INJECTED (SendInput) - rejecting");
+                return false;
+            }
+            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
+            {
+                Logger.Debug("🚫 Input is SYSTEM-generated - rejecting");
+                return false;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error checking input source", ex);
+            return false;
         }
     }
 
     /// <summary>
-    /// Check if a recent click occurred and was within the specified bounds
+    /// Check if a recent HARDWARE mouse click occurred within the time window
     /// </summary>
-    /// <param name="bounds">Element bounds in screen coordinates</param>
-    /// <returns>True if click was recent and inside bounds</returns>
-    public bool WasRecentClickInBounds(Rectangle bounds)
+    public bool WasRecentHardwareClick()
     {
         lock (_lockObject)
         {
-            if (!WasRecentClick())
+            if (_lastHardwareClickTime == DateTime.MinValue)
                 return false;
 
-            bool isInBounds = bounds.Contains(_lastClickPosition);
+            var timeSinceClick = (DateTime.UtcNow - _lastHardwareClickTime).TotalMilliseconds;
+            bool wasRecent = timeSinceClick <= ClickTimeWindowMs;
+            
+            if (wasRecent)
+            {
+                Logger.Debug($"✅ Recent hardware click confirmed ({timeSinceClick:F0}ms ago)");
+            }
+            
+            return wasRecent;
+        }
+    }
+
+    /// <summary>
+    /// Check if a recent hardware click occurred and was within the specified bounds
+    /// </summary>
+    /// <param name="bounds">Element bounds in screen coordinates</param>
+    /// <returns>True if click was recent, hardware, and inside bounds</returns>
+    public bool WasRecentHardwareClickInBounds(Rectangle bounds)
+    {
+        lock (_lockObject)
+        {
+            if (!WasRecentHardwareClick())
+                return false;
+
+            bool isInBounds = bounds.Contains(_lastHardwareClickPosition);
             
             if (isInBounds)
             {
-                Logger.Debug($"✅ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"✅ Hardware click at ({_lastHardwareClickPosition.X}, {_lastHardwareClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
             }
             else
             {
-                Logger.Debug($"❌ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"❌ Hardware click at ({_lastHardwareClickPosition.X}, {_lastHardwareClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
             }
 
             return isInBounds;
@@ -185,13 +253,13 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Get information about the last click
+    /// Get information about the last hardware click
     /// </summary>
-    public (DateTime time, Point position) GetLastClickInfo()
+    public (DateTime time, Point position) GetLastHardwareClickInfo()
     {
         lock (_lockObject)
         {
-            return (_lastClickTime, _lastClickPosition);
+            return (_lastHardwareClickTime, _lastHardwareClickPosition);
         }
     }
 
@@ -202,9 +270,9 @@ public class MouseClickDetector : IDisposable
     {
         lock (_lockObject)
         {
-            _lastClickTime = DateTime.MinValue;
-            _lastClickPosition = Point.Empty;
-            Logger.Debug("Click detector reset");
+            _lastHardwareClickTime = DateTime.MinValue;
+            _lastHardwareClickPosition = Point.Empty;
+            Logger.Debug("Hardware click detector reset");
         }
     }
 

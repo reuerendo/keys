@@ -64,6 +64,36 @@ internal static class NativeMethods
     public const uint PROCESS_QUERY_INFORMATION = 0x0400;
     public const uint PROCESS_VM_READ = 0x0010;
 
+    // GetCurrentInputMessageSource API - Windows 8+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetCurrentInputMessageSource(out INPUT_MESSAGE_SOURCE inputMessageSource);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT_MESSAGE_SOURCE
+    {
+        public INPUT_MESSAGE_DEVICE_TYPE deviceType;
+        public INPUT_MESSAGE_ORIGIN_ID originId;
+    }
+
+    public enum INPUT_MESSAGE_DEVICE_TYPE
+    {
+        IMDT_UNAVAILABLE = 0x00000000,  // Not specified
+        IMDT_KEYBOARD = 0x00000001,     // From keyboard
+        IMDT_MOUSE = 0x00000002,        // From mouse
+        IMDT_TOUCH = 0x00000004,        // From touch
+        IMDT_PEN = 0x00000008,          // From pen
+        IMDT_TOUCHPAD = 0x00000010,     // From touchpad
+    }
+
+    public enum INPUT_MESSAGE_ORIGIN_ID
+    {
+        IMO_UNAVAILABLE = 0x00000000,   // Not specified
+        IMO_HARDWARE = 0x00000001,      // From hardware device (real user input)
+        IMO_INJECTED = 0x00000002,      // Injected via SendInput() (programmatic)
+        IMO_SYSTEM = 0x00000004,        // Injected by system
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT
     {
