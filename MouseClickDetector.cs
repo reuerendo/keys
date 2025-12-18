@@ -59,7 +59,7 @@ public class MouseClickDetector : IDisposable
     /// <summary>
     /// Extended time window for Chrome/Edge (they need time to build accessibility tree)
     /// </summary>
-    public int ClickTimeWindowMs { get; set; } = 1500;  // INCREASED from 150ms to 1500ms
+    public int ClickTimeWindowMs { get; set; } = 2000;  // INCREASED from 150ms to 2000ms for Chrome/Edge
 
     /// <summary>
     /// Event fired when a mouse click is detected

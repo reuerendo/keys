@@ -94,8 +94,8 @@ public class ChromeAccessibilityEnabler : IDisposable
                     Logger.Info("📡 Sending WM_GETOBJECT to Chrome render widget");
                     SendMessage(renderWidget, WM_GETOBJECT, IntPtr.Zero, new IntPtr(CHROME_DETECTION_OBJID));
                     
-                    // Give Chrome a moment to process
-                    System.Threading.Thread.Sleep(50);
+                    // Reduced delay to minimize impact on click window
+                    System.Threading.Thread.Sleep(30);
                     
                     Logger.Info("✅ Chrome accessibility tree should now be ready");
                 }
