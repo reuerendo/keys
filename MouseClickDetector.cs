@@ -57,9 +57,10 @@ public class MouseClickDetector : IDisposable
     private bool _isDisposed = false;
 
     /// <summary>
-    /// Extended time window for Chrome/Edge (they need time to build accessibility tree)
+    /// Extended time window for Chrome/Edge (they need time to build accessibility tree).
+    /// Increased to 5000ms to handle severe lag in multi-process browsers.
     /// </summary>
-    public int ClickTimeWindowMs { get; set; } = 2500;  // Final value: 2500ms for reliable Chrome/Edge support
+    public int ClickTimeWindowMs { get; set; } = 5000;
 
     /// <summary>
     /// Event fired when a mouse click is detected
@@ -82,7 +83,7 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
-                Logger.Info("✅ Mouse click detector initialized (2500ms window for Chrome/Edge)");
+                Logger.Info($"✅ Mouse click detector initialized ({ClickTimeWindowMs}ms window for Chrome/Edge)");
             }
         }
         catch (Exception ex)
