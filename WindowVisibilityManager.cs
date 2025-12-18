@@ -110,45 +110,60 @@ public class WindowVisibilityManager : IDisposable
         }
     }
 
-    private void EnableAutoShow()
-    {
-        if (_focusTracker == null)
-        {
-            try
-            {
-                Logger.Info("📄 Creating WinEvent Focus Tracker...");
-                
-                if (_clickDetector == null) _clickDetector = new MouseClickDetector();
+	private void EnableAutoShow()
+	{
+		if (_focusTracker == null)
+		{
+			try
+			{
+				Logger.Info("🔄 Creating WinEvent Focus Tracker...");
+				
+				if (_clickDetector == null) _clickDetector = new MouseClickDetector();
 
-                // Create native tracker
-                _focusTracker = new WinEventFocusTracker(_windowHandle, _clickDetector, requireClickForAutoShow: true);
-                
-                _focusTracker.SetKeyboardVisibilityChecker(() => IsVisible());
-                
-                _focusTracker.TextInputFocused += OnTextInputFocused;
-                _focusTracker.NonTextInputFocused += OnNonTextInputFocused;
-                
-                Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA)");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("❌ Failed to enable Focus Tracker", ex);
-                _focusTracker = null;
-            }
-        }
-    }
+				_focusTracker = new WinEventFocusTracker(_windowHandle, _clickDetector, requireClickForAutoShow: true);
+				
+				_focusTracker.SetKeyboardVisibilityChecker(() => IsVisible());
+				
+				_focusTracker.TextInputFocused += OnTextInputFocused;
+				_focusTracker.NonTextInputFocused += OnNonTextInputFocused;
+				
+				// NEW: Subscribe to foreground window changes for proactive Chrome stimulation
+				if (_foregroundTracker != null)
+				{
+					_foregroundTracker.ForegroundWindowChanged += OnForegroundWindowChangedForChrome;
+				}
+				
+				Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA)");
+			}
+			catch (Exception ex)
+			{
+				Logger.Error("❌ Failed to enable Focus Tracker", ex);
+				_focusTracker = null;
+			}
+		}
+	}
+	
+	/// <summary>
+	/// Called when foreground window changes - proactively stimulate Chrome accessibility
+	/// </summary>
+	private void OnForegroundWindowChangedForChrome(object sender, IntPtr newForegroundWindow)
+	{
+		if (_chromeEnabler != null)
+		{
+			_chromeEnabler.OnForegroundWindowChanged(newForegroundWindow);
+		}
+	}
 
-    private void DisableAutoShow()
-    {
-        if (_focusTracker != null)
-        {
-            _focusTracker.TextInputFocused -= OnTextInputFocused;
-            _focusTracker.NonTextInputFocused -= OnNonTextInputFocused;
-            _focusTracker.Dispose();
-            _focusTracker = null;
-            Logger.Info("Focus tracker disabled");
-        }
-    }
+	/// <summary>
+	/// Called when foreground window changes - proactively stimulate Chrome accessibility
+	/// </summary>
+	private void OnForegroundWindowChangedForChrome(object sender, IntPtr newForegroundWindow)
+	{
+		if (_chromeEnabler != null)
+		{
+			_chromeEnabler.OnForegroundWindowChanged(newForegroundWindow);
+		}
+	}
 
     public void UpdateAutoShowSetting()
     {

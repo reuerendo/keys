@@ -5,8 +5,7 @@ using System.Drawing;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Global mouse click detector using low-level mouse hook
-/// Tracks mouse clicks to distinguish user clicks from programmatic focus changes
+/// Global mouse click detector with extended time window for Chrome/Edge
 /// </summary>
 public class MouseClickDetector : IDisposable
 {
@@ -58,9 +57,9 @@ public class MouseClickDetector : IDisposable
     private bool _isDisposed = false;
 
     /// <summary>
-    /// Time window in milliseconds to consider focus change as click-initiated
+    /// Extended time window for Chrome/Edge (they need time to build accessibility tree)
     /// </summary>
-    public int ClickTimeWindowMs { get; set; } = 150;
+    public int ClickTimeWindowMs { get; set; } = 1500;  // INCREASED from 150ms to 1500ms
 
     /// <summary>
     /// Event fired when a mouse click is detected
@@ -83,7 +82,7 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
-                Logger.Info("✅ Mouse click detector initialized successfully");
+                Logger.Info("✅ Mouse click detector initialized (1500ms window for Chrome/Edge)");
             }
         }
         catch (Exception ex)
@@ -92,9 +91,6 @@ public class MouseClickDetector : IDisposable
         }
     }
 
-    /// <summary>
-    /// Set up low-level mouse hook
-    /// </summary>
     private IntPtr SetHook(LowLevelMouseProc proc)
     {
         using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
@@ -104,16 +100,12 @@ public class MouseClickDetector : IDisposable
         }
     }
 
-    /// <summary>
-    /// Mouse hook callback - records click events
-    /// </summary>
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         if (nCode >= 0)
         {
             int msg = wParam.ToInt32();
             
-            // Track left button clicks only
             if (msg == WM_LBUTTONDOWN)
             {
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
@@ -124,10 +116,9 @@ public class MouseClickDetector : IDisposable
                     _lastClickTime = DateTime.UtcNow;
                     _lastClickPosition = clickPoint;
                     
-                    Logger.Debug($"🖱️ Mouse click detected at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
+                    Logger.Debug($"🖱️ Mouse click at ({hookStruct.pt.X}, {hookStruct.pt.Y})");
                 }
 
-                // Fire event for click detection
                 try
                 {
                     ClickDetected?.Invoke(this, clickPoint);
@@ -142,9 +133,6 @@ public class MouseClickDetector : IDisposable
         return CallNextHookEx(_hookId, nCode, wParam, lParam);
     }
 
-    /// <summary>
-    /// Check if a recent mouse click occurred within the time window
-    /// </summary>
     public bool WasRecentClick()
     {
         lock (_lockObject)
@@ -153,15 +141,17 @@ public class MouseClickDetector : IDisposable
                 return false;
 
             var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
-            return timeSinceClick <= ClickTimeWindowMs;
+            bool isRecent = timeSinceClick <= ClickTimeWindowMs;
+            
+            if (!isRecent)
+            {
+                Logger.Debug($"Click was {timeSinceClick:F0}ms ago (window: {ClickTimeWindowMs}ms) - too old");
+            }
+            
+            return isRecent;
         }
     }
 
-    /// <summary>
-    /// Check if a recent click occurred and was within the specified bounds
-    /// </summary>
-    /// <param name="bounds">Element bounds in screen coordinates</param>
-    /// <returns>True if click was recent and inside bounds</returns>
     public bool WasRecentClickInBounds(Rectangle bounds)
     {
         lock (_lockObject)
@@ -171,22 +161,21 @@ public class MouseClickDetector : IDisposable
 
             bool isInBounds = bounds.Contains(_lastClickPosition);
             
+            var timeSinceClick = (DateTime.UtcNow - _lastClickTime).TotalMilliseconds;
+            
             if (isInBounds)
             {
-                Logger.Debug($"✅ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is inside element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"✅ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) {timeSinceClick:F0}ms ago is inside bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
             }
             else
             {
-                Logger.Debug($"❌ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) is OUTSIDE element bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
+                Logger.Debug($"❌ Click at ({_lastClickPosition.X}, {_lastClickPosition.Y}) {timeSinceClick:F0}ms ago is OUTSIDE bounds ({bounds.X}, {bounds.Y}, {bounds.Width}x{bounds.Height})");
             }
 
             return isInBounds;
         }
     }
 
-    /// <summary>
-    /// Get information about the last click
-    /// </summary>
     public (DateTime time, Point position) GetLastClickInfo()
     {
         lock (_lockObject)
@@ -195,9 +184,6 @@ public class MouseClickDetector : IDisposable
         }
     }
 
-    /// <summary>
-    /// Reset click tracking (useful for testing or manual control)
-    /// </summary>
     public void Reset()
     {
         lock (_lockObject)
