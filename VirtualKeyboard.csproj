@@ -22,10 +22,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Windows App SDK - обновлено до 1.8 -->
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.251106002" />
-    <PackageReference Include="FlaUI.Core" Version="5.0.0" />
-    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.231115000" />
+    </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Accessibility" />
   </ItemGroup>
 
   <ItemGroup>

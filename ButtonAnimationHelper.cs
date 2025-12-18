@@ -61,7 +61,7 @@ public static class ButtonAnimationHelper
             new PointerEventHandler(Button_PointerExited),
             handledEventsToo: true);
         
-        Logger.Debug($"Animation setup for button: {button.Content}");
+        // Logger.Debug($"Animation setup for button: {button.Content}");
     }
 
     /// <summary>
@@ -93,7 +93,7 @@ public static class ButtonAnimationHelper
     {
         if (sender is Button button)
         {
-            Logger.Debug($"Button pressed: {button.Content}");
+            // Logger.Debug($"Button pressed: {button.Content}");
             AnimateScale(button, PRESS_SCALE);
             // Don't mark as handled - let other handlers process it too
         }
@@ -103,7 +103,7 @@ public static class ButtonAnimationHelper
     {
         if (sender is Button button)
         {
-            Logger.Debug($"Button released: {button.Content}");
+            // Logger.Debug($"Button released: {button.Content}");
             AnimateScale(button, NORMAL_SCALE);
         }
     }
@@ -141,7 +141,7 @@ public static class ButtonAnimationHelper
         {
             if (button.RenderTransform is not ScaleTransform scaleTransform)
             {
-                Logger.Warning("Button doesn't have ScaleTransform");
+                // Logger.Warning("Button doesn't have ScaleTransform");
                 return;
             }
 
@@ -172,7 +172,7 @@ public static class ButtonAnimationHelper
             
             storyboard.Begin();
             
-            Logger.Debug($"Animation started: scale to {targetScale}");
+            // Logger.Debug($"Animation started: scale to {targetScale}");
         }
         catch (Exception ex)
         {

@@ -38,7 +38,7 @@ public class LongPressPopup
         InitializeLongPressTimer();
         InitializeAnimations();
         
-        Logger.Info("LongPressPopup initialized with animations");
+        // Logger.Info("LongPressPopup initialized with animations");
     }
 
     private void InitializePopup()
@@ -74,7 +74,7 @@ public class LongPressPopup
             }
         };
         
-        Logger.Debug("Popup UI initialized");
+        // Logger.Debug("Popup UI initialized");
     }
 
 	private void InitializeAnimations()
@@ -182,7 +182,7 @@ public class LongPressPopup
         _currentButton = button;
         string keyTag = button.Tag as string;
         
-        Logger.Debug($"StartPress called for key: {keyTag}, layout: {layoutName}");
+        // Logger.Debug($"StartPress called for key: {keyTag}, layout: {layoutName}");
         
         if (string.IsNullOrEmpty(keyTag))
         {
@@ -197,7 +197,7 @@ public class LongPressPopup
         }
         else
         {
-            Logger.Debug($"No long-press options for '{keyTag}' in layout '{layoutName}'");
+            // Logger.Debug($"No long-press options for '{keyTag}' in layout '{layoutName}'");
         }
     }
 
