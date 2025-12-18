@@ -292,4 +292,3 @@ public class WindowVisibilityManager : IDisposable
         Dispose();
     }
 }
-}
