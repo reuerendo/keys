@@ -329,41 +329,68 @@ public class WinEventFocusTracker : IDisposable
         // Enhanced Chrome/Electron detection
         if (IsChromeRenderClass(classLower))
         {
-            Logger.Debug($"Detected Chrome render class: {className}, Role: {role}, Focusable: {isFocusable}");
+            Logger.Debug($"Detected Chrome render class: {className}, Role: {role}, Focusable: {isFocusable}, Readonly: {isReadonly}");
+            
+            // CRITICAL: Chrome pages are often ROLE_SYSTEM_DOCUMENT with Readonly=True
+            // Real text inputs are Readonly=False
+            if (isReadonly)
+            {
+                Logger.Debug($"Chrome widget is readonly - rejecting (not an input field)");
+                return false;
+            }
             
             if (isFocusable)
             {
-                // Try value interface
+                // Try value interface - but must NOT be readonly
                 try
                 {
                     string value = acc.get_accValue(childId);
-                    Logger.Debug($"✅ Chrome widget has value interface - accepting");
+                    Logger.Debug($"✅ Chrome widget has value interface and is NOT readonly - accepting");
                     return true;
                 }
                 catch { }
 
-                // Check for input-related roles
+                // Check for input-related roles (TEXT only, not DOCUMENT for Chrome)
                 const int ROLE_SYSTEM_PANE = 0x10;
                 if (role == ROLE_SYSTEM_PANE || 
                     role == NativeMethods.ROLE_SYSTEM_CLIENT ||
-                    role == NativeMethods.ROLE_SYSTEM_TEXT ||
-                    role == NativeMethods.ROLE_SYSTEM_DOCUMENT)
+                    role == NativeMethods.ROLE_SYSTEM_TEXT)
                 {
-                    Logger.Debug($"✅ Chrome widget with input role ({role}) - accepting");
+                    Logger.Debug($"✅ Chrome widget with input role ({role}) and NOT readonly - accepting");
                     return true;
                 }
                 
-                // For Chrome, even generic focusable elements might be inputs
-                try
+                // For Chrome DOCUMENT role - only accept if we can verify it's actually editable
+                if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT)
                 {
-                    acc.accLocation(out int l, out int t, out int w, out int h, childId);
-                    if (w > 50 && h > 20)
+                    // Check if it has editable descendants or contentEditable
+                    try
                     {
-                        Logger.Debug($"✅ Chrome focusable element with reasonable size ({w}x{h}) - accepting");
-                        return true;
+                        string name = acc.get_accName(childId);
+                        // If it has a generic page name like "Новая вкладка", it's NOT an input
+                        if (name != null && (name.Contains("вкладка") || name.Contains("tab") || name.Contains("page")))
+                        {
+                            Logger.Debug($"Chrome DOCUMENT with generic page name '{name}' - rejecting");
+                            return false;
+                        }
                     }
+                    catch { }
+                    
+                    // Only accept DOCUMENT if it has value interface (contentEditable)
+                    try
+                    {
+                        string value = acc.get_accValue(childId);
+                        if (value != null)
+                        {
+                            Logger.Debug($"✅ Chrome DOCUMENT with value interface - accepting as contentEditable");
+                            return true;
+                        }
+                    }
+                    catch { }
+                    
+                    Logger.Debug($"Chrome DOCUMENT without value interface - rejecting");
+                    return false;
                 }
-                catch { }
             }
             
             Logger.Debug($"Chrome render widget but not detected as input");
