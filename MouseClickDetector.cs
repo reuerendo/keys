@@ -6,7 +6,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Global mouse click detector using low-level mouse hook.
-/// Uses relaxed filtering: primarily dwExtraInfo, LLMHF_INJECTED is secondary check.
+/// Uses dwExtraInfo to distinguish real user clicks from programmatic input.
 /// </summary>
 public class MouseClickDetector : IDisposable
 {
@@ -15,9 +15,6 @@ public class MouseClickDetector : IDisposable
     private const int WH_MOUSE_LL = 14;
     private const int WM_LBUTTONDOWN = 0x0201;
     private const int WM_RBUTTONDOWN = 0x0204;
-    
-    // Magic value used by SendInput to mark injected events
-    private static readonly IntPtr INJECTED_EXTRA_INFO = new IntPtr(0xFF515700);
     
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT
@@ -86,7 +83,7 @@ public class MouseClickDetector : IDisposable
             }
             else
             {
-                Logger.Info("✅ Hardware mouse click detector initialized with relaxed filtering");
+                Logger.Info("✅ Hardware mouse click detector initialized with LLMHF_INJECTED flag check");
             }
         }
         catch (Exception ex)
@@ -122,7 +119,7 @@ public class MouseClickDetector : IDisposable
                 var hookStruct = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
                 var clickPoint = new Point(hookStruct.pt.X, hookStruct.pt.Y);
                 
-                // Check if this is a hardware click using RELAXED logic
+                // Check if this is a hardware click using dwExtraInfo
                 bool isHardwareClick = IsHardwareInput(hookStruct);
                 
                 if (isHardwareClick)
@@ -156,53 +153,27 @@ public class MouseClickDetector : IDisposable
     }
 
     /// <summary>
-    /// Check if click is from hardware device using dwExtraInfo primarily.
-    /// RELAXED: LLMHF_INJECTED is now a SECONDARY check, not absolute filter.
+    /// Check if click is from hardware device using LLMHF_INJECTED flag.
+    /// This is the ONLY reliable method in low-level mouse hook context.
+    /// dwExtraInfo cannot be trusted as real hardware can have any value.
     /// </summary>
     private bool IsHardwareInput(MSLLHOOKSTRUCT hookStruct)
     {
         try
         {
-            IntPtr extraInfo = hookStruct.dwExtraInfo;
-            long extraInfoValue = extraInfo.ToInt64();
-            
-            // PRIMARY CHECK: Known injection markers in dwExtraInfo
-            if (extraInfo == INJECTED_EXTRA_INFO)
-            {
-                Logger.Debug($"🚫 Known SendInput marker (dwExtraInfo: 0x{extraInfoValue:X})");
-                return false;
-            }
-            
-            // Suspicious: very large values often indicate SendInput injection
-            if (extraInfoValue > 0x00FFFFFF && extraInfoValue != 0)
-            {
-                Logger.Debug($"🚫 Suspicious dwExtraInfo: 0x{extraInfoValue:X}");
-                return false;
-            }
-            
-            // SECONDARY CHECK: LLMHF_INJECTED flag
-            // ИЗМЕНЕНИЕ: Не считаем это абсолютным фильтром!
+            // ONLY reliable check: LLMHF_INJECTED flag
+            // This flag is set by the system for ALL SendInput() calls
             const uint LLMHF_INJECTED = 0x00000001;
-            bool hasInjectedFlag = (hookStruct.flags & LLMHF_INJECTED) != 0;
             
-            if (hasInjectedFlag)
+            if ((hookStruct.flags & LLMHF_INJECTED) != 0)
             {
-                // Проверяем dwExtraInfo более внимательно
-                if (extraInfoValue == 0)
-                {
-                    // LLMHF_INJECTED + dwExtraInfo=0 часто бывает у настоящих мышей на Windows 11
-                    Logger.Debug($"⚠️ LLMHF_INJECTED flag set BUT dwExtraInfo=0 (common on Win11) - ACCEPTING as hardware");
-                    return true;
-                }
-                else
-                {
-                    Logger.Debug($"🚫 LLMHF_INJECTED flag + non-zero dwExtraInfo (0x{extraInfoValue:X}) - rejecting");
-                    return false;
-                }
+                Logger.Debug($"🚫 LLMHF_INJECTED flag set - rejecting (flags: 0x{hookStruct.flags:X})");
+                return false;
             }
             
-            // Если нет явных признаков инъекции - принимаем как hardware
-            Logger.Debug($"✅ Hardware input (dwExtraInfo: 0x{extraInfoValue:X}, flags: 0x{hookStruct.flags:X})");
+            // If LLMHF_INJECTED is NOT set, it's hardware input
+            long extraInfoValue = hookStruct.dwExtraInfo.ToInt64();
+            Logger.Debug($"✅ Hardware input confirmed (dwExtraInfo: 0x{extraInfoValue:X}, flags: 0x{hookStruct.flags:X})");
             return true;
         }
         catch (Exception ex)
