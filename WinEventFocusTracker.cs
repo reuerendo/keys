@@ -9,7 +9,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
-/// Uses hardware input detection via GetCurrentInputMessageSource for reliable click-to-show logic.
+/// Uses GetCurrentInputMessageSource for reliable hardware input detection in WinEvent context.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -26,38 +26,38 @@ public class WinEventFocusTracker : IDisposable
     // Blacklist of processes that should never trigger auto-show
     private static readonly string[] ProcessBlacklist = new[]
     {
-        "explorer.exe",      // Windows Explorer
-        "searchhost.exe",    // Windows Search
-        "startmenuexperiencehost.exe"  // Start Menu
+        "explorer.exe",
+        "searchhost.exe",
+        "startmenuexperiencehost.exe"
     };
 
     // Blacklist of window classes that should be excluded
     private static readonly string[] ClassBlacklist = new[]
     {
-        "syslistview32",     // List views (Explorer file list)
-        "directuihwnd",      // Explorer file dialogs
-        "cabinetwclass",     // Explorer windows
-        "workerw",           // Desktop worker
-        "progman"            // Program Manager
+        "syslistview32",
+        "directuihwnd",
+        "cabinetwclass",
+        "workerw",
+        "progman"
     };
 
     // Known text editor classes that should always trigger auto-show
     private static readonly string[] EditorClassWhitelist = new[]
     {
-        "scintilla",              // Notepad++, Sublime Text, etc.
-        "richedit",               // Rich Edit controls
-        "edit",                   // Standard edit controls
-        "akeleditwclass",         // AkelPad editor
-        "atlaxwin",               // Various editors
-        "vscodecontentcontrol"    // VS Code (if using native HWND)
+        "scintilla",
+        "richedit",
+        "edit",
+        "akeleditwclass",
+        "atlaxwin",
+        "vscodecontentcontrol"
     };
 
     // Known Chrome/Electron render widget classes
     private static readonly string[] ChromeRenderClasses = new[]
     {
-        "chrome_renderwidgethosthwnd",  // Chrome/Electron apps
-        "chrome_widgetwin_",             // Chrome widgets
-        "intermediate d3d window"        // Hardware accelerated Chrome
+        "chrome_renderwidgethosthwnd",
+        "chrome_widgetwin_",
+        "intermediate d3d window"
     };
 
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
@@ -74,7 +74,7 @@ public class WinEventFocusTracker : IDisposable
 
     private void Initialize()
     {
-        // 1. Subscribe to global focus events (Lightweight WinEvent)
+        // Subscribe to global focus events
         _winEventProc = new NativeMethods.WinEventDelegate(WinEventProc);
         _hookHandle = NativeMethods.SetWinEventHook(
             NativeMethods.EVENT_OBJECT_FOCUS, 
@@ -91,10 +91,10 @@ public class WinEventFocusTracker : IDisposable
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with hardware detection)");
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with GetCurrentInputMessageSource)");
         }
 
-        // 2. Subscribe to hardware click detector for "Already Focused" scenarios
+        // Subscribe to hardware click detector for "Already Focused" scenarios
         if (_clickDetector != null)
         {
             _clickDetector.HardwareClickDetected += OnHardwareClickDetected;
@@ -107,7 +107,7 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Callback for SetWinEventHook
+    /// Callback for SetWinEventHook - called in the context of the window that received focus
     /// </summary>
     private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
@@ -118,12 +118,22 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // CRITICAL: If we require a click, check if HARDWARE click was recent
-            if (_requireClickForAutoShow && _clickDetector != null)
+            // CRITICAL: If we require a click, verify this focus change was caused by HARDWARE input
+            if (_requireClickForAutoShow)
             {
-                if (!_clickDetector.WasRecentHardwareClick())
+                // Check using GetCurrentInputMessageSource (works in WinEvent context!)
+                if (!IsHardwareInputCausedFocus())
                 {
-                    Logger.Debug("Focus changed, but no recent HARDWARE click detected. Ignoring.");
+                    Logger.Debug("Focus change detected, but NOT caused by hardware input - ignoring");
+                    return;
+                }
+                
+                Logger.Debug("✅ Focus change confirmed as HARDWARE-initiated");
+                
+                // Additional check: was there a recent hardware click?
+                if (_clickDetector != null && !_clickDetector.WasRecentHardwareClick())
+                {
+                    Logger.Debug("No recent hardware click detected - ignoring focus change");
                     return;
                 }
             }
@@ -133,7 +143,7 @@ public class WinEventFocusTracker : IDisposable
             
             if (hr >= 0 && acc != null)
             {
-                // CRITICAL: For focus events, verify hardware click was inside element bounds
+                // For focus events, verify hardware click was inside element bounds
                 bool clickInsideBounds = false;
                 
                 if (_requireClickForAutoShow && _clickDetector != null)
@@ -146,17 +156,17 @@ public class WinEventFocusTracker : IDisposable
                         
                         if (!clickInsideBounds)
                         {
-                            Logger.Debug($"Focus event: Hardware click was OUTSIDE element bounds. Ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                            Logger.Debug($"Hardware click was OUTSIDE element bounds - ignoring. Bounds: ({l}, {t}, {w}x{h})");
                             Marshal.ReleaseComObject(acc);
                             return;
                         }
                         
-                        Logger.Debug($"✅ Focus event: Hardware click was INSIDE element bounds ({l}, {t}, {w}x{h})");
+                        Logger.Debug($"✅ Hardware click was INSIDE element bounds ({l}, {t}, {w}x{h})");
                     }
                     catch (Exception ex)
                     {
-                        Logger.Debug($"Could not verify bounds for focus event: {ex.Message}");
-                        // For some controls (combobox, editors), bounds check might fail - continue anyway
+                        Logger.Debug($"Could not verify bounds: {ex.Message}");
+                        // For some controls, bounds check might fail - continue anyway
                     }
                 }
                 
@@ -167,6 +177,63 @@ public class WinEventFocusTracker : IDisposable
         catch (Exception ex)
         {
             Logger.Error("Error in WinEventProc", ex);
+        }
+    }
+
+    /// <summary>
+    /// Check if the current focus change was caused by hardware input.
+    /// This works in WinEvent context because we're called in the thread of the focused window.
+    /// </summary>
+    private bool IsHardwareInputCausedFocus()
+    {
+        try
+        {
+            bool success = NativeMethods.GetCurrentInputMessageSource(out NativeMethods.INPUT_MESSAGE_SOURCE source);
+            
+            if (!success)
+            {
+                Logger.Debug("GetCurrentInputMessageSource failed - assuming programmatic");
+                return false;
+            }
+
+            Logger.Debug($"Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
+
+            // Check if origin is hardware
+            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+            {
+                // Hardware input from mouse, touch, or touchpad
+                if (source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
+                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
+                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
+                {
+                    Logger.Debug($"✅ Confirmed HARDWARE input from {source.deviceType}");
+                    return true;
+                }
+            }
+            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+            {
+                Logger.Debug("🚫 Input is INJECTED (SendInput) - rejecting");
+                return false;
+            }
+            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
+            {
+                Logger.Debug("🚫 Input is SYSTEM-generated - rejecting");
+                return false;
+            }
+            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
+            {
+                Logger.Debug("⚠️ Input source UNAVAILABLE - might be keyboard or programmatic");
+                // UNAVAILABLE can mean keyboard input or the API couldn't determine
+                // In this case, rely on MouseClickDetector's recent click check
+                return _clickDetector?.WasRecentHardwareClick() ?? false;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error checking input source", ex);
+            return false;
         }
     }
 
@@ -191,14 +258,12 @@ public class WinEventFocusTracker : IDisposable
 
                 if (hr >= 0 && acc != null)
                 {
-                    // For OnClick, we need to find the HWND
                     IntPtr hwnd = IntPtr.Zero;
                     try
                     {
-                        // Try to get HWND from the accessible object
                         hwnd = NativeMethods.WindowFromAccessibleObject(acc);
                     }
-                    catch { /* Best effort */ }
+                    catch { }
 
                     // Ignore our own window
                     if (hwnd != _keyboardWindowHandle)
@@ -223,7 +288,7 @@ public class WinEventFocusTracker : IDisposable
     {
         try
         {
-            // 1. Get Process ID and check blacklist
+            // Get Process ID and check blacklist
             uint pid = 0;
             if (hwnd != IntPtr.Zero)
             {
@@ -236,7 +301,7 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
-            // 2. Get ClassName and check blacklist/whitelist
+            // Get ClassName and check blacklist/whitelist
             string className = "";
             if (hwnd != IntPtr.Zero)
             {
@@ -251,11 +316,11 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
-            // 3. Check Role
+            // Check Role
             object roleObj = acc.get_accRole(childId);
             int role = (roleObj is int r) ? r : 0;
             
-            // 4. Get State
+            // Get State
             object stateObj = acc.get_accState(childId);
             int state = (stateObj is int s) ? s : 0;
             
@@ -264,12 +329,12 @@ public class WinEventFocusTracker : IDisposable
             bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
             bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
 
-            // 5. Determine if this is a text input
+            // Determine if this is a text input
             bool isText = IsEditableTextInput(role, className, state, acc, childId);
 
             if (isText)
             {
-                // Double check bounds if it was a direct click (ensure we actually clicked INSIDE)
+                // Double check bounds if it was a direct click
                 if (isDirectClick && _clickDetector != null)
                 {
                     try
@@ -284,7 +349,6 @@ public class WinEventFocusTracker : IDisposable
                     }
                     catch
                     {
-                        // Bounds check failed - for certain controls this is OK, continue
                         Logger.Debug("Bounds check failed, but element is text input - continuing");
                     }
                 }
@@ -292,13 +356,13 @@ public class WinEventFocusTracker : IDisposable
                 string name = "";
                 try { name = acc.get_accName(childId); } catch { }
 
-                // Truncate very long names (like full file content in Scintilla)
+                // Truncate very long names
                 if (name != null && name.Length > 100)
                 {
                     name = name.Substring(0, 100) + "...";
                 }
 
-                Logger.Info($"{(isDirectClick ? "🖱️ Hardware Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}, State: Readonly={isReadonly}, Focusable={isFocusable}");
+                Logger.Info($"{(isDirectClick ? "🖱️ Hardware Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
 
                 TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
                 {
@@ -312,7 +376,7 @@ public class WinEventFocusTracker : IDisposable
             }
             else
             {
-                Logger.Debug($"Not a text input - Role: {role}, Class: {className}, State: Readonly={isReadonly}, Focusable={isFocusable}");
+                Logger.Debug($"Not a text input - Role: {role}, Class: {className}, Readonly={isReadonly}");
                 
                 NonTextInputFocused?.Invoke(this, new FocusEventArgs
                 {
@@ -324,7 +388,6 @@ public class WinEventFocusTracker : IDisposable
         }
         catch (Exception ex)
         {
-            // COM exceptions can happen if object dies quickly
             Logger.Debug($"Error processing accessible object: {ex.Message}");
         }
     }
@@ -334,20 +397,15 @@ public class WinEventFocusTracker : IDisposable
     /// </summary>
     private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
     {
-        // CRITICAL: Exclude readonly and unavailable elements
         bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
         bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
         bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
 
-        if (isUnavailable)
-        {
-            return false;
-        }
+        if (isUnavailable) return false;
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // ===== WHITELIST: Known text editor classes =====
-        // These classes are ALWAYS text inputs when focused
+        // Whitelist: Known text editor classes
         if (IsEditorClass(classLower))
         {
             if (isReadonly)
@@ -360,53 +418,38 @@ public class WinEventFocusTracker : IDisposable
             return true;
         }
 
-        // ===== CHROME/ELECTRON APPS (Signal, Discord, VS Code, etc.) =====
+        // Chrome/Electron apps handling
         if (IsChromeRenderClass(classLower))
         {
-            // Chrome render widgets need special handling
-            // They often don't expose proper IAccessible, but we can infer from context
-            
-            // Check if it's focusable and has some indication of being an input
             if (isFocusable)
             {
-                // Try to get value - if it has value interface, likely an input
                 try
                 {
                     string value = acc.get_accValue(childId);
                     Logger.Debug($"✅ Chrome render widget has value interface - accepting");
                     return true;
                 }
-                catch
-                {
-                    // No value interface
-                }
+                catch { }
 
-                // Check for specific roles that might indicate input areas
                 const int ROLE_SYSTEM_PANE = 0x10;
                 if (role == ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
                 {
-                    // For Chrome/Electron, panes and client areas that are focusable
-                    // are often text input areas (like Signal message box)
                     Logger.Debug($"✅ Chrome render widget with focusable pane/client - accepting");
                     return true;
                 }
             }
             
-            Logger.Debug($"Chrome render widget but not detected as input");
             return false;
         }
 
-        // ===== STANDARD CHECKS =====
-        
         // Non-focusable elements are NOT text inputs
-        // This filters out static text in lists (like Explorer file names)
         if (!isFocusable)
         {
             Logger.Debug($"Element is not focusable (Role: {role})");
             return false;
         }
 
-        // 1. Explicit Edit Controls (Win32 edit boxes)
+        // Explicit Edit Controls
         if (classLower.Contains("edit") && !isReadonly)
         {
             try
@@ -417,13 +460,13 @@ public class WinEventFocusTracker : IDisposable
             catch { }
         }
 
-        // 2. Console/Terminal windows
+        // Console/Terminal windows
         if (classLower.Contains("console") || classLower.Contains("cmd") || classLower.Contains("terminal"))
         {
             return true;
         }
 
-        // 3. ROLE_SYSTEM_TEXT - MUST be editable and focusable
+        // ROLE_SYSTEM_TEXT - must be editable and focusable
         if (role == NativeMethods.ROLE_SYSTEM_TEXT)
         {
             if (isReadonly)
@@ -445,31 +488,23 @@ public class WinEventFocusTracker : IDisposable
             }
         }
 
-        // 4. Document Role (Word, Browsers) - only if editable
+        // Document Role
         if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
         {
             return true;
         }
 
-        // 5. CLIENT Role - for editors like Scintilla (Notepad++)
+        // CLIENT Role - for editors like Scintilla
         if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
         {
-            // Client role is generic, need additional checks
-            
-            // If it's readonly, definitely not an input
-            if (isReadonly)
-            {
-                return false;
-            }
+            if (isReadonly) return false;
 
-            // Check if it has a name that looks like text content
-            // Scintilla puts the document content in the Name property
+            // Check for text content
             try
             {
                 string name = acc.get_accName(childId);
                 if (!string.IsNullOrEmpty(name) && name.Length > 20)
                 {
-                    // Has substantial text content - likely an editor
                     Logger.Debug($"✅ CLIENT role with text content (length: {name.Length}) - accepting");
                     return true;
                 }
@@ -488,17 +523,15 @@ public class WinEventFocusTracker : IDisposable
             }
             catch { }
 
-            Logger.Debug($"CLIENT role but no indicators of text input");
             return false;
         }
 
-        // 6. COMBOBOX (0x2E) - Check if it has editable text child
+        // COMBOBOX handling
         const int ROLE_SYSTEM_COMBOBOX = 0x2E;
         if (role == ROLE_SYSTEM_COMBOBOX)
         {
             Logger.Debug($"COMBOBOX detected - checking for editable child");
             
-            // Check if the combobox itself has value interface (editable)
             try
             {
                 string value = acc.get_accValue(childId);
@@ -507,7 +540,6 @@ public class WinEventFocusTracker : IDisposable
             }
             catch { }
 
-            // Check if it has editable text child
             try
             {
                 int childCount = acc.accChildCount;
@@ -553,7 +585,6 @@ public class WinEventFocusTracker : IDisposable
             }
             catch { }
             
-            // Even if we can't check children, if it's focusable and not readonly, accept it
             if (!isReadonly)
             {
                 Logger.Debug($"COMBOBOX is focusable and not readonly - accepting");
@@ -566,31 +597,18 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
-    /// <summary>
-    /// Check if class name is a known text editor
-    /// </summary>
     private bool IsEditorClass(string classLower)
     {
-        if (string.IsNullOrEmpty(classLower))
-            return false;
-
+        if (string.IsNullOrEmpty(classLower)) return false;
         return EditorClassWhitelist.Any(editor => classLower.Contains(editor));
     }
 
-    /// <summary>
-    /// Check if class name is a Chrome/Electron render widget
-    /// </summary>
     private bool IsChromeRenderClass(string classLower)
     {
-        if (string.IsNullOrEmpty(classLower))
-            return false;
-
+        if (string.IsNullOrEmpty(classLower)) return false;
         return ChromeRenderClasses.Any(chrome => classLower.Contains(chrome));
     }
 
-    /// <summary>
-    /// Check if process is in blacklist
-    /// </summary>
     private bool IsBlacklistedProcess(uint pid)
     {
         if (pid == 0) return false;
@@ -602,8 +620,7 @@ public class WinEventFocusTracker : IDisposable
                 false,
                 pid);
 
-            if (hProcess == IntPtr.Zero)
-                return false;
+            if (hProcess == IntPtr.Zero) return false;
 
             try
             {
@@ -631,14 +648,9 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
-    /// <summary>
-    /// Check if window class is in blacklist
-    /// </summary>
     private bool IsBlacklistedClassName(string className)
     {
-        if (string.IsNullOrEmpty(className))
-            return false;
-
+        if (string.IsNullOrEmpty(className)) return false;
         string classLower = className.ToLowerInvariant();
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
     }
@@ -667,8 +679,6 @@ public class WinEventFocusTracker : IDisposable
         Logger.Info("WinEventFocusTracker disposed");
     }
 }
-
-// --- Event Argument Classes ---
 
 public class TextInputFocusEventArgs : EventArgs
 {
