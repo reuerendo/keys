@@ -15,8 +15,10 @@ namespace VirtualKeyboard;
 public class WinEventFocusTracker : IDisposable
 {
     private readonly IntPtr _keyboardWindowHandle;
+    private readonly MouseClickDetector _clickDetector;
     private NativeMethods.WinEventDelegate _winEventProc;
     private IntPtr _hookHandle = IntPtr.Zero;
+    private bool _requireClickForAutoShow;
     private bool _isDisposed = false;
     
     // Checks if the keyboard itself is visible
@@ -66,7 +68,8 @@ public class WinEventFocusTracker : IDisposable
     public WinEventFocusTracker(IntPtr keyboardWindowHandle, MouseClickDetector clickDetector, bool requireClickForAutoShow = true)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        // clickDetector parameter ignored - no longer used
+        _clickDetector = clickDetector;
+        _requireClickForAutoShow = requireClickForAutoShow;
 
         Initialize();
     }
@@ -92,6 +95,12 @@ public class WinEventFocusTracker : IDisposable
         {
             Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with Surface touch/pen support)");
         }
+
+        // Subscribe to hardware click detector for "Already Focused" scenarios
+        if (_clickDetector != null)
+        {
+            _clickDetector.HardwareClickDetected += OnHardwareClickDetected;
+        }
     }
 
     public void SetKeyboardVisibilityChecker(Func<bool> isVisible)
@@ -111,22 +120,28 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // Verify focus change was caused by hardware input (not programmatic)
-            // This distinguishes real user input (touch/pen/mouse) from SendInput calls
-            if (!IsHardwareInputCausedFocus())
+            // REMOVED: Click verification - now only check if hardware input caused focus
+            if (_requireClickForAutoShow)
             {
-                Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
-                return;
+                // Verify focus change was caused by hardware input (not programmatic)
+                // This distinguishes real user input (touch/pen/mouse) from SendInput calls
+                if (!IsHardwareInputCausedFocus())
+                {
+                    Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
+                    return;
+                }
+                
+                Logger.Debug("✅ Focus event: Hardware input source confirmed");
             }
-            
-            Logger.Debug("✅ Focus event: Hardware input source confirmed");
 
             // Get the IAccessible object from the event
             int hr = NativeMethods.AccessibleObjectFromEvent(hwnd, idObject, idChild, out NativeMethods.IAccessible acc, out object childId);
             
             if (hr >= 0 && acc != null)
             {
-                ProcessAccessibleObject(acc, childId, hwnd);
+                // REMOVED: Bounds check verification
+                
+                ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
                 Marshal.ReleaseComObject(acc);
             }
         }
@@ -139,7 +154,7 @@ public class WinEventFocusTracker : IDisposable
     /// <summary>
     /// Check if the current focus change was caused by hardware input.
     /// Uses GetCurrentInputMessageSource (Windows API) - not a magic number.
-    /// Returns TRUE for hardware input OR when source is unavailable (fallback).
+    /// Returns TRUE for hardware input OR when source is unavailable (fallback to MouseClickDetector).
     /// </summary>
     private bool IsHardwareInputCausedFocus()
     {
@@ -193,7 +208,7 @@ public class WinEventFocusTracker : IDisposable
             // FALLBACK: Source unavailable (common with async web focus events)
             if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
-                Logger.Debug("⚠️ Source UNAVAILABLE - accepting");
+                Logger.Debug("⚠️ Source UNAVAILABLE - accepting (hardware assumed)");
                 return true;
             }
 
@@ -208,9 +223,53 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
+    /// Handles direct clicks to detect text fields that might ALREADY have focus
+    /// </summary>
+    private void OnHardwareClickDetected(object sender, Point clickPoint)
+    {
+        if (_isDisposed || !_requireClickForAutoShow) return;
+
+        // Skip if keyboard is visible
+        if (_isKeyboardVisible != null && _isKeyboardVisible()) return;
+
+        Task.Run(() =>
+        {
+            try
+            {
+                NativeMethods.POINT pt = new NativeMethods.POINT { X = clickPoint.X, Y = clickPoint.Y };
+                
+                // Get object directly under mouse
+                int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
+
+                if (hr >= 0 && acc != null)
+                {
+                    IntPtr hwnd = IntPtr.Zero;
+                    try
+                    {
+                        hwnd = NativeMethods.WindowFromAccessibleObject(acc);
+                    }
+                    catch { }
+
+                    // Ignore our own window
+                    if (hwnd != _keyboardWindowHandle)
+                    {
+                         ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: true);
+                    }
+
+                    Marshal.ReleaseComObject(acc);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Error checking object at hardware click point", ex);
+            }
+        });
+    }
+
+    /// <summary>
     /// Core logic to determine if the object is a text input
     /// </summary>
-    private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd)
+    private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
     {
         try
         {
@@ -260,6 +319,8 @@ public class WinEventFocusTracker : IDisposable
 
             if (isText)
             {
+                // REMOVED: Bounds check for direct clicks
+                
                 string name = "";
                 try { name = acc.get_accName(childId); } catch { }
 
@@ -269,7 +330,7 @@ public class WinEventFocusTracker : IDisposable
                     name = name.Substring(0, 100) + "...";
                 }
 
-                Logger.Info($"⚡ Focus on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
+                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
 
                 TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
                 {
@@ -574,7 +635,7 @@ public class WinEventFocusTracker : IDisposable
 
     public void UpdateAutoShowSetting(bool enabled)
     {
-        // No longer used - kept for compatibility
+        _requireClickForAutoShow = enabled;
     }
 
     public void Dispose()
@@ -586,6 +647,11 @@ public class WinEventFocusTracker : IDisposable
         {
             NativeMethods.UnhookWinEvent(_hookHandle);
             _hookHandle = IntPtr.Zero;
+        }
+
+        if (_clickDetector != null)
+        {
+            _clickDetector.HardwareClickDetected -= OnHardwareClickDetected;
         }
 
         Logger.Info("WinEventFocusTracker disposed");
