@@ -7,7 +7,7 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Window visibility manager with real-time focus tracking and auto-show support.
-/// Refactored to use WinEventFocusTracker (Native MSAA) instead of FlaUI.
+/// Uses WinEventFocusTracker (Native MSAA) with GetCurrentInputMessageSource for hardware detection.
 /// </summary>
 public class WindowVisibilityManager : IDisposable
 {
@@ -34,9 +34,7 @@ public class WindowVisibilityManager : IDisposable
     private readonly FocusManager _focusManager;
     private readonly SettingsManager _settingsManager;
     
-    // Changed: Use new lightweight tracker
     private WinEventFocusTracker _focusTracker;
-    private MouseClickDetector _clickDetector;
     
     private bool _isDisposed = false;
     private bool _autoShowEnabled = false;
@@ -65,21 +63,10 @@ public class WindowVisibilityManager : IDisposable
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
-        
-        // Init Mouse Click Detector once here
-        try 
-        {
-            _clickDetector = new MouseClickDetector();
-            Logger.Info("MouseClickDetector initialized in WindowVisibilityManager");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Failed to init MouseClickDetector", ex);
-        }
 
         InitializeAutoShow();
         
-        Logger.Info("WindowVisibilityManager initialized with lightweight IAccessible tracking");
+        Logger.Info("WindowVisibilityManager initialized with GetCurrentInputMessageSource tracking");
     }
 
     private void InitializeAutoShow()
@@ -102,19 +89,17 @@ public class WindowVisibilityManager : IDisposable
         {
             try
             {
-                Logger.Info("🔄 Creating WinEvent Focus Tracker...");
+                Logger.Info("📡 Creating WinEvent Focus Tracker...");
                 
-                if (_clickDetector == null) _clickDetector = new MouseClickDetector();
-
-                // Create native tracker
-                _focusTracker = new WinEventFocusTracker(_windowHandle, _clickDetector, requireClickForAutoShow: true);
+                // Create native tracker (no MouseClickDetector needed)
+                _focusTracker = new WinEventFocusTracker(_windowHandle);
                 
                 _focusTracker.SetKeyboardVisibilityChecker(() => IsVisible());
                 
                 _focusTracker.TextInputFocused += OnTextInputFocused;
                 _focusTracker.NonTextInputFocused += OnNonTextInputFocused;
                 
-                Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA)");
+                Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA + GetCurrentInputMessageSource)");
             }
             catch (Exception ex)
             {
@@ -159,7 +144,6 @@ public class WindowVisibilityManager : IDisposable
 
     private async void OnTextInputFocused(object sender, TextInputFocusEventArgs e)
     {
-        // Event args are compatible, just logic check
         Logger.Info($"🎯 AUTO-SHOW TRIGGERED! ControlType: {e.ControlType}, Class: '{e.ClassName}'");
         
         lock (_showLock)
@@ -256,9 +240,6 @@ public class WindowVisibilityManager : IDisposable
             
             _focusManager.ClearTrackedWindow();
             _focusManager?.Dispose();
-            
-            // Dispose click detector last
-            _clickDetector?.Dispose();
             
             _backspaceHandler?.Dispose();
             _trayIcon?.Dispose();
