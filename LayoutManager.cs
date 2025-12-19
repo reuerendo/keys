@@ -199,9 +199,12 @@ public class LayoutManager
                     }
                 }
                 
-                // Set button content with TextBlock to preserve FontWeight
+                // Set text content
                 string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
-                btn.Content = CreateTextBlock(displayText);
+                btn.Content = displayText;
+                
+                // Set FontWeight on the button itself (not on TextBlock)
+                btn.FontWeight = FontWeights.Medium;
             }
         }
 
@@ -217,20 +220,6 @@ public class LayoutManager
         {
             UpdateButtonLabelsRecursive(scrollContent, stateManager);
         }
-    }
-
-    /// <summary>
-    /// Create TextBlock with Medium font weight
-    /// </summary>
-    private TextBlock CreateTextBlock(string text)
-    {
-        return new TextBlock
-        {
-            Text = text,
-            FontWeight = FontWeights.Medium,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
     }
 
     /// <summary>
@@ -256,8 +245,9 @@ public class LayoutManager
         }
         else
         {
-            // In letter mode, show current layout code with Medium font weight
-            _langButton.Content = CreateTextBlock(CurrentLayout.Code);
+            // In letter mode, show current layout code
+            _langButton.Content = CurrentLayout.Code;
+            _langButton.FontWeight = FontWeights.Medium;
         }
     }
 
