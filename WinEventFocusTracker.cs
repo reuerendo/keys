@@ -24,6 +24,9 @@ public class WinEventFocusTracker : IDisposable
     // Checks if the keyboard itself is visible
     private Func<bool> _isKeyboardVisible;
 
+    // Time threshold to distinguish direct user clicks from programmatic focus restore
+    private const int DIRECT_CLICK_MAX_DELAY_MS = 150;
+
     // Blacklist of processes that should never trigger auto-show
     private static readonly string[] ProcessBlacklist = new[]
     {
@@ -196,7 +199,7 @@ public class WinEventFocusTracker : IDisposable
                 return true;
             }
 
-            Logger.Debug($"📍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
+            Logger.Debug($"🔍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
             // Check origin ID first
             var originId = source.originId;
@@ -233,12 +236,25 @@ public class WinEventFocusTracker : IDisposable
                 return false;
             }
             
-            // FALLBACK: Source unavailable (common with async web focus events)
-            // Trust MouseClickDetector - if recent click exists, probably real user
+            // CRITICAL FIX: IMO_UNAVAILABLE - distinguish between two scenarios
             if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
-                Logger.Debug("⚠️ Source UNAVAILABLE - accepting (click detector verified)");
-                return true;
+                // Get time since last click
+                var (clickTime, clickPos) = _clickDetector.GetLastHardwareClickInfo();
+                var timeSinceClick = (DateTime.UtcNow - clickTime).TotalMilliseconds;
+                
+                // Scenario 1: DIRECT user click on text field (0-150ms delay)
+                // → User clicked directly on input → ACCEPT
+                if (timeSinceClick <= DIRECT_CLICK_MAX_DELAY_MS)
+                {
+                    Logger.Debug($"✅ Source UNAVAILABLE but DIRECT click ({timeSinceClick:F0}ms) - accepting");
+                    return true;
+                }
+                
+                // Scenario 2: PROGRAMMATIC focus restore (>150ms delay)
+                // → User clicked elsewhere (e.g. close button), focus restored programmatically → REJECT
+                Logger.Debug($"🚫 Source UNAVAILABLE with DELAYED focus ({timeSinceClick:F0}ms) - likely programmatic restore - rejecting");
+                return false;
             }
 
             Logger.Debug($"🚫 Unknown origin ID {originId} - rejecting");
