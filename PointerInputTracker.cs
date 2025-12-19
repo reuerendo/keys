@@ -208,13 +208,19 @@ public class PointerInputTracker : IDisposable
         const uint LLMHF_INJECTED = 0x00000001;
         bool isInjected = (hookStruct.flags & LLMHF_INJECTED) != 0;
         
+        Logger.Debug($"   🔍 Analyzing click: flags=0x{hookStruct.flags:X}, injected={isInjected}, dwExtraInfo=0x{hookStruct.dwExtraInfo.ToInt64():X}");
+        
         // Get input source from Windows API
         try
         {
             bool success = NativeMethods.GetCurrentInputMessageSource(out NativeMethods.INPUT_MESSAGE_SOURCE source);
             
+            Logger.Debug($"   🔍 GetCurrentInputMessageSource: success={success}");
+            
             if (success)
             {
+                Logger.Debug($"   🔍 API result: deviceType={source.deviceType}, originId={source.originId}");
+                
                 // Check device type first (more reliable than origin)
                 switch (source.deviceType)
                 {
@@ -238,6 +244,12 @@ public class PointerInputTracker : IDisposable
                     Logger.Debug($"   🖱️ Device type unavailable but origin=HARDWARE, assuming MOUSE");
                     return InputDeviceType.Mouse;
                 }
+                
+                Logger.Debug($"   ⚠️ API returned: deviceType={source.deviceType}, origin={source.originId} - checking fallback");
+            }
+            else
+            {
+                Logger.Debug($"   ⚠️ API returned false - checking fallback");
             }
         }
         catch (Exception ex)

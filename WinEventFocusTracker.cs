@@ -298,31 +298,80 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Check if two HWNDs are related (same window or parent/child relationship)
+    /// Check if two HWNDs are related (same window, parent/child relationship, or share same top-level window)
     /// </summary>
     private bool AreWindowsRelated(IntPtr hwnd1, IntPtr hwnd2)
     {
-        if (hwnd1 == hwnd2) return true;
-        if (hwnd1 == IntPtr.Zero || hwnd2 == IntPtr.Zero) return false;
+        if (hwnd1 == hwnd2)
+        {
+            Logger.Debug($"      Same HWND - related");
+            return true;
+        }
+        
+        if (hwnd1 == IntPtr.Zero || hwnd2 == IntPtr.Zero)
+        {
+            Logger.Debug($"      One HWND is zero - not related");
+            return false;
+        }
 
-        // Check if hwnd1 is parent of hwnd2
+        // Get top-level ancestor for both windows
+        IntPtr topLevel1 = GetTopLevelWindow(hwnd1);
+        IntPtr topLevel2 = GetTopLevelWindow(hwnd2);
+        
+        Logger.Debug($"      Click HWND {hwnd1:X} -> Top-level: {topLevel1:X}");
+        Logger.Debug($"      Focus HWND {hwnd2:X} -> Top-level: {topLevel2:X}");
+
+        // If they share the same top-level window, they're related
+        if (topLevel1 == topLevel2)
+        {
+            Logger.Debug($"      Same top-level window - related");
+            return true;
+        }
+
+        // Additional check: direct parent/child relationship
+        if (IsParentOf(hwnd1, hwnd2) || IsParentOf(hwnd2, hwnd1))
+        {
+            Logger.Debug($"      Direct parent/child relationship - related");
+            return true;
+        }
+
+        Logger.Debug($"      Different top-level windows - not related");
+        return false;
+    }
+
+    /// <summary>
+    /// Get top-level ancestor window (walks up the parent chain)
+    /// </summary>
+    private IntPtr GetTopLevelWindow(IntPtr hwnd)
+    {
+        IntPtr current = hwnd;
+        IntPtr parent;
+        
+        for (int i = 0; i < 30; i++) // Max 30 levels to prevent infinite loop
+        {
+            parent = NativeMethods.GetParent(current);
+            if (parent == IntPtr.Zero)
+                break;
+            current = parent;
+        }
+        
+        return current;
+    }
+
+    /// <summary>
+    /// Check if hwnd1 is a parent of hwnd2
+    /// </summary>
+    private bool IsParentOf(IntPtr hwnd1, IntPtr hwnd2)
+    {
         IntPtr parent = hwnd2;
-        for (int i = 0; i < 20; i++) // Max 20 levels
+        
+        for (int i = 0; i < 30; i++)
         {
             parent = NativeMethods.GetParent(parent);
             if (parent == IntPtr.Zero) break;
             if (parent == hwnd1) return true;
         }
-
-        // Check if hwnd2 is parent of hwnd1
-        parent = hwnd1;
-        for (int i = 0; i < 20; i++)
-        {
-            parent = NativeMethods.GetParent(parent);
-            if (parent == IntPtr.Zero) break;
-            if (parent == hwnd2) return true;
-        }
-
+        
         return false;
     }
 
