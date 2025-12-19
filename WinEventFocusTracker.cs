@@ -11,15 +11,29 @@ namespace VirtualKeyboard;
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
 /// Uses GetCurrentInputMessageSource for reliable hardware input detection in WinEvent context.
 /// Supports Surface touch/pen input which is injected by drivers but detected as IMO_HARDWARE.
+/// ENHANCED: Validates that click coordinates are within the focused element's bounds.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
+    // Структура для хранения информации о последнем клике
+    private class LastClickInfo
+    {
+        public Point Coordinates { get; set; }
+        public IntPtr WindowHandle { get; set; }
+        public DateTime Timestamp { get; set; }
+        public bool IsValid { get; set; }
+    }
+
     private readonly IntPtr _keyboardWindowHandle;
     private readonly MouseClickDetector _clickDetector;
     private NativeMethods.WinEventDelegate _winEventProc;
     private IntPtr _hookHandle = IntPtr.Zero;
     private bool _requireClickForAutoShow;
     private bool _isDisposed = false;
+    
+    // Информация о последнем клике (без таймаута!)
+    private LastClickInfo _lastClick = new LastClickInfo { IsValid = false };
+    private readonly object _clickLock = new object();
     
     // Checks if the keyboard itself is visible
     private Func<bool> _isKeyboardVisible;
@@ -38,7 +52,7 @@ public class WinEventFocusTracker : IDisposable
         "syslistview32",
         "directuihwnd",
         "cabinetwclass",
-        "shelldll_defview",  // File Explorer view - not a text input
+        "shelldll_defview",
         "workerw",
         "progman"
     };
@@ -93,10 +107,10 @@ public class WinEventFocusTracker : IDisposable
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with Surface touch/pen support)");
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with coordinate validation)");
         }
 
-        // Subscribe to hardware click detector for "Already Focused" scenarios
+        // Subscribe to hardware click detector
         if (_clickDetector != null)
         {
             _clickDetector.HardwareClickDetected += OnHardwareClickDetected;
@@ -120,11 +134,9 @@ public class WinEventFocusTracker : IDisposable
 
         try
         {
-            // REMOVED: Click verification - now only check if hardware input caused focus
+            // Verify focus change was caused by hardware input
             if (_requireClickForAutoShow)
             {
-                // Verify focus change was caused by hardware input (not programmatic)
-                // This distinguishes real user input (touch/pen/mouse) from SendInput calls
                 if (!IsHardwareInputCausedFocus())
                 {
                     Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
@@ -139,8 +151,6 @@ public class WinEventFocusTracker : IDisposable
             
             if (hr >= 0 && acc != null)
             {
-                // REMOVED: Bounds check verification
-                
                 ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
                 Marshal.ReleaseComObject(acc);
             }
@@ -153,8 +163,6 @@ public class WinEventFocusTracker : IDisposable
 
     /// <summary>
     /// Check if the current focus change was caused by hardware input.
-    /// Uses GetCurrentInputMessageSource (Windows API) - not a magic number.
-    /// Returns TRUE for hardware input OR when source is unavailable (fallback to MouseClickDetector).
     /// </summary>
     private bool IsHardwareInputCausedFocus()
     {
@@ -170,7 +178,6 @@ public class WinEventFocusTracker : IDisposable
 
             Logger.Debug($"🔍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
-            // Check origin ID first
             var originId = source.originId;
             
             // ACCEPT: Hardware input from real devices
@@ -178,7 +185,6 @@ public class WinEventFocusTracker : IDisposable
             {
                 var deviceType = source.deviceType;
                 
-                // Accept: mouse, touch, touchpad, pen (Surface)
                 if (deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
                     deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
                     deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD ||
@@ -205,7 +211,7 @@ public class WinEventFocusTracker : IDisposable
                 return false;
             }
             
-            // FALLBACK: Source unavailable (common with async web focus events)
+            // FALLBACK: Source unavailable
             if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
                 Logger.Debug("⚠️ Source UNAVAILABLE - accepting (hardware assumed)");
@@ -218,16 +224,28 @@ public class WinEventFocusTracker : IDisposable
         catch (Exception ex)
         {
             Logger.Error("Error in IsHardwareInputCausedFocus", ex);
-            return true; // On error, accept
+            return true;
         }
     }
 
     /// <summary>
     /// Handles direct clicks to detect text fields that might ALREADY have focus
+    /// Saves click info for later validation
     /// </summary>
     private void OnHardwareClickDetected(object sender, Point clickPoint)
     {
         if (_isDisposed || !_requireClickForAutoShow) return;
+
+        // Save click information WITHOUT timeout - just store the latest click
+        lock (_clickLock)
+        {
+            _lastClick.Coordinates = clickPoint;
+            _lastClick.Timestamp = DateTime.UtcNow;
+            _lastClick.IsValid = true;
+            _lastClick.WindowHandle = IntPtr.Zero; // Will be set when we get the window
+        }
+
+        Logger.Debug($"🖱️ Hardware click saved: ({clickPoint.X}, {clickPoint.Y})");
 
         // Skip if keyboard is visible
         if (_isKeyboardVisible != null && _isKeyboardVisible()) return;
@@ -238,7 +256,6 @@ public class WinEventFocusTracker : IDisposable
             {
                 NativeMethods.POINT pt = new NativeMethods.POINT { X = clickPoint.X, Y = clickPoint.Y };
                 
-                // Get object directly under mouse
                 int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
 
                 if (hr >= 0 && acc != null)
@@ -247,10 +264,15 @@ public class WinEventFocusTracker : IDisposable
                     try
                     {
                         hwnd = NativeMethods.WindowFromAccessibleObject(acc);
+                        
+                        // Update click info with window handle
+                        lock (_clickLock)
+                        {
+                            _lastClick.WindowHandle = hwnd;
+                        }
                     }
                     catch { }
 
-                    // Ignore our own window
                     if (hwnd != _keyboardWindowHandle)
                     {
                          ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: true);
@@ -268,6 +290,7 @@ public class WinEventFocusTracker : IDisposable
 
     /// <summary>
     /// Core logic to determine if the object is a text input
+    /// ENHANCED: Validates click coordinates against element bounds
     /// </summary>
     private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
     {
@@ -319,12 +342,19 @@ public class WinEventFocusTracker : IDisposable
 
             if (isText)
             {
-                // REMOVED: Bounds check for direct clicks
+                // ✨ NEW: VALIDATE CLICK COORDINATES
+                if (_requireClickForAutoShow && !isDirectClick)
+                {
+                    if (!ValidateClickCoordinates(acc, childId, hwnd))
+                    {
+                        Logger.Info($"❌ Text input focused but click was OUTSIDE element bounds - ignoring auto-show");
+                        return;
+                    }
+                }
                 
                 string name = "";
                 try { name = acc.get_accName(childId); } catch { }
 
-                // Truncate very long names
                 if (name != null && name.Length > 100)
                 {
                     name = name.Substring(0, 100) + "...";
@@ -361,6 +391,58 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
+    /// ✨ NEW: Validates that the last click was inside the element's bounds and in the same window
+    /// NO TIMEOUT - uses the most recent valid click info
+    /// </summary>
+    private bool ValidateClickCoordinates(NativeMethods.IAccessible acc, object childId, IntPtr hwnd)
+    {
+        lock (_clickLock)
+        {
+            // Check if we have valid click info
+            if (!_lastClick.IsValid)
+            {
+                Logger.Debug("⚠️ No valid click info available - accepting focus (fallback)");
+                return true; // Fallback to accepting if no click info
+            }
+
+            // CRITICAL: Validate window handle matches
+            if (_lastClick.WindowHandle != IntPtr.Zero && _lastClick.WindowHandle != hwnd)
+            {
+                Logger.Info($"❌ Click window (0x{_lastClick.WindowHandle:X}) != Focus window (0x{hwnd:X}) - REJECTING");
+                return false;
+            }
+
+            try
+            {
+                // Get element bounds using IAccessible.accLocation
+                acc.accLocation(out int left, out int top, out int width, out int height, childId);
+
+                // Calculate bounds
+                Rectangle bounds = new Rectangle(left, top, width, height);
+
+                // Check if click point is inside bounds
+                bool isInside = bounds.Contains(_lastClick.Coordinates);
+
+                if (isInside)
+                {
+                    Logger.Info($"✅ Click ({_lastClick.Coordinates.X}, {_lastClick.Coordinates.Y}) IS INSIDE bounds [{left}, {top}, {width}, {height}]");
+                }
+                else
+                {
+                    Logger.Info($"❌ Click ({_lastClick.Coordinates.X}, {_lastClick.Coordinates.Y}) is OUTSIDE bounds [{left}, {top}, {width}, {height}]");
+                }
+
+                return isInside;
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"⚠️ Could not get element bounds: {ex.Message} - accepting (fallback)");
+                return true; // Fallback to accepting if we can't get bounds
+            }
+        }
+    }
+
+    /// <summary>
     /// Enhanced logic to determine if element is an editable text input
     /// </summary>
     private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
@@ -373,13 +455,11 @@ public class WinEventFocusTracker : IDisposable
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // CRITICAL: ROLE_SYSTEM_CARET (0x7) - insertion point/cursor
-        // This indicates the user clicked inside a text field and the caret is now focused
-        // This is VERY common on web pages (Firefox, Chrome, Edge)
+        // ROLE_SYSTEM_CARET - insertion point/cursor
         const int ROLE_SYSTEM_CARET = 0x7;
         if (role == ROLE_SYSTEM_CARET)
         {
-            Logger.Debug($"✅ CARET (insertion point) detected - user clicked in text field");
+            Logger.Debug($"✅ CARET (insertion point) detected");
             return true;
         }
 
@@ -404,7 +484,7 @@ public class WinEventFocusTracker : IDisposable
                 try
                 {
                     string value = acc.get_accValue(childId);
-                    Logger.Debug($"✅ Chrome render widget has value interface - accepting");
+                    Logger.Debug($"✅ Chrome render widget has value interface");
                     return true;
                 }
                 catch { }
@@ -412,7 +492,7 @@ public class WinEventFocusTracker : IDisposable
                 const int ROLE_SYSTEM_PANE = 0x10;
                 if (role == ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
                 {
-                    Logger.Debug($"✅ Chrome render widget with focusable pane/client - accepting");
+                    Logger.Debug($"✅ Chrome render widget with focusable pane/client");
                     return true;
                 }
             }
@@ -420,7 +500,6 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Non-focusable elements are NOT text inputs
         if (!isFocusable)
         {
             Logger.Debug($"Element is not focusable (Role: {role})");
@@ -444,7 +523,7 @@ public class WinEventFocusTracker : IDisposable
             return true;
         }
 
-        // ROLE_SYSTEM_TEXT - must be editable and focusable
+        // ROLE_SYSTEM_TEXT
         if (role == NativeMethods.ROLE_SYSTEM_TEXT)
         {
             if (isReadonly)
@@ -456,7 +535,7 @@ public class WinEventFocusTracker : IDisposable
             try
             {
                 string value = acc.get_accValue(childId);
-                Logger.Debug($"ROLE_SYSTEM_TEXT with value interface - accepting");
+                Logger.Debug($"ROLE_SYSTEM_TEXT with value interface");
                 return true;
             }
             catch
@@ -472,30 +551,28 @@ public class WinEventFocusTracker : IDisposable
             return true;
         }
 
-        // CLIENT Role - for editors like Scintilla
+        // CLIENT Role
         if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
         {
             if (isReadonly) return false;
 
-            // Check for text content
             try
             {
                 string name = acc.get_accName(childId);
                 if (!string.IsNullOrEmpty(name) && name.Length > 20)
                 {
-                    Logger.Debug($"✅ CLIENT role with text content (length: {name.Length}) - accepting");
+                    Logger.Debug($"✅ CLIENT role with text content (length: {name.Length})");
                     return true;
                 }
             }
             catch { }
 
-            // Check for value interface
             try
             {
                 string value = acc.get_accValue(childId);
                 if (value != null)
                 {
-                    Logger.Debug($"✅ CLIENT role with value interface - accepting");
+                    Logger.Debug($"✅ CLIENT role with value interface");
                     return true;
                 }
             }
@@ -513,7 +590,7 @@ public class WinEventFocusTracker : IDisposable
             try
             {
                 string value = acc.get_accValue(childId);
-                Logger.Debug($"COMBOBOX has value interface - accepting");
+                Logger.Debug($"COMBOBOX has value interface");
                 return true;
             }
             catch { }
@@ -542,7 +619,7 @@ public class WinEventFocusTracker : IDisposable
                                     
                                     if (childRole == NativeMethods.ROLE_SYSTEM_TEXT && !childReadonly)
                                     {
-                                        Logger.Debug($"✅ COMBOBOX has editable text child - accepting");
+                                        Logger.Debug($"✅ COMBOBOX has editable text child");
                                         Marshal.ReleaseComObject(childAcc);
                                         return true;
                                     }
@@ -565,7 +642,7 @@ public class WinEventFocusTracker : IDisposable
             
             if (!isReadonly)
             {
-                Logger.Debug($"COMBOBOX is focusable and not readonly - accepting");
+                Logger.Debug($"COMBOBOX is focusable and not readonly");
                 return true;
             }
             
