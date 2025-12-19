@@ -293,7 +293,7 @@ public class LongPressPopup
                 Width = 48,
                 Height = 48,
                 FontSize = 14,
-                FontWeight = Microsoft.UI.Text.FontWeights.Medium
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
             };
 
             // Add press animation to popup buttons
