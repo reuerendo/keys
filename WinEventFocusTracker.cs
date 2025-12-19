@@ -292,103 +292,105 @@ public class WinEventFocusTracker : IDisposable
     /// Core logic to determine if the object is a text input
     /// ENHANCED: Validates click coordinates against element bounds
     /// </summary>
-    private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
-    {
-        try
-        {
-            // Get Process ID and check blacklist
-            uint pid = 0;
-            if (hwnd != IntPtr.Zero)
-            {
-                NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
-                
-                if (IsBlacklistedProcess(pid))
-                {
-                    Logger.Debug($"🚫 Ignoring focus in blacklisted process (PID: {pid})");
-                    return;
-                }
-            }
+// Fix in ProcessAccessibleObject method
 
-            // Get ClassName and check blacklist/whitelist
-            string className = "";
-            if (hwnd != IntPtr.Zero)
-            {
-                StringBuilder sb = new StringBuilder(256);
-                NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
-                className = sb.ToString();
-                
-                if (IsBlacklistedClassName(className))
-                {
-                    Logger.Debug($"🚫 Ignoring focus in blacklisted window class: {className}");
-                    return;
-                }
-            }
+	private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
+	{
+		try
+		{
+			// Get Process ID and check blacklist
+			uint pid = 0;
+			if (hwnd != IntPtr.Zero)
+			{
+				NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+				
+				if (IsBlacklistedProcess(pid))
+				{
+					Logger.Debug($"🚫 Ignoring focus in blacklisted process (PID: {pid})");
+					return;
+				}
+			}
 
-            // Check Role
-            object roleObj = acc.get_accRole(childId);
-            int role = (roleObj is int r) ? r : 0;
-            
-            // Get State
-            object stateObj = acc.get_accState(childId);
-            int state = (stateObj is int s) ? s : 0;
-            
-            bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
-            bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
-            bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
-            bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
+			// Get ClassName and check blacklist/whitelist
+			string className = "";
+			if (hwnd != IntPtr.Zero)
+			{
+				StringBuilder sb = new StringBuilder(256);
+				NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
+				className = sb.ToString();
+				
+				if (IsBlacklistedClassName(className))
+				{
+					Logger.Debug($"🚫 Ignoring focus in blacklisted window class: {className}");
+					return;
+				}
+			}
 
-            // Determine if this is a text input
-            bool isText = IsEditableTextInput(role, className, state, acc, childId);
+			// Check Role
+			object roleObj = acc.get_accRole(childId);
+			int role = (roleObj is int r) ? r : 0;
+			
+			// Get State
+			object stateObj = acc.get_accState(childId);
+			int state = (stateObj is int s) ? s : 0;
+			
+			bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
+			bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
+			bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+			bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
 
-            if (isText)
-            {
-                // ✨ NEW: VALIDATE CLICK COORDINATES
-                if (_requireClickForAutoShow && !isDirectClick)
-                {
-                    if (!ValidateClickCoordinates(acc, childId, hwnd))
-                    {
-                        Logger.Info($"❌ Text input focused but click was OUTSIDE element bounds - ignoring auto-show");
-                        return;
-                    }
-                }
-                
-                string name = "";
-                try { name = acc.get_accName(childId); } catch { }
+			// Determine if this is a text input
+			bool isText = IsEditableTextInput(role, className, state, acc, childId);
 
-                if (name != null && name.Length > 100)
-                {
-                    name = name.Substring(0, 100) + "...";
-                }
+			if (isText)
+			{
+				// ✅ FIXED: Validate coordinates for BOTH direct clicks AND focus events
+				if (_requireClickForAutoShow)
+				{
+					if (!ValidateClickCoordinates(acc, childId, hwnd))
+					{
+						Logger.Info($"❌ Text input {(isDirectClick ? "clicked" : "focused")} but click was OUTSIDE element bounds - ignoring auto-show");
+						return;
+					}
+				}
+				
+				string name = "";
+				try { name = acc.get_accName(childId); } catch { }
 
-                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
+				if (name != null && name.Length > 100)
+				{
+					name = name.Substring(0, 100) + "...";
+				}
 
-                TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
-                {
-                    WindowHandle = hwnd,
-                    ControlType = role,
-                    ClassName = className,
-                    Name = name,
-                    IsPassword = isProtected,
-                    ProcessId = pid
-                });
-            }
-            else
-            {
-                Logger.Debug($"Not a text input - Role: {role}, Class: {className}, Readonly={isReadonly}");
-                
-                NonTextInputFocused?.Invoke(this, new FocusEventArgs
-                {
-                    WindowHandle = hwnd,
-                    ControlType = role,
-                    ClassName = className
-                });
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error processing accessible object: {ex.Message}");
-        }
-    }
+				Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
+
+				TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+				{
+					WindowHandle = hwnd,
+					ControlType = role,
+					ClassName = className,
+					Name = name,
+					IsPassword = isProtected,
+					ProcessId = pid
+				});
+			}
+			else
+			{
+				Logger.Debug($"Not a text input - Role: {role}, Class: {className}, Readonly={isReadonly}");
+				
+				NonTextInputFocused?.Invoke(this, new FocusEventArgs
+				{
+					WindowHandle = hwnd,
+					ControlType = role,
+					ClassName = className
+				});
+			}
+		}
+		catch (Exception ex)
+		{
+			Logger.Debug($"Error processing accessible object: {ex.Message}");
+		}
+	}
 
     /// <summary>
     /// ✨ NEW: Validates that the last click was inside the element's bounds and in the same window
