@@ -60,8 +60,9 @@ public class MouseClickDetector : IDisposable
 
     /// <summary>
     /// Time window in milliseconds to consider focus change as click-initiated.
+    /// 300ms to account for async focus events on web pages.
     /// </summary>
-    public int ClickTimeWindowMs { get; set; } = 150;
+    public int ClickTimeWindowMs { get; set; } = 300;
 
     /// <summary>
     /// Event fired when a HARDWARE mouse click is detected
