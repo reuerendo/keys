@@ -412,6 +412,16 @@ public class WinEventFocusTracker : IDisposable
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
+        // CRITICAL: ROLE_SYSTEM_CARET (0x7) - insertion point/cursor
+        // This indicates the user clicked inside a text field and the caret is now focused
+        // This is VERY common on web pages (Firefox, Chrome, Edge)
+        const int ROLE_SYSTEM_CARET = 0x7;
+        if (role == ROLE_SYSTEM_CARET)
+        {
+            Logger.Debug($"✅ CARET (insertion point) detected - user clicked in text field");
+            return true;
+        }
+
         // Whitelist: Known text editor classes
         if (IsEditorClass(classLower))
         {
