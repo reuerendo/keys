@@ -210,6 +210,20 @@ public class PointerInputTracker : IDisposable
         
         Logger.Debug($"   🔍 Analyzing click: flags=0x{hookStruct.flags:X}, injected={isInjected}, dwExtraInfo=0x{hookStruct.dwExtraInfo.ToInt64():X}");
         
+        // Check for hardware device markers in dwExtraInfo
+        // Many drivers (touchpad, touch, pen) inject clicks but mark them with specific signatures
+        long extraInfo = hookStruct.dwExtraInfo.ToInt64();
+        
+        // Common hardware device signatures in dwExtraInfo:
+        // 0xFF515700-0xFF5157FF = Touch/Pen devices (injected by drivers but real user input)
+        // 0xFF51 prefix is commonly used by touch/digitizer drivers
+        bool hasHardwareSignature = (extraInfo & 0xFFFFFF00) == 0xFF515700;
+        
+        if (hasHardwareSignature)
+        {
+            Logger.Debug($"   ✅ Hardware signature detected in dwExtraInfo (0xFF515xxx) - touch/pen driver");
+        }
+        
         // Get input source from Windows API
         try
         {
@@ -257,16 +271,24 @@ public class PointerInputTracker : IDisposable
             Logger.Debug($"   ⚠️ GetCurrentInputMessageSource failed: {ex.Message}");
         }
         
-        // Critical fallback logic:
-        // If we're in mouse hook and flag is NOT injected, it's definitely pointer input
-        // Even if API failed, we should trust the hook
+        // CRITICAL FALLBACK: Hardware device signature detection
+        // Some drivers (Synaptics, ELAN, etc.) inject clicks via SendInput but mark them
+        // with specific dwExtraInfo signatures. These are REAL user inputs, not programmatic.
+        if (hasHardwareSignature)
+        {
+            Logger.Debug($"   🖱️ Hardware signature confirmed - treating as MOUSE (driver-injected touch/pen)");
+            return InputDeviceType.Mouse;
+        }
+        
+        // Secondary fallback: Not injected flag
         if (!isInjected)
         {
             Logger.Debug($"   🖱️ API unavailable but NOT injected - assuming MOUSE (safe fallback)");
             return InputDeviceType.Mouse;
         }
         
-        Logger.Debug($"   ❓ Could not determine device type - marked as UNKNOWN");
+        // Last resort: If injected but no signature, could be programmatic
+        Logger.Debug($"   ❓ Injected without hardware signature - marked as UNKNOWN (likely programmatic)");
         return InputDeviceType.Unknown;
     }
 

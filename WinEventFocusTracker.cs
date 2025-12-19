@@ -298,7 +298,7 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Check if two HWNDs are related (same window, parent/child relationship, or share same top-level window)
+    /// Check if two HWNDs are related (same window, parent/child relationship, or share same root owner)
     /// </summary>
     private bool AreWindowsRelated(IntPtr hwnd1, IntPtr hwnd2)
     {
@@ -314,64 +314,26 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Get top-level ancestor for both windows
-        IntPtr topLevel1 = GetTopLevelWindow(hwnd1);
-        IntPtr topLevel2 = GetTopLevelWindow(hwnd2);
+        // Use GetAncestor with GA_ROOTOWNER to get the actual application window
+        // This is more reliable than GetParent for complex window hierarchies
+        IntPtr root1 = NativeMethods.GetAncestor(hwnd1, NativeMethods.GA_ROOTOWNER);
+        IntPtr root2 = NativeMethods.GetAncestor(hwnd2, NativeMethods.GA_ROOTOWNER);
         
-        Logger.Debug($"      Click HWND {hwnd1:X} -> Top-level: {topLevel1:X}");
-        Logger.Debug($"      Focus HWND {hwnd2:X} -> Top-level: {topLevel2:X}");
+        // Fallback if GetAncestor returns zero
+        if (root1 == IntPtr.Zero) root1 = hwnd1;
+        if (root2 == IntPtr.Zero) root2 = hwnd2;
+        
+        Logger.Debug($"      Click HWND {hwnd1:X} -> Root owner: {root1:X}");
+        Logger.Debug($"      Focus HWND {hwnd2:X} -> Root owner: {root2:X}");
 
-        // If they share the same top-level window, they're related
-        if (topLevel1 == topLevel2)
+        // If they share the same root owner, they're related
+        if (root1 == root2)
         {
-            Logger.Debug($"      Same top-level window - related");
+            Logger.Debug($"      Same root owner - related");
             return true;
         }
 
-        // Additional check: direct parent/child relationship
-        if (IsParentOf(hwnd1, hwnd2) || IsParentOf(hwnd2, hwnd1))
-        {
-            Logger.Debug($"      Direct parent/child relationship - related");
-            return true;
-        }
-
-        Logger.Debug($"      Different top-level windows - not related");
-        return false;
-    }
-
-    /// <summary>
-    /// Get top-level ancestor window (walks up the parent chain)
-    /// </summary>
-    private IntPtr GetTopLevelWindow(IntPtr hwnd)
-    {
-        IntPtr current = hwnd;
-        IntPtr parent;
-        
-        for (int i = 0; i < 30; i++) // Max 30 levels to prevent infinite loop
-        {
-            parent = NativeMethods.GetParent(current);
-            if (parent == IntPtr.Zero)
-                break;
-            current = parent;
-        }
-        
-        return current;
-    }
-
-    /// <summary>
-    /// Check if hwnd1 is a parent of hwnd2
-    /// </summary>
-    private bool IsParentOf(IntPtr hwnd1, IntPtr hwnd2)
-    {
-        IntPtr parent = hwnd2;
-        
-        for (int i = 0; i < 30; i++)
-        {
-            parent = NativeMethods.GetParent(parent);
-            if (parent == IntPtr.Zero) break;
-            if (parent == hwnd1) return true;
-        }
-        
+        Logger.Debug($"      Different root owners - not related");
         return false;
     }
 
