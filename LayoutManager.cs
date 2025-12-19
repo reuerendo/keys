@@ -10,6 +10,8 @@ namespace VirtualKeyboard;
 /// </summary>
 public class LayoutManager
 {
+    private const int MEDIUM_FONT_WEIGHT = 500;
+    
     private readonly KeyboardLayout _englishLayout;
     private readonly KeyboardLayout _russianLayout;
     private readonly KeyboardLayout _polishLayout;
@@ -198,8 +200,9 @@ public class LayoutManager
                     }
                 }
                 
-                // For all other keys (numbers, symbols, etc.): ignore Shift completely
-                btn.Content = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
+                // Set button content with TextBlock to preserve FontWeight
+                string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
+                btn.Content = CreateTextBlock(displayText);
             }
         }
 
@@ -215,6 +218,20 @@ public class LayoutManager
         {
             UpdateButtonLabelsRecursive(scrollContent, stateManager);
         }
+    }
+
+    /// <summary>
+    /// Create TextBlock with Medium font weight
+    /// </summary>
+    private TextBlock CreateTextBlock(string text)
+    {
+        return new TextBlock
+        {
+            Text = text,
+            FontWeight = new Windows.UI.Text.FontWeight { Value = MEDIUM_FONT_WEIGHT },
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
     }
 
     /// <summary>
@@ -240,8 +257,8 @@ public class LayoutManager
         }
         else
         {
-            // In letter mode, show current layout code
-            _langButton.Content = CurrentLayout.Code;
+            // In letter mode, show current layout code with Medium font weight
+            _langButton.Content = CreateTextBlock(CurrentLayout.Code);
         }
     }
 
