@@ -2,14 +2,15 @@ using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using System.Linq;
 
 namespace VirtualKeyboard;
 
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
-/// Uses GetCurrentInputMessageSource for reliable hardware input detection.
-/// Supports Surface touch/pen input detected as IMO_HARDWARE.
+/// Uses GetCurrentInputMessageSource for reliable hardware input detection in WinEvent context.
+/// Supports Surface touch/pen input which is injected by drivers but detected as IMO_HARDWARE.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -35,7 +36,7 @@ public class WinEventFocusTracker : IDisposable
         "syslistview32",
         "directuihwnd",
         "cabinetwclass",
-        "shelldll_defview",
+        "shelldll_defview",  // File Explorer view - not a text input
         "workerw",
         "progman"
     };
@@ -62,9 +63,11 @@ public class WinEventFocusTracker : IDisposable
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
 
-    public WinEventFocusTracker(IntPtr keyboardWindowHandle)
+    public WinEventFocusTracker(IntPtr keyboardWindowHandle, MouseClickDetector clickDetector, bool requireClickForAutoShow = true)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
+        // clickDetector parameter ignored - no longer used
+
         Initialize();
     }
 
@@ -87,7 +90,7 @@ public class WinEventFocusTracker : IDisposable
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with GetCurrentInputMessageSource)");
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with Surface touch/pen support)");
         }
     }
 
@@ -106,16 +109,10 @@ public class WinEventFocusTracker : IDisposable
         // Ignore events from our own keyboard window
         if (hwnd == _keyboardWindowHandle) return;
 
-        // Skip if keyboard is already visible
-        if (_isKeyboardVisible != null && _isKeyboardVisible())
-        {
-            Logger.Debug("⏭️ Keyboard already visible - skipping focus event");
-            return;
-        }
-
         try
         {
-            // CRITICAL: Verify focus change was caused by hardware input (not programmatic)
+            // Verify focus change was caused by hardware input (not programmatic)
+            // This distinguishes real user input (touch/pen/mouse) from SendInput calls
             if (!IsHardwareInputCausedFocus())
             {
                 Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
@@ -141,9 +138,8 @@ public class WinEventFocusTracker : IDisposable
 
     /// <summary>
     /// Check if the current focus change was caused by hardware input.
-    /// Uses GetCurrentInputMessageSource (Windows 8+ API).
-    /// Returns TRUE only for genuine hardware input (mouse, touch, pen, touchpad).
-    /// NO FALLBACKS - strict hardware detection only.
+    /// Uses GetCurrentInputMessageSource (Windows API) - not a magic number.
+    /// Returns TRUE for hardware input OR when source is unavailable (fallback).
     /// </summary>
     private bool IsHardwareInputCausedFocus()
     {
@@ -153,20 +149,21 @@ public class WinEventFocusTracker : IDisposable
             
             if (!success)
             {
-                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed - rejecting");
-                return false;
+                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed - accepting (fallback)");
+                return true;
             }
 
             Logger.Debug($"🔍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
+            // Check origin ID first
             var originId = source.originId;
             
-            // ACCEPT ONLY: Hardware input from real devices
+            // ACCEPT: Hardware input from real devices
             if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
             {
                 var deviceType = source.deviceType;
                 
-                // Accept: mouse, touch, touchpad, pen
+                // Accept: mouse, touch, touchpad, pen (Surface)
                 if (deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
                     deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
                     deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD ||
@@ -176,18 +173,37 @@ public class WinEventFocusTracker : IDisposable
                     return true;
                 }
                 
-                Logger.Debug($"❌ Hardware origin but unsupported device: {deviceType}");
+                Logger.Debug($"⚠️ Hardware origin but unsupported device: {deviceType}");
                 return false;
             }
             
-            // REJECT: All other origins (INJECTED, SYSTEM, UNAVAILABLE)
-            Logger.Debug($"🚫 Non-hardware origin: {originId} - rejecting");
+            // REJECT: Explicitly programmatic input
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+            {
+                Logger.Debug("🚫 INJECTED input (SendInput API) - rejecting");
+                return false;
+            }
+            
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
+            {
+                Logger.Debug("🚫 SYSTEM-generated input - rejecting");
+                return false;
+            }
+            
+            // FALLBACK: Source unavailable (common with async web focus events)
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
+            {
+                Logger.Debug("⚠️ Source UNAVAILABLE - accepting");
+                return true;
+            }
+
+            Logger.Debug($"🚫 Unknown origin ID {originId} - rejecting");
             return false;
         }
         catch (Exception ex)
         {
             Logger.Error("Error in IsHardwareInputCausedFocus", ex);
-            return false; // On error, reject (strict mode)
+            return true; // On error, accept
         }
     }
 
@@ -297,6 +313,8 @@ public class WinEventFocusTracker : IDisposable
         string classLower = className?.ToLowerInvariant() ?? "";
 
         // CRITICAL: ROLE_SYSTEM_CARET (0x7) - insertion point/cursor
+        // This indicates the user clicked inside a text field and the caret is now focused
+        // This is VERY common on web pages (Firefox, Chrome, Edge)
         const int ROLE_SYSTEM_CARET = 0x7;
         if (role == ROLE_SYSTEM_CARET)
         {
@@ -552,6 +570,11 @@ public class WinEventFocusTracker : IDisposable
         if (string.IsNullOrEmpty(className)) return false;
         string classLower = className.ToLowerInvariant();
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
+    }
+
+    public void UpdateAutoShowSetting(bool enabled)
+    {
+        // No longer used - kept for compatibility
     }
 
     public void Dispose()
