@@ -25,9 +25,10 @@ public class WinEventFocusTracker : IDisposable
     // Track focus state sequence (deterministic, no time constants!)
     private IntPtr _previousFocusedWindow = IntPtr.Zero;
     private IntPtr _currentFocusedWindow = IntPtr.Zero;
+    private IntPtr _windowBeforeDialog = IntPtr.Zero; // Window that had focus BEFORE dialog opened
     private string _previousWindowClass = "";
     private string _currentWindowClass = "";
-    private bool _wasPreviouslyTextInput = false;
+    private bool _wasTextInputBeforeDialog = false;
 
     // Blacklist of processes that should never trigger auto-show
     private static readonly string[] ProcessBlacklist = new[]
@@ -129,6 +130,14 @@ public class WinEventFocusTracker : IDisposable
             NativeMethods.GetClassName(hwnd, className, className.Capacity);
             _currentWindowClass = className.ToString();
 
+            // Track dialog transitions: remember window before dialog opens
+            if (_currentWindowClass == "#32770")
+            {
+                // Dialog opened - remember the previous window
+                _windowBeforeDialog = _previousFocusedWindow;
+                Logger.Debug($"📋 Dialog opened - saved window before dialog: 0x{_windowBeforeDialog:X}");
+            }
+
             // CRITICAL: If we require a click, do STRICT validation
             if (_requireClickForAutoShow)
             {
@@ -191,28 +200,16 @@ public class WinEventFocusTracker : IDisposable
     private bool IsDialogReturnFocus()
     {
         // Scenario: Text field in focus → Dialog opens → Dialog closes → Focus returns to text field
-        // Previous was dialog, current is same window/process as before dialog
+        // Check: Previous was dialog AND returning to window that was before dialog
         
         bool previousWasDialog = _previousWindowClass == "#32770";
-        bool returningToSameWindow = _currentFocusedWindow == _previousFocusedWindow;
+        bool returningToWindowBeforeDialog = (_windowBeforeDialog != IntPtr.Zero && 
+                                              _currentFocusedWindow == _windowBeforeDialog);
         
-        // Check if we're returning to the same parent process after closing dialog
-        if (previousWasDialog && _wasPreviouslyTextInput)
+        if (previousWasDialog && returningToWindowBeforeDialog && _wasTextInputBeforeDialog)
         {
-            // Previous text input lost focus to dialog, now getting focus back
-            // This is a RETURN, not a new text input session
-            uint prevPid = 0, currPid = 0;
-            
-            if (_previousFocusedWindow != IntPtr.Zero)
-                NativeMethods.GetWindowThreadProcessId(_previousFocusedWindow, out prevPid);
-            
-            NativeMethods.GetWindowThreadProcessId(_currentFocusedWindow, out currPid);
-            
-            if (prevPid == currPid)
-            {
-                Logger.Info($"🔄 Dialog focus return detected: previous='{_previousWindowClass}' (dialog), returning to same process");
-                return true;
-            }
+            Logger.Info($"🔄 Dialog focus return detected: returning to window 0x{_windowBeforeDialog:X} that was text input before dialog");
+            return true;
         }
         
         return false;
@@ -380,7 +377,8 @@ public class WinEventFocusTracker : IDisposable
                 if (IsDialogReturnFocus())
                 {
                     Logger.Info($"🚫 Ignoring auto-show - focus returned from dialog to already-focused text field");
-                    _wasPreviouslyTextInput = true; // Still in text input context
+                    // Clear dialog state after handling return
+                    _windowBeforeDialog = IntPtr.Zero;
                     return;
                 }
                 
@@ -413,7 +411,8 @@ public class WinEventFocusTracker : IDisposable
                 Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
 
                 // Update state: we're now in a text input
-                _wasPreviouslyTextInput = true;
+                _wasTextInputBeforeDialog = true;
+                _windowBeforeDialog = IntPtr.Zero; // Clear after successful auto-show
 
                 TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
                 {
@@ -429,8 +428,11 @@ public class WinEventFocusTracker : IDisposable
             {
                 Logger.Debug($"Not a text input - Role: {role}, Class: {className}, Readonly={isReadonly}");
                 
-                // Not a text input - update state
-                _wasPreviouslyTextInput = false;
+                // Not a text input - update state (unless it's a dialog)
+                if (className != "#32770")
+                {
+                    _wasTextInputBeforeDialog = false;
+                }
                 
                 NonTextInputFocused?.Invoke(this, new FocusEventArgs
                 {
