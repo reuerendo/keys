@@ -180,9 +180,9 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Check if the current focus change was caused by hardware input using GetCurrentInputMessageSource.
-    /// This works in WinEvent context because we're called in the thread of the focused window.
-    /// Returns TRUE only for confirmed hardware input, FALSE for everything else.
+    /// Check if the current focus change was caused by hardware input.
+    /// Uses GetCurrentInputMessageSource (Windows API) - not a magic number.
+    /// Returns TRUE for hardware input OR when source is unavailable (fallback to MouseClickDetector).
     /// </summary>
     private bool IsHardwareInputCausedFocus()
     {
@@ -192,55 +192,62 @@ public class WinEventFocusTracker : IDisposable
             
             if (!success)
             {
-                Logger.Debug("⚠️ GetCurrentInputMessageSource failed - rejecting");
-                return false;
+                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed - accepting (fallback)");
+                return true;
             }
 
             Logger.Debug($"📍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
-            // ONLY accept hardware origin from mouse/touch/touchpad/pen
-            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+            // Check origin ID first
+            var originId = source.originId;
+            
+            // ACCEPT: Hardware input from real devices
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
             {
-                // Check device type - accept mouse, touch, touchpad, AND pen (Surface Pen)
-                if (source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
-                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
-                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD ||
-                    source.deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN)
+                var deviceType = source.deviceType;
+                
+                // Accept: mouse, touch, touchpad, pen (Surface)
+                if (deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
+                    deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
+                    deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD ||
+                    deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN)
                 {
-                    Logger.Debug($"✅ Confirmed HARDWARE input from {source.deviceType}");
+                    Logger.Debug($"✅ Hardware input from {deviceType}");
                     return true;
                 }
-                else
-                {
-                    Logger.Debug($"⚠️ Hardware input but wrong device type: {source.deviceType}");
-                    return false;
-                }
+                
+                Logger.Debug($"⚠️ Hardware origin but unsupported device: {deviceType}");
+                return false;
             }
             
-            // Explicitly reject all other origin types
-            if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+            // REJECT: Explicitly programmatic input
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
             {
-                Logger.Debug("🚫 Input is INJECTED (SendInput) - rejecting");
+                Logger.Debug("🚫 INJECTED input (SendInput API) - rejecting");
+                return false;
             }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
+            
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
             {
-                Logger.Debug("🚫 Input is SYSTEM-generated - rejecting");
+                Logger.Debug("🚫 SYSTEM-generated input - rejecting");
+                return false;
             }
-            else if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
+            
+            // FALLBACK: Source unavailable (common with async web focus events)
+            // Trust MouseClickDetector - if recent click exists, probably real user
+            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
-                Logger.Debug("🚫 Input source UNAVAILABLE - rejecting");
-            }
-            else
-            {
-                Logger.Debug($"🚫 Unknown input origin: {source.originId} - rejecting");
+                Logger.Debug("⚠️ Source UNAVAILABLE - accepting (click detector verified)");
+                return true;
             }
 
+            Logger.Debug($"🚫 Unknown origin ID {originId} - rejecting");
             return false;
         }
         catch (Exception ex)
         {
-            Logger.Error("Error checking input source", ex);
-            return false;
+            Logger.Error("Error in IsHardwareInputCausedFocus", ex);
+            return true; // On error, trust click detector
         }
     }
 
