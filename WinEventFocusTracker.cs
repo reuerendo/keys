@@ -292,7 +292,6 @@ public class WinEventFocusTracker : IDisposable
     /// Core logic to determine if the object is a text input
     /// ENHANCED: Validates click coordinates against element bounds
     /// </summary>
-// Fix in ProcessAccessibleObject method
 
 	private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
 	{
@@ -344,7 +343,7 @@ public class WinEventFocusTracker : IDisposable
 
 			if (isText)
 			{
-				// ✅ FIXED: Validate coordinates for BOTH direct clicks AND focus events
+				// ✅ Validate coordinates for BOTH direct clicks AND focus events
 				if (_requireClickForAutoShow)
 				{
 					if (!ValidateClickCoordinates(acc, childId, hwnd))
@@ -352,6 +351,23 @@ public class WinEventFocusTracker : IDisposable
 						Logger.Info($"❌ Text input {(isDirectClick ? "clicked" : "focused")} but click was OUTSIDE element bounds - ignoring auto-show");
 						return;
 					}
+				}
+				
+				// ✅ Debounce check - prevent multiple triggers for same window
+				lock (_debounceLock)
+				{
+					if (_lastAutoShow.WindowHandle == hwnd)
+					{
+						var elapsed = (DateTime.UtcNow - _lastAutoShow.Timestamp).TotalMilliseconds;
+						if (elapsed < DEBOUNCE_MS)
+						{
+							Logger.Debug($"⏱️ Debounce: Ignoring repeated auto-show for same window (elapsed: {elapsed:F0}ms)");
+							return;
+						}
+					}
+					
+					_lastAutoShow.WindowHandle = hwnd;
+					_lastAutoShow.Timestamp = DateTime.UtcNow;
 				}
 				
 				string name = "";
