@@ -213,25 +213,49 @@ public class PointerInputTracker : IDisposable
         {
             bool success = NativeMethods.GetCurrentInputMessageSource(out NativeMethods.INPUT_MESSAGE_SOURCE source);
             
-            if (success && source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+            if (success)
             {
+                // Check device type first (more reliable than origin)
                 switch (source.deviceType)
                 {
                     case NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE:
+                        Logger.Debug($"   🖱️ Device detected: MOUSE (origin={source.originId})");
                         return InputDeviceType.Mouse;
                     case NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH:
+                        Logger.Debug($"   👆 Device detected: TOUCH (origin={source.originId})");
                         return InputDeviceType.Touch;
                     case NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN:
+                        Logger.Debug($"   ✏️ Device detected: PEN (origin={source.originId})");
                         return InputDeviceType.Pen;
                     case NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD:
+                        Logger.Debug($"   📱 Device detected: TOUCHPAD (origin={source.originId})");
                         return InputDeviceType.Touchpad;
+                }
+                
+                // If device type is unavailable but origin is hardware, assume mouse
+                if (source.originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+                {
+                    Logger.Debug($"   🖱️ Device type unavailable but origin=HARDWARE, assuming MOUSE");
+                    return InputDeviceType.Mouse;
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.Debug($"   ⚠️ GetCurrentInputMessageSource failed: {ex.Message}");
+        }
         
-        // Fallback: assume mouse if not injected
-        return isInjected ? InputDeviceType.Unknown : InputDeviceType.Mouse;
+        // Critical fallback logic:
+        // If we're in mouse hook and flag is NOT injected, it's definitely pointer input
+        // Even if API failed, we should trust the hook
+        if (!isInjected)
+        {
+            Logger.Debug($"   🖱️ API unavailable but NOT injected - assuming MOUSE (safe fallback)");
+            return InputDeviceType.Mouse;
+        }
+        
+        Logger.Debug($"   ❓ Could not determine device type - marked as UNKNOWN");
+        return InputDeviceType.Unknown;
     }
 
     /// <summary>
@@ -330,11 +354,16 @@ public class PointerClickInfo
     public DateTime Timestamp { get; set; }
     public ulong Sequence { get; set; }
     
+    /// <summary>
+    /// Check if this is pointer input (mouse/touch/pen/touchpad)
+    /// Returns true even for Unknown if captured via mouse hook (safe assumption)
+    /// </summary>
     public bool IsPointerInput => 
         DeviceType == InputDeviceType.Mouse || 
         DeviceType == InputDeviceType.Touch || 
         DeviceType == InputDeviceType.Pen ||
-        DeviceType == InputDeviceType.Touchpad;
+        DeviceType == InputDeviceType.Touchpad ||
+        DeviceType == InputDeviceType.Unknown; // Mouse hook captures pointer events, so Unknown = likely mouse
 }
 
 public enum InputDeviceType
