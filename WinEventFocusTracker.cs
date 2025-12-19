@@ -24,8 +24,9 @@ public class WinEventFocusTracker : IDisposable
     // Checks if the keyboard itself is visible
     private Func<bool> _isKeyboardVisible;
 
-    // Time threshold to distinguish direct user clicks from programmatic focus restore
-    private const int DIRECT_CLICK_MAX_DELAY_MS = 150;
+    // CRITICAL: Time window for DIRECT click detection (IMO_UNAVAILABLE case)
+    // Programmatic focus changes take 100-300ms, direct clicks are 10-80ms
+    private const int DIRECT_CLICK_TIME_WINDOW_MS = 100;
 
     // Blacklist of processes that should never trigger auto-show
     private static readonly string[] ProcessBlacklist = new[]
@@ -133,7 +134,6 @@ public class WinEventFocusTracker : IDisposable
                 }
                 
                 // Step 2: Verify focus change was caused by hardware input (not programmatic)
-                // This distinguishes real user input (touch/pen/mouse) from SendInput calls
                 if (!IsHardwareInputCausedFocus())
                 {
                     Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
@@ -185,7 +185,7 @@ public class WinEventFocusTracker : IDisposable
     /// <summary>
     /// Check if the current focus change was caused by hardware input.
     /// Uses GetCurrentInputMessageSource (Windows API) - not a magic number.
-    /// Returns TRUE for hardware input OR when source is unavailable (fallback to MouseClickDetector).
+    /// Returns TRUE for hardware input. For UNAVAILABLE source, requires VERY recent click (direct click).
     /// </summary>
     private bool IsHardwareInputCausedFocus()
     {
@@ -195,8 +195,8 @@ public class WinEventFocusTracker : IDisposable
             
             if (!success)
             {
-                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed - accepting (fallback)");
-                return true;
+                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed - rejecting for safety");
+                return false;
             }
 
             Logger.Debug($"🔍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
@@ -236,24 +236,29 @@ public class WinEventFocusTracker : IDisposable
                 return false;
             }
             
-            // CRITICAL FIX: IMO_UNAVAILABLE - distinguish between two scenarios
+            // CRITICAL FIX: Source unavailable - accept ONLY for VERY recent clicks
+            // Direct clicks cause focus within 10-80ms
+            // Programmatic focus changes (e.g., closing dialog) take 100-300ms
             if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
             {
-                // Get time since last click
-                var (clickTime, clickPos) = _clickDetector.GetLastHardwareClickInfo();
-                var timeSinceClick = (DateTime.UtcNow - clickTime).TotalMilliseconds;
-                
-                // Scenario 1: DIRECT user click on text field (0-150ms delay)
-                // → User clicked directly on input → ACCEPT
-                if (timeSinceClick <= DIRECT_CLICK_MAX_DELAY_MS)
+                if (_clickDetector != null)
                 {
-                    Logger.Debug($"✅ Source UNAVAILABLE but DIRECT click ({timeSinceClick:F0}ms) - accepting");
-                    return true;
+                    var (clickTime, clickPos) = _clickDetector.GetLastHardwareClickInfo();
+                    var timeSinceClick = (DateTime.UtcNow - clickTime).TotalMilliseconds;
+                    
+                    if (timeSinceClick <= DIRECT_CLICK_TIME_WINDOW_MS)
+                    {
+                        Logger.Debug($"✅ Source UNAVAILABLE but DIRECT click ({timeSinceClick:F0}ms) - accepting");
+                        return true;
+                    }
+                    else
+                    {
+                        Logger.Debug($"🚫 Source UNAVAILABLE and click too old ({timeSinceClick:F0}ms > {DIRECT_CLICK_TIME_WINDOW_MS}ms) - likely programmatic focus change, rejecting");
+                        return false;
+                    }
                 }
                 
-                // Scenario 2: PROGRAMMATIC focus restore (>150ms delay)
-                // → User clicked elsewhere (e.g. close button), focus restored programmatically → REJECT
-                Logger.Debug($"🚫 Source UNAVAILABLE with DELAYED focus ({timeSinceClick:F0}ms) - likely programmatic restore - rejecting");
+                Logger.Debug("🚫 Source UNAVAILABLE and no click detector - rejecting");
                 return false;
             }
 
@@ -263,7 +268,7 @@ public class WinEventFocusTracker : IDisposable
         catch (Exception ex)
         {
             Logger.Error("Error in IsHardwareInputCausedFocus", ex);
-            return true; // On error, trust click detector
+            return false; // Reject on error for safety
         }
     }
 
@@ -436,8 +441,6 @@ public class WinEventFocusTracker : IDisposable
         string classLower = className?.ToLowerInvariant() ?? "";
 
         // CRITICAL: ROLE_SYSTEM_CARET (0x7) - insertion point/cursor
-        // This indicates the user clicked inside a text field and the caret is now focused
-        // This is VERY common on web pages (Firefox, Chrome, Edge)
         const int ROLE_SYSTEM_CARET = 0x7;
         if (role == ROLE_SYSTEM_CARET)
         {
