@@ -202,7 +202,7 @@ public class LayoutManager
 				var textBlock = new TextBlock
 				{
 					Text = displayText,
-					FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+					FontWeight = Microsoft.UI.Text.FontWeights.Bold,
 					HorizontalAlignment = HorizontalAlignment.Center,
 					VerticalAlignment = VerticalAlignment.Center
 				};
