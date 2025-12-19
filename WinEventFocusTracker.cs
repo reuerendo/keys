@@ -38,6 +38,7 @@ public class WinEventFocusTracker : IDisposable
         "syslistview32",
         "directuihwnd",
         "cabinetwclass",
+        "shelldll_defview",  // File Explorer view - not a text input
         "workerw",
         "progman"
     };
@@ -196,7 +197,7 @@ public class WinEventFocusTracker : IDisposable
                 return true;
             }
 
-            Logger.Debug($"📍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
+            Logger.Debug($"🔍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
 
             // Check origin ID first
             var originId = source.originId;
