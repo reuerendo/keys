@@ -88,103 +88,103 @@
                 
                 <!-- Row 1: Numbers and special chars -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="1" Tag="1" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="2" Tag="2" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="3" Tag="3" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="4" Tag="4" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="5" Tag="5" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="6" Tag="6" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="7" Tag="7" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="8" Tag="8" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="9" Tag="9" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="0" Tag="0" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="-" Tag="-" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="+" Tag="+" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Content="=" Tag="=" Click="KeyButton_Click" Width="54" Height="36" FontWeight="Medium" Background="White"/>
-                    <Button Tag="Backspace" Click="KeyButton_Click" Width="120" Height="36" FontWeight="Medium" Background="White" ToolTipService.ToolTip="Backspace" HorizontalContentAlignment="Right" Padding="0,0,18,0">
+                    <Button Content="Esc" Tag="Esc" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="1" Tag="1" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="2" Tag="2" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="3" Tag="3" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="4" Tag="4" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="5" Tag="5" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="6" Tag="6" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="7" Tag="7" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="8" Tag="8" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="9" Tag="9" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="0" Tag="0" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="-" Tag="-" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="+" Tag="+" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="=" Tag="=" Click="KeyButton_Click" Width="54" Height="36" FontWeight="SemiBold" Background="White"/>
+                    <Button Tag="Backspace" Click="KeyButton_Click" Width="120" Height="36" FontWeight="SemiBold" Background="White" ToolTipService.ToolTip="Backspace" HorizontalContentAlignment="Right" Padding="0,0,18,0">
                         <FontIcon Glyph="&#xE750;" FontSize="16"/>
                     </Button>
                 </StackPanel>
 
                 <!-- Row 2: QWERTY row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Tab" Tag="Tab" Click="KeyButton_Click" Width="120" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="q" Tag="q" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="w" Tag="w" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="e" Tag="e" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="r" Tag="r" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="t" Tag="t" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="y" Tag="y" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="u" Tag="u" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="i" Tag="i" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="o" Tag="o" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="p" Tag="p" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="(" Tag="(" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content=")" Tag=")" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="/" Tag="/" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="*" Tag="*" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
+                    <Button Content="Tab" Tag="Tab" Click="KeyButton_Click" Width="120" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="q" Tag="q" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="w" Tag="w" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="e" Tag="e" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="r" Tag="r" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="t" Tag="t" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="y" Tag="y" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="u" Tag="u" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="i" Tag="i" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="o" Tag="o" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="p" Tag="p" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="(" Tag="(" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content=")" Tag=")" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="/" Tag="/" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="*" Tag="*" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
                 </StackPanel>
 
                 <!-- Row 3: ASDF row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Caps" Tag="Caps" Click="KeyButton_Click" Width="147" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="a" Tag="a" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="s" Tag="s" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="d" Tag="d" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="f" Tag="f" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="g" Tag="g" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="h" Tag="h" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="j" Tag="j" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="k" Tag="k" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="l" Tag="l" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content=":" Tag=":" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content=";" Tag=";" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Tag="Enter" Click="KeyButton_Click" Width="147" Height="54" FontWeight="Medium" Background="White" ToolTipService.ToolTip="Enter" HorizontalContentAlignment="Right" Padding="0,0,18,0">
+                    <Button Content="Caps" Tag="Caps" Click="KeyButton_Click" Width="147" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="a" Tag="a" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="s" Tag="s" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="d" Tag="d" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="f" Tag="f" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="g" Tag="g" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="h" Tag="h" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="j" Tag="j" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="k" Tag="k" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="l" Tag="l" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content=":" Tag=":" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content=";" Tag=";" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Tag="Enter" Click="KeyButton_Click" Width="147" Height="54" FontWeight="SemiBold" Background="White" ToolTipService.ToolTip="Enter" HorizontalContentAlignment="Right" Padding="0,0,18,0">
                         <FontIcon Glyph="&#xE751;" FontSize="20"/>
                     </Button>
                 </StackPanel>
 
                 <!-- Row 4: ZXCV row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Tag="Shift" Click="KeyButton_Click" Width="180" Height="54" FontWeight="Medium" Background="White" ToolTipService.ToolTip="Shift" HorizontalContentAlignment="Left" Padding="18,0,0,0">
+                    <Button Tag="Shift" Click="KeyButton_Click" Width="180" Height="54" FontWeight="SemiBold" Background="White" ToolTipService.ToolTip="Shift" HorizontalContentAlignment="Left" Padding="18,0,0,0">
                         <FontIcon Glyph="&#xE752;" FontSize="20"/>
                     </Button>
-                    <Button Content="z" Tag="z" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="x" Tag="x" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="c" Tag="c" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="v" Tag="v" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="b" Tag="b" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="n" Tag="n" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="m" Tag="m" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="&lt;" Tag="&lt;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="!" Tag="!" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="?" Tag="?" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-					<Button Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                    <Button Content="z" Tag="z" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="x" Tag="x" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="c" Tag="c" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="v" Tag="v" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="b" Tag="b" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="n" Tag="n" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="m" Tag="m" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="&lt;" Tag="&lt;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="!" Tag="!" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="?" Tag="?" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+					<Button Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64C;" FontSize="12"/>
                     </Button>
-					<Button Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+					<Button Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xED58;" FontSize="12"/>
                     </Button>
                 </StackPanel>
 
                 <!-- Row 5: Bottom row -->
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content=" " Tag=" " Click="KeyButton_Click" Width="420" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="," Tag="," Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-                    <Button Content="." Tag="." Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White"/>
-					<Button Tag="←" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+                    <Button Content="Lang" Tag="Lang" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="Ctrl" Tag="Ctrl" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="Alt" Tag="Alt" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="&quot;" Tag="&quot;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content=" " Tag=" " Click="KeyButton_Click" Width="420" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="," Tag="," Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+                    <Button Content="." Tag="." Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
+					<Button Tag="←" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64E;" FontSize="12"/>
                     </Button>
-					<Button Tag="↓" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+					<Button Tag="↓" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64B;" FontSize="12"/>
                     </Button>
-					<Button Tag="→" Click="KeyButton_Click" Width="54" Height="54" FontWeight="Medium" Background="White">
+					<Button Tag="→" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64D;" FontSize="12"/>
                     </Button>
                 </StackPanel>
