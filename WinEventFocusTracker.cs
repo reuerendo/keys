@@ -50,7 +50,8 @@ public class WinEventFocusTracker : IDisposable
         "edit",
         "akeleditwclass",
         "atlaxwin",
-        "vscodecontentcontrol"
+        "vscodecontentcontrol",
+        "inputsitewindowclass"  // Windows input container (address bar, search box)
     };
 
     // Known Chrome/Electron render widget classes
@@ -153,14 +154,22 @@ public class WinEventFocusTracker : IDisposable
                         acc.accLocation(out int l, out int t, out int w, out int h, childId);
                         Rectangle bounds = new Rectangle(l, t, w, h);
                         
-                        if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
+                        // Skip bounds check for zero-size elements (e.g., InputSiteWindowClass containers)
+                        if (w > 0 && h > 0)
                         {
-                            Logger.Debug($"❌ Click was OUTSIDE element bounds - ignoring. Bounds: ({l}, {t}, {w}x{h})");
-                            Marshal.ReleaseComObject(acc);
-                            return;
+                            if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
+                            {
+                                Logger.Debug($"❌ Click was OUTSIDE element bounds - ignoring. Bounds: ({l}, {t}, {w}x{h})");
+                                Marshal.ReleaseComObject(acc);
+                                return;
+                            }
+                            
+                            Logger.Debug($"✅ Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
                         }
-                        
-                        Logger.Debug($"✅ Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
+                        else
+                        {
+                            Logger.Debug($"⚠️ Element has zero size ({w}x{h}) - skipping bounds check");
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -522,6 +531,13 @@ public class WinEventFocusTracker : IDisposable
         if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
         {
             if (isReadonly) return false;
+
+            // Special case: InputSiteWindowClass (Windows input containers)
+            if (classLower.Contains("inputsitewindowclass"))
+            {
+                Logger.Debug($"✅ InputSiteWindowClass (Windows input container) - accepting");
+                return true;
+            }
 
             // Check for text content
             try
