@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Text;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -10,8 +11,6 @@ namespace VirtualKeyboard;
 /// </summary>
 public class LayoutManager
 {
-    private const int MEDIUM_FONT_WEIGHT = 500;
-    
     private readonly KeyboardLayout _englishLayout;
     private readonly KeyboardLayout _russianLayout;
     private readonly KeyboardLayout _polishLayout;
@@ -228,7 +227,7 @@ public class LayoutManager
         return new TextBlock
         {
             Text = text,
-            FontWeight = new Windows.UI.Text.FontWeight { Value = MEDIUM_FONT_WEIGHT },
+            FontWeight = FontWeights.Medium,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
