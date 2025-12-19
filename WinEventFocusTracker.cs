@@ -2,29 +2,25 @@ using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
 using System.Linq;
 
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA).
-/// Uses GetCurrentInputMessageSource for reliable hardware input detection in WinEvent context.
-/// Supports Surface touch/pen input which is injected by drivers but detected as IMO_HARDWARE.
+/// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA) with UIA fallback.
+/// Implements strict algorithm for virtual keyboard auto-show logic.
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
     private readonly IntPtr _keyboardWindowHandle;
-    private readonly MouseClickDetector _clickDetector;
+    private readonly PointerInputTracker _pointerTracker;
     private NativeMethods.WinEventDelegate _winEventProc;
     private IntPtr _hookHandle = IntPtr.Zero;
-    private bool _requireClickForAutoShow;
     private bool _isDisposed = false;
     
-    // Checks if the keyboard itself is visible
     private Func<bool> _isKeyboardVisible;
 
-    // Blacklist of processes that should never trigger auto-show
+    // Process blacklist
     private static readonly string[] ProcessBlacklist = new[]
     {
         "explorer.exe",
@@ -32,18 +28,18 @@ public class WinEventFocusTracker : IDisposable
         "startmenuexperiencehost.exe"
     };
 
-    // Blacklist of window classes that should be excluded
+    // Class blacklist
     private static readonly string[] ClassBlacklist = new[]
     {
         "syslistview32",
         "directuihwnd",
         "cabinetwclass",
-        "shelldll_defview",  // File Explorer view - not a text input
+        "shelldll_defview",
         "workerw",
         "progman"
     };
 
-    // Known text editor classes that should always trigger auto-show
+    // Known text editor classes
     private static readonly string[] EditorClassWhitelist = new[]
     {
         "scintilla",
@@ -54,7 +50,7 @@ public class WinEventFocusTracker : IDisposable
         "vscodecontentcontrol"
     };
 
-    // Known Chrome/Electron render widget classes
+    // Chrome/Electron render classes
     private static readonly string[] ChromeRenderClasses = new[]
     {
         "chrome_renderwidgethosthwnd",
@@ -65,18 +61,16 @@ public class WinEventFocusTracker : IDisposable
     public event EventHandler<TextInputFocusEventArgs> TextInputFocused;
     public event EventHandler<FocusEventArgs> NonTextInputFocused;
 
-    public WinEventFocusTracker(IntPtr keyboardWindowHandle, MouseClickDetector clickDetector, bool requireClickForAutoShow = true)
+    public WinEventFocusTracker(IntPtr keyboardWindowHandle, PointerInputTracker pointerTracker)
     {
         _keyboardWindowHandle = keyboardWindowHandle;
-        _clickDetector = clickDetector;
-        _requireClickForAutoShow = requireClickForAutoShow;
+        _pointerTracker = pointerTracker;
 
         Initialize();
     }
 
     private void Initialize()
     {
-        // Subscribe to global focus events
         _winEventProc = new NativeMethods.WinEventDelegate(WinEventProc);
         _hookHandle = NativeMethods.SetWinEventHook(
             NativeMethods.EVENT_OBJECT_FOCUS, 
@@ -89,17 +83,11 @@ public class WinEventFocusTracker : IDisposable
 
         if (_hookHandle == IntPtr.Zero)
         {
-            Logger.Error("Failed to install WinEvent hook");
+            Logger.Error("❌ Failed to install WinEvent hook");
         }
         else
         {
-            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS with Surface touch/pen support)");
-        }
-
-        // Subscribe to hardware click detector for "Already Focused" scenarios
-        if (_clickDetector != null)
-        {
-            _clickDetector.HardwareClickDetected += OnHardwareClickDetected;
+            Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS)");
         }
     }
 
@@ -109,83 +97,239 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
-    /// Callback for SetWinEventHook - called in the context of the window that received focus
+    /// Entry point: called when focus changes
     /// </summary>
     private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (_isDisposed) return;
         
-        // Ignore events from our own keyboard window
-        if (hwnd == _keyboardWindowHandle) return;
+        // Ignore focus events from keyboard window
+        if (hwnd == _keyboardWindowHandle)
+        {
+            Logger.Debug("🔒 Focus event from keyboard window - ignoring");
+            return;
+        }
+
+        // Skip if keyboard already visible
+        if (_isKeyboardVisible != null && _isKeyboardVisible())
+        {
+            Logger.Debug("⏭️ Keyboard already visible - skipping");
+            return;
+        }
+
+        Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        Logger.Debug($"🎯 FOCUS EVENT: HWND={hwnd:X}, idObject={idObject}, idChild={idChild}");
 
         try
         {
-            // CRITICAL: If we require a click, do STRICT validation
-            if (_requireClickForAutoShow)
+            // STEP 1: Check if focused element is a text input
+            var elementInfo = GetFocusedElementInfo(hwnd, idObject, idChild);
+            
+            if (elementInfo == null)
             {
-                // Step 1: Check if there was a recent click
-                if (_clickDetector == null || !_clickDetector.WasRecentHardwareClick())
-                {
-                    Logger.Debug("❌ Focus event: No recent click - ignoring");
-                    return;
-                }
-                
-                // Step 2: Verify focus change was caused by hardware input (not programmatic)
-                // This distinguishes real user input (touch/pen/mouse) from SendInput calls
-                if (!IsHardwareInputCausedFocus())
-                {
-                    Logger.Debug("❌ Focus event: Not caused by hardware input - ignoring");
-                    return;
-                }
-                
-                Logger.Debug("✅ Focus event: Both recent click AND hardware input source confirmed");
+                Logger.Debug("❌ STEP 1 FAILED: Could not get element info");
+                Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                return;
             }
 
-            // Get the IAccessible object from the event
-            int hr = NativeMethods.AccessibleObjectFromEvent(hwnd, idObject, idChild, out NativeMethods.IAccessible acc, out object childId);
-            
-            if (hr >= 0 && acc != null)
+            if (!elementInfo.IsTextInput)
             {
-                // Verify click was inside element bounds
-                if (_requireClickForAutoShow && _clickDetector != null)
-                {
-                    try
-                    {
-                        acc.accLocation(out int l, out int t, out int w, out int h, childId);
-                        Rectangle bounds = new Rectangle(l, t, w, h);
-                        
-                        if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
-                        {
-                            Logger.Debug($"❌ Click was OUTSIDE element bounds - ignoring. Bounds: ({l}, {t}, {w}x{h})");
-                            Marshal.ReleaseComObject(acc);
-                            return;
-                        }
-                        
-                        Logger.Debug($"✅ Click was INSIDE element bounds ({l}, {t}, {w}x{h})");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Debug($"⚠️ Could not verify bounds: {ex.Message} - continuing anyway");
-                        // For some controls, bounds check might fail - continue
-                    }
-                }
+                Logger.Debug($"❌ STEP 1 FAILED: Not a text input (Role={elementInfo.Role}, Class={elementInfo.ClassName})");
+                Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 
-                ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: false);
-                Marshal.ReleaseComObject(acc);
+                NonTextInputFocused?.Invoke(this, new FocusEventArgs
+                {
+                    WindowHandle = hwnd,
+                    ControlType = elementInfo.Role,
+                    ClassName = elementInfo.ClassName
+                });
+                return;
+            }
+
+            Logger.Info($"✅ STEP 1 PASSED: Element is text input");
+            Logger.Debug($"   Role: {elementInfo.Role}");
+            Logger.Debug($"   Class: {elementInfo.ClassName}");
+            Logger.Debug($"   Name: {elementInfo.Name}");
+            Logger.Debug($"   Bounds: ({elementInfo.Bounds.X}, {elementInfo.Bounds.Y}, {elementInfo.Bounds.Width}x{elementInfo.Bounds.Height})");
+
+            // STEP 2: Determine input source
+            var inputSource = GetInputMessageSource();
+            
+            Logger.Debug($"📥 INPUT SOURCE: DeviceType={inputSource.deviceType}, Origin={inputSource.originId}");
+
+            // STEP 3: Decision logic
+            bool shouldShowKeyboard = ShouldShowKeyboard(inputSource, elementInfo);
+
+            if (shouldShowKeyboard)
+            {
+                Logger.Info("🎉 DECISION: SHOW KEYBOARD");
+                Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                
+                TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+                {
+                    WindowHandle = hwnd,
+                    ControlType = elementInfo.Role,
+                    ClassName = elementInfo.ClassName,
+                    Name = elementInfo.Name,
+                    IsPassword = elementInfo.IsPassword,
+                    ProcessId = elementInfo.ProcessId
+                });
+            }
+            else
+            {
+                Logger.Info("🚫 DECISION: DO NOT SHOW KEYBOARD");
+                Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             }
         }
         catch (Exception ex)
         {
-            Logger.Error("Error in WinEventProc", ex);
+            Logger.Error("❌ Error in WinEventProc", ex);
+            Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         }
     }
 
     /// <summary>
-    /// Check if the current focus change was caused by hardware input.
-    /// Uses GetCurrentInputMessageSource (Windows API) - not a magic number.
-    /// Returns TRUE for hardware input OR when source is unavailable (fallback to MouseClickDetector).
+    /// STEP 3: Main decision logic
     /// </summary>
-    private bool IsHardwareInputCausedFocus()
+    private bool ShouldShowKeyboard(NativeMethods.INPUT_MESSAGE_SOURCE inputSource, ElementInfo elementInfo)
+    {
+        var origin = inputSource.originId;
+        var device = inputSource.deviceType;
+
+        // CASE 4.1: Hardware input (mouse/touch/pen)
+        if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
+        {
+            if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
+                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
+                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN ||
+                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
+            {
+                Logger.Debug($"✅ STEP 2 PASSED: Hardware input from {device}");
+                return true;
+            }
+            
+            Logger.Debug($"⚠️ STEP 2: Hardware origin but unsupported device: {device}");
+            return false;
+        }
+
+        // CASE 5: Programmatic focus (injected/system)
+        if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
+        {
+            Logger.Debug("❌ STEP 2 FAILED: Programmatic input (IMO_INJECTED) - SendInput/SetFocus/etc");
+            return false;
+        }
+
+        if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
+        {
+            Logger.Debug("❌ STEP 2 FAILED: System-generated input (IMO_SYSTEM)");
+            return false;
+        }
+
+        // CASE 4.2: Source unavailable - additional validation required
+        if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
+        {
+            Logger.Debug("⚠️ Input source UNAVAILABLE - performing additional validation");
+            return ValidateWithPointerTracker(elementInfo);
+        }
+
+        Logger.Debug($"❌ STEP 2 FAILED: Unknown origin ID: {origin}");
+        return false;
+    }
+
+    /// <summary>
+    /// CASE 4.2: Additional validation when input source is unavailable
+    /// </summary>
+    private bool ValidateWithPointerTracker(ElementInfo elementInfo)
+    {
+        if (_pointerTracker == null)
+        {
+            Logger.Debug("   ❌ Validation FAILED: No pointer tracker available");
+            return false;
+        }
+
+        var lastClick = _pointerTracker.GetLastPointerClick();
+        
+        if (lastClick == null)
+        {
+            Logger.Debug("   ❌ Validation FAILED: No recent pointer click recorded");
+            return false;
+        }
+
+        Logger.Debug($"   📍 Last pointer click: ({lastClick.Position.X}, {lastClick.Position.Y})");
+        Logger.Debug($"      Device: {lastClick.DeviceType}");
+        Logger.Debug($"      HWND: {lastClick.WindowHandle:X}");
+        Logger.Debug($"      Time: {lastClick.Timestamp:HH:mm:ss.fff}");
+
+        // Check 1: Was it a pointer input (mouse/touch/pen)?
+        if (!lastClick.IsPointerInput)
+        {
+            Logger.Debug($"   ❌ Validation FAILED: Last click was not pointer input");
+            return false;
+        }
+        Logger.Debug("   ✅ Check 1 passed: Last click was pointer input");
+
+        // Check 2: Is this the most recent input?
+        if (!_pointerTracker.IsLastInputPointerClick())
+        {
+            Logger.Debug("   ❌ Validation FAILED: Pointer click is not the most recent input");
+            return false;
+        }
+        Logger.Debug("   ✅ Check 2 passed: Pointer click is the most recent input");
+
+        // Check 3: Are windows related (same or parent/child)?
+        if (!AreWindowsRelated(lastClick.WindowHandle, elementInfo.WindowHandle))
+        {
+            Logger.Debug($"   ❌ Validation FAILED: Click HWND ({lastClick.WindowHandle:X}) not related to focus HWND ({elementInfo.WindowHandle:X})");
+            return false;
+        }
+        Logger.Debug($"   ✅ Check 3 passed: Click HWND related to focus HWND");
+
+        // Check 4: Is click inside element bounds?
+        if (!elementInfo.Bounds.Contains(lastClick.Position))
+        {
+            Logger.Debug($"   ❌ Validation FAILED: Click ({lastClick.Position.X}, {lastClick.Position.Y}) outside element bounds");
+            Logger.Debug($"      Element bounds: ({elementInfo.Bounds.X}, {elementInfo.Bounds.Y}, {elementInfo.Bounds.Width}x{elementInfo.Bounds.Height})");
+            return false;
+        }
+        Logger.Debug($"   ✅ Check 4 passed: Click inside element bounds");
+
+        Logger.Debug("   ✅ ALL VALIDATION CHECKS PASSED");
+        return true;
+    }
+
+    /// <summary>
+    /// Check if two HWNDs are related (same window or parent/child relationship)
+    /// </summary>
+    private bool AreWindowsRelated(IntPtr hwnd1, IntPtr hwnd2)
+    {
+        if (hwnd1 == hwnd2) return true;
+        if (hwnd1 == IntPtr.Zero || hwnd2 == IntPtr.Zero) return false;
+
+        // Check if hwnd1 is parent of hwnd2
+        IntPtr parent = hwnd2;
+        for (int i = 0; i < 20; i++) // Max 20 levels
+        {
+            parent = NativeMethods.GetParent(parent);
+            if (parent == IntPtr.Zero) break;
+            if (parent == hwnd1) return true;
+        }
+
+        // Check if hwnd2 is parent of hwnd1
+        parent = hwnd1;
+        for (int i = 0; i < 20; i++)
+        {
+            parent = NativeMethods.GetParent(parent);
+            if (parent == IntPtr.Zero) break;
+            if (parent == hwnd2) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Get current input message source
+    /// </summary>
+    private NativeMethods.INPUT_MESSAGE_SOURCE GetInputMessageSource()
     {
         try
         {
@@ -193,130 +337,152 @@ public class WinEventFocusTracker : IDisposable
             
             if (!success)
             {
-                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed - accepting (fallback)");
-                return true;
-            }
-
-            Logger.Debug($"🔍 Input source: DeviceType={source.deviceType}, OriginID={source.originId}");
-
-            // Check origin ID first
-            var originId = source.originId;
-            
-            // ACCEPT: Hardware input from real devices
-            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
-            {
-                var deviceType = source.deviceType;
-                
-                // Accept: mouse, touch, touchpad, pen (Surface)
-                if (deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
-                    deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
-                    deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD ||
-                    deviceType == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN)
+                Logger.Debug("⚠️ GetCurrentInputMessageSource API failed");
+                return new NativeMethods.INPUT_MESSAGE_SOURCE
                 {
-                    Logger.Debug($"✅ Hardware input from {deviceType}");
-                    return true;
-                }
-                
-                Logger.Debug($"⚠️ Hardware origin but unsupported device: {deviceType}");
-                return false;
-            }
-            
-            // REJECT: Explicitly programmatic input
-            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
-            {
-                Logger.Debug("🚫 INJECTED input (SendInput API) - rejecting");
-                return false;
-            }
-            
-            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_SYSTEM)
-            {
-                Logger.Debug("🚫 SYSTEM-generated input - rejecting");
-                return false;
-            }
-            
-            // FALLBACK: Source unavailable (common with async web focus events)
-            // Trust MouseClickDetector - if recent click exists, probably real user
-            if (originId == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
-            {
-                Logger.Debug("⚠️ Source UNAVAILABLE - accepting (click detector verified)");
-                return true;
+                    deviceType = NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_UNAVAILABLE,
+                    originId = NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE
+                };
             }
 
-            Logger.Debug($"🚫 Unknown origin ID {originId} - rejecting");
-            return false;
+            return source;
         }
         catch (Exception ex)
         {
-            Logger.Error("Error in IsHardwareInputCausedFocus", ex);
-            return true; // On error, trust click detector
+            Logger.Error("Error calling GetCurrentInputMessageSource", ex);
+            return new NativeMethods.INPUT_MESSAGE_SOURCE
+            {
+                deviceType = NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_UNAVAILABLE,
+                originId = NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE
+            };
         }
     }
 
     /// <summary>
-    /// Handles direct clicks to detect text fields that might ALREADY have focus
+    /// STEP 1: Get focused element information and check if it's a text input
+    /// Tries MSAA first, then UIA as fallback
     /// </summary>
-    private void OnHardwareClickDetected(object sender, Point clickPoint)
+    private ElementInfo GetFocusedElementInfo(IntPtr hwnd, int idObject, int idChild)
     {
-        if (_isDisposed || !_requireClickForAutoShow) return;
-
-        // Skip if keyboard is visible
-        if (_isKeyboardVisible != null && _isKeyboardVisible()) return;
-
-        Task.Run(() =>
+        // Try MSAA (IAccessible) - primary method
+        var msaaInfo = TryGetElementInfoViaMSAA(hwnd, idObject, idChild);
+        if (msaaInfo != null)
         {
-            try
-            {
-                NativeMethods.POINT pt = new NativeMethods.POINT { X = clickPoint.X, Y = clickPoint.Y };
-                
-                // Get object directly under mouse
-                int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
+            Logger.Debug("   📋 Element info retrieved via MSAA");
+            return msaaInfo;
+        }
 
-                if (hr >= 0 && acc != null)
-                {
-                    IntPtr hwnd = IntPtr.Zero;
-                    try
-                    {
-                        hwnd = NativeMethods.WindowFromAccessibleObject(acc);
-                    }
-                    catch { }
+        // Try UIA - fallback method
+        var uiaInfo = TryGetElementInfoViaUIA(hwnd);
+        if (uiaInfo != null)
+        {
+            Logger.Debug("   📋 Element info retrieved via UIA (fallback)");
+            return uiaInfo;
+        }
 
-                    // Ignore our own window
-                    if (hwnd != _keyboardWindowHandle)
-                    {
-                         ProcessAccessibleObject(acc, childId, hwnd, isDirectClick: true);
-                    }
-
-                    Marshal.ReleaseComObject(acc);
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("Error checking object at hardware click point", ex);
-            }
-        });
+        return null;
     }
 
     /// <summary>
-    /// Core logic to determine if the object is a text input
+    /// Try to get element info via MSAA (IAccessible)
     /// </summary>
-    private void ProcessAccessibleObject(NativeMethods.IAccessible acc, object childId, IntPtr hwnd, bool isDirectClick)
+    private ElementInfo TryGetElementInfoViaMSAA(IntPtr hwnd, int idObject, int idChild)
     {
         try
         {
-            // Get Process ID and check blacklist
-            uint pid = 0;
-            if (hwnd != IntPtr.Zero)
-            {
-                NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
-                
-                if (IsBlacklistedProcess(pid))
-                {
-                    Logger.Debug($"🚫 Ignoring focus in blacklisted process (PID: {pid})");
-                    return;
-                }
-            }
+            int hr = NativeMethods.AccessibleObjectFromEvent(hwnd, idObject, idChild, out NativeMethods.IAccessible acc, out object childId);
+            
+            if (hr < 0 || acc == null)
+                return null;
 
-            // Get ClassName and check blacklist/whitelist
+            try
+            {
+                // Get process info
+                uint pid = 0;
+                if (hwnd != IntPtr.Zero)
+                {
+                    NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+                    
+                    if (IsBlacklistedProcess(pid))
+                    {
+                        Logger.Debug($"   🚫 Blacklisted process (PID: {pid})");
+                        return null;
+                    }
+                }
+
+                // Get class name
+                string className = "";
+                if (hwnd != IntPtr.Zero)
+                {
+                    StringBuilder sb = new StringBuilder(256);
+                    NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
+                    className = sb.ToString();
+                    
+                    if (IsBlacklistedClassName(className))
+                    {
+                        Logger.Debug($"   🚫 Blacklisted window class: {className}");
+                        return null;
+                    }
+                }
+
+                // Get role, state, name
+                object roleObj = acc.get_accRole(childId);
+                int role = (roleObj is int r) ? r : 0;
+                
+                object stateObj = acc.get_accState(childId);
+                int state = (stateObj is int s) ? s : 0;
+                
+                string name = "";
+                try { name = acc.get_accName(childId); } catch { }
+                
+                if (name != null && name.Length > 100)
+                    name = name.Substring(0, 100) + "...";
+
+                // Get bounds
+                Rectangle bounds = Rectangle.Empty;
+                try
+                {
+                    acc.accLocation(out int l, out int t, out int w, out int h, childId);
+                    bounds = new Rectangle(l, t, w, h);
+                }
+                catch { }
+
+                bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
+                bool isTextInput = IsEditableTextInput(role, className, state, acc, childId);
+
+                return new ElementInfo
+                {
+                    WindowHandle = hwnd,
+                    Role = role,
+                    ClassName = className,
+                    Name = name,
+                    Bounds = bounds,
+                    IsPassword = isProtected,
+                    ProcessId = pid,
+                    IsTextInput = isTextInput,
+                    DetectionMethod = "MSAA"
+                };
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(acc);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"   ⚠️ MSAA detection failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Try to get element info via UIA (fallback)
+    /// </summary>
+    private ElementInfo TryGetElementInfoViaUIA(IntPtr hwnd)
+    {
+        try
+        {
+            // Get class name
             string className = "";
             if (hwnd != IntPtr.Zero)
             {
@@ -325,90 +491,57 @@ public class WinEventFocusTracker : IDisposable
                 className = sb.ToString();
                 
                 if (IsBlacklistedClassName(className))
-                {
-                    Logger.Debug($"🚫 Ignoring focus in blacklisted window class: {className}");
-                    return;
-                }
+                    return null;
             }
 
-            // Check Role
-            object roleObj = acc.get_accRole(childId);
-            int role = (roleObj is int r) ? r : 0;
-            
-            // Get State
-            object stateObj = acc.get_accState(childId);
-            int state = (stateObj is int s) ? s : 0;
-            
-            bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
-            bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
-            bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
-            bool isUnavailable = (state & NativeMethods.STATE_SYSTEM_UNAVAILABLE) != 0;
-
-            // Determine if this is a text input
-            bool isText = IsEditableTextInput(role, className, state, acc, childId);
-
-            if (isText)
+            // Get process info
+            uint pid = 0;
+            if (hwnd != IntPtr.Zero)
             {
-                // Double check bounds if it was a direct click
-                if (isDirectClick && _clickDetector != null)
-                {
-                    try
-                    {
-                        acc.accLocation(out int l, out int t, out int w, out int h, childId);
-                        Rectangle bounds = new Rectangle(l, t, w, h);
-                        if (!_clickDetector.WasRecentHardwareClickInBounds(bounds))
-                        {
-                            Logger.Debug($"Click detected, but outside element bounds. Role: {role}");
-                            return;
-                        }
-                    }
-                    catch
-                    {
-                        Logger.Debug("Bounds check failed, but element is text input - continuing");
-                    }
-                }
-                
-                string name = "";
-                try { name = acc.get_accName(childId); } catch { }
-
-                // Truncate very long names
-                if (name != null && name.Length > 100)
-                {
-                    name = name.Substring(0, 100) + "...";
-                }
-
-                Logger.Info($"{(isDirectClick ? "🖱️ Click" : "⚡ Focus")} on EDITABLE Text Input - Role: {role}, Class: {className}, Name: {name}");
-
-                TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
-                {
-                    WindowHandle = hwnd,
-                    ControlType = role,
-                    ClassName = className,
-                    Name = name,
-                    IsPassword = isProtected,
-                    ProcessId = pid
-                });
+                NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+                if (IsBlacklistedProcess(pid))
+                    return null;
             }
-            else
+
+            // Basic UIA check - just check if window class suggests text input
+            string classLower = className?.ToLowerInvariant() ?? "";
+            bool isTextInput = IsEditorClass(classLower) || classLower.Contains("edit");
+
+            // Get window bounds
+            Rectangle bounds = Rectangle.Empty;
+            if (hwnd != IntPtr.Zero)
             {
-                Logger.Debug($"Not a text input - Role: {role}, Class: {className}, Readonly={isReadonly}");
-                
-                NonTextInputFocused?.Invoke(this, new FocusEventArgs
+                if (NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rect))
                 {
-                    WindowHandle = hwnd,
-                    ControlType = role,
-                    ClassName = className
-                });
+                    bounds = new Rectangle(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
+                }
             }
+
+            if (!isTextInput)
+                return null;
+
+            return new ElementInfo
+            {
+                WindowHandle = hwnd,
+                Role = 0,
+                ClassName = className,
+                Name = "",
+                Bounds = bounds,
+                IsPassword = false,
+                ProcessId = pid,
+                IsTextInput = isTextInput,
+                DetectionMethod = "UIA"
+            };
         }
         catch (Exception ex)
         {
-            Logger.Debug($"Error processing accessible object: {ex.Message}");
+            Logger.Debug($"   ⚠️ UIA detection failed: {ex.Message}");
+            return null;
         }
     }
 
     /// <summary>
-    /// Enhanced logic to determine if element is an editable text input
+    /// Determine if element is an editable text input
     /// </summary>
     private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
     {
@@ -420,30 +553,27 @@ public class WinEventFocusTracker : IDisposable
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // CRITICAL: ROLE_SYSTEM_CARET (0x7) - insertion point/cursor
-        // This indicates the user clicked inside a text field and the caret is now focused
-        // This is VERY common on web pages (Firefox, Chrome, Edge)
-        const int ROLE_SYSTEM_CARET = 0x7;
-        if (role == ROLE_SYSTEM_CARET)
+        // CARET - insertion point (very common in web browsers)
+        if (role == NativeMethods.ROLE_SYSTEM_CARET)
         {
-            Logger.Debug($"✅ CARET (insertion point) detected - user clicked in text field");
+            Logger.Debug($"   ✅ CARET (insertion point) detected");
             return true;
         }
 
-        // Whitelist: Known text editor classes
+        // Known editor classes
         if (IsEditorClass(classLower))
         {
             if (isReadonly)
             {
-                Logger.Debug($"Editor class '{className}' but readonly - rejecting");
+                Logger.Debug($"   ❌ Editor class '{className}' but readonly");
                 return false;
             }
             
-            Logger.Debug($"✅ Recognized editor class: {className}");
+            Logger.Debug($"   ✅ Recognized editor class: {className}");
             return true;
         }
 
-        // Chrome/Electron apps handling
+        // Chrome/Electron apps
         if (IsChromeRenderClass(classLower))
         {
             if (isFocusable)
@@ -451,15 +581,14 @@ public class WinEventFocusTracker : IDisposable
                 try
                 {
                     string value = acc.get_accValue(childId);
-                    Logger.Debug($"✅ Chrome render widget has value interface - accepting");
+                    Logger.Debug($"   ✅ Chrome render widget with value interface");
                     return true;
                 }
                 catch { }
 
-                const int ROLE_SYSTEM_PANE = 0x10;
-                if (role == ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
+                if (role == NativeMethods.ROLE_SYSTEM_PANE || role == NativeMethods.ROLE_SYSTEM_CLIENT)
                 {
-                    Logger.Debug($"✅ Chrome render widget with focusable pane/client - accepting");
+                    Logger.Debug($"   ✅ Chrome render widget with focusable pane/client");
                     return true;
                 }
             }
@@ -467,14 +596,13 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Non-focusable elements are NOT text inputs
         if (!isFocusable)
         {
-            Logger.Debug($"Element is not focusable (Role: {role})");
+            Logger.Debug($"   ❌ Element is not focusable (Role: {role})");
             return false;
         }
 
-        // Explicit Edit Controls
+        // Edit controls
         if (classLower.Contains("edit") && !isReadonly)
         {
             try
@@ -485,64 +613,58 @@ public class WinEventFocusTracker : IDisposable
             catch { }
         }
 
-        // Console/Terminal windows
+        // Console/Terminal
         if (classLower.Contains("console") || classLower.Contains("cmd") || classLower.Contains("terminal"))
-        {
             return true;
-        }
 
-        // ROLE_SYSTEM_TEXT - must be editable and focusable
+        // ROLE_SYSTEM_TEXT
         if (role == NativeMethods.ROLE_SYSTEM_TEXT)
         {
             if (isReadonly)
             {
-                Logger.Debug($"ROLE_SYSTEM_TEXT but readonly - rejecting");
+                Logger.Debug($"   ❌ ROLE_SYSTEM_TEXT but readonly");
                 return false;
             }
 
             try
             {
                 string value = acc.get_accValue(childId);
-                Logger.Debug($"ROLE_SYSTEM_TEXT with value interface - accepting");
+                Logger.Debug($"   ✅ ROLE_SYSTEM_TEXT with value interface");
                 return true;
             }
             catch
             {
-                Logger.Debug($"ROLE_SYSTEM_TEXT without value interface - rejecting");
+                Logger.Debug($"   ❌ ROLE_SYSTEM_TEXT without value interface");
                 return false;
             }
         }
 
-        // Document Role
+        // DOCUMENT
         if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
-        {
             return true;
-        }
 
-        // CLIENT Role - for editors like Scintilla
+        // CLIENT
         if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
         {
             if (isReadonly) return false;
 
-            // Check for text content
             try
             {
                 string name = acc.get_accName(childId);
                 if (!string.IsNullOrEmpty(name) && name.Length > 20)
                 {
-                    Logger.Debug($"✅ CLIENT role with text content (length: {name.Length}) - accepting");
+                    Logger.Debug($"   ✅ CLIENT role with text content (length: {name.Length})");
                     return true;
                 }
             }
             catch { }
 
-            // Check for value interface
             try
             {
                 string value = acc.get_accValue(childId);
                 if (value != null)
                 {
-                    Logger.Debug($"✅ CLIENT role with value interface - accepting");
+                    Logger.Debug($"   ✅ CLIENT role with value interface");
                     return true;
                 }
             }
@@ -551,16 +673,13 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // COMBOBOX handling
-        const int ROLE_SYSTEM_COMBOBOX = 0x2E;
-        if (role == ROLE_SYSTEM_COMBOBOX)
+        // COMBOBOX
+        if (role == NativeMethods.ROLE_SYSTEM_COMBOBOX)
         {
-            Logger.Debug($"COMBOBOX detected - checking for editable child");
-            
             try
             {
                 string value = acc.get_accValue(childId);
-                Logger.Debug($"COMBOBOX has value interface - accepting");
+                Logger.Debug($"   ✅ COMBOBOX with value interface");
                 return true;
             }
             catch { }
@@ -589,16 +708,15 @@ public class WinEventFocusTracker : IDisposable
                                     
                                     if (childRole == NativeMethods.ROLE_SYSTEM_TEXT && !childReadonly)
                                     {
-                                        Logger.Debug($"✅ COMBOBOX has editable text child - accepting");
+                                        Logger.Debug($"   ✅ COMBOBOX has editable text child");
                                         Marshal.ReleaseComObject(childAcc);
                                         return true;
                                     }
                                     
                                     Marshal.ReleaseComObject(childAcc);
                                 }
-                                catch (Exception ex)
+                                catch
                                 {
-                                    Logger.Debug($"Error checking combobox child: {ex.Message}");
                                     if (childAcc != null)
                                         Marshal.ReleaseComObject(childAcc);
                                 }
@@ -612,7 +730,7 @@ public class WinEventFocusTracker : IDisposable
             
             if (!isReadonly)
             {
-                Logger.Debug($"COMBOBOX is focusable and not readonly - accepting");
+                Logger.Debug($"   ✅ COMBOBOX is focusable and not readonly");
                 return true;
             }
             
@@ -665,10 +783,7 @@ public class WinEventFocusTracker : IDisposable
                 NativeMethods.CloseHandle(hProcess);
             }
         }
-        catch (Exception ex)
-        {
-            Logger.Debug($"Error checking process blacklist: {ex.Message}");
-        }
+        catch { }
 
         return false;
     }
@@ -678,11 +793,6 @@ public class WinEventFocusTracker : IDisposable
         if (string.IsNullOrEmpty(className)) return false;
         string classLower = className.ToLowerInvariant();
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
-    }
-
-    public void UpdateAutoShowSetting(bool enabled)
-    {
-        _requireClickForAutoShow = enabled;
     }
 
     public void Dispose()
@@ -696,13 +806,24 @@ public class WinEventFocusTracker : IDisposable
             _hookHandle = IntPtr.Zero;
         }
 
-        if (_clickDetector != null)
-        {
-            _clickDetector.HardwareClickDetected -= OnHardwareClickDetected;
-        }
-
         Logger.Info("WinEventFocusTracker disposed");
     }
+}
+
+/// <summary>
+/// Information about a focused element
+/// </summary>
+internal class ElementInfo
+{
+    public IntPtr WindowHandle { get; set; }
+    public int Role { get; set; }
+    public string ClassName { get; set; }
+    public string Name { get; set; }
+    public Rectangle Bounds { get; set; }
+    public bool IsPassword { get; set; }
+    public uint ProcessId { get; set; }
+    public bool IsTextInput { get; set; }
+    public string DetectionMethod { get; set; }
 }
 
 public class TextInputFocusEventArgs : EventArgs

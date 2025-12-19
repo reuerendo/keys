@@ -16,19 +16,19 @@ internal static class NativeMethods
     public const int OBJID_CLIENT = -4;
 
     // Standard MSAA Roles
-    public const int ROLE_SYSTEM_TEXT = 0x2A;          // Editable text
-    public const int ROLE_SYSTEM_DOCUMENT = 0x0F;      // Document (Word/Browsers)
-    public const int ROLE_SYSTEM_CLIENT = 0x0A;        // Client area (generic container)
-    public const int ROLE_SYSTEM_COMBOBOX = 0x2E;      // ComboBox (e.g., Firefox/Edge search bars)
-    public const int ROLE_SYSTEM_PANE = 0x10;          // Pane (generic grouping)
-	public const int ROLE_SYSTEM_CARET = 0x07;         // Caret/insertion point
+    public const int ROLE_SYSTEM_TEXT = 0x2A;
+    public const int ROLE_SYSTEM_DOCUMENT = 0x0F;
+    public const int ROLE_SYSTEM_CLIENT = 0x0A;
+    public const int ROLE_SYSTEM_COMBOBOX = 0x2E;
+    public const int ROLE_SYSTEM_PANE = 0x10;
+    public const int ROLE_SYSTEM_CARET = 0x07;
 
     // Standard MSAA States
     public const int STATE_SYSTEM_FOCUSED = 0x00000004;
-    public const int STATE_SYSTEM_FOCUSABLE = 0x00100000;  // Can receive focus
-    public const int STATE_SYSTEM_READONLY = 0x00000040;   // Read-only (not editable)
-    public const int STATE_SYSTEM_PROTECTED = 0x20000000;  // Password field
-    public const int STATE_SYSTEM_UNAVAILABLE = 0x00000001; // Disabled
+    public const int STATE_SYSTEM_FOCUSABLE = 0x00100000;
+    public const int STATE_SYSTEM_READONLY = 0x00000040;
+    public const int STATE_SYSTEM_PROTECTED = 0x20000000;
+    public const int STATE_SYSTEM_UNAVAILABLE = 0x00000001;
 
     public delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
@@ -52,6 +52,13 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern IntPtr WindowFromAccessibleObject(IAccessible pacc);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetParent(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
@@ -79,20 +86,20 @@ internal static class NativeMethods
 
     public enum INPUT_MESSAGE_DEVICE_TYPE
     {
-        IMDT_UNAVAILABLE = 0x00000000,  // Not specified
-        IMDT_KEYBOARD = 0x00000001,     // From keyboard
-        IMDT_MOUSE = 0x00000002,        // From mouse
-        IMDT_TOUCH = 0x00000004,        // From touch
-        IMDT_PEN = 0x00000008,          // From pen
-        IMDT_TOUCHPAD = 0x00000010,     // From touchpad
+        IMDT_UNAVAILABLE = 0x00000000,
+        IMDT_KEYBOARD = 0x00000001,
+        IMDT_MOUSE = 0x00000002,
+        IMDT_TOUCH = 0x00000004,
+        IMDT_PEN = 0x00000008,
+        IMDT_TOUCHPAD = 0x00000010,
     }
 
     public enum INPUT_MESSAGE_ORIGIN_ID
     {
-        IMO_UNAVAILABLE = 0x00000000,   // Not specified
-        IMO_HARDWARE = 0x00000001,      // From hardware device (real user input)
-        IMO_INJECTED = 0x00000002,      // Injected via SendInput() (programmatic)
-        IMO_SYSTEM = 0x00000004,        // Injected by system
+        IMO_UNAVAILABLE = 0x00000000,
+        IMO_HARDWARE = 0x00000001,
+        IMO_INJECTED = 0x00000002,
+        IMO_SYSTEM = 0x00000004,
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -100,6 +107,15 @@ internal static class NativeMethods
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 
     // --- Manual IAccessible Definition to avoid Reference Errors ---
