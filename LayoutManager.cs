@@ -168,59 +168,61 @@ public class LayoutManager
     /// <summary>
     /// Update button labels recursively
     /// </summary>
-    private void UpdateButtonLabelsRecursive(FrameworkElement element, KeyboardStateManager stateManager)
-    {
-        if (element is Button btn && btn.Tag is string tag)
-        {
-            // Skip control keys
-            if (tag == "Shift" || tag == "Lang" || tag == "&.." || 
-                tag == "Esc" || tag == "Tab" || tag == "Caps" || 
-                tag == "Ctrl" || tag == "Alt" || tag == "Enter" || 
-                tag == "Backspace" || tag == " ")
-            {
-                // Don't update control keys except Lang and &.. buttons (handled separately)
-            }
-            else if (CurrentLayout.Keys.ContainsKey(tag))
-            {
-                var keyDef = CurrentLayout.Keys[tag];
-                
-                // Shift should ONLY affect letters
-                bool shouldCapitalize = false;
-                
-                if (keyDef.IsLetter)
-                {
-                    // For letters: apply Shift OR Caps Lock
-                    shouldCapitalize = (stateManager.IsShiftActive || stateManager.IsCapsLockActive);
-                    
-                    // If both Shift and Caps Lock are active, they cancel each other out
-                    if (stateManager.IsShiftActive && stateManager.IsCapsLockActive)
-                    {
-                        shouldCapitalize = false;
-                    }
-                }
-                
-                // Set text content
-                string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
-                btn.Content = displayText;
-                
-                // Set FontWeight on the button itself (not on TextBlock)
-                btn.FontWeight = FontWeights.Medium;
-            }
-        }
+	private void UpdateButtonLabelsRecursive(FrameworkElement element, KeyboardStateManager stateManager)
+	{
+		if (element is Button btn && btn.Tag is string tag)
+		{
+			// Skip control keys
+			if (tag == "Shift" || tag == "Lang" || tag == "&.." || 
+				tag == "Esc" || tag == "Tab" || tag == "Caps" || 
+				tag == "Ctrl" || tag == "Alt" || tag == "Enter" || 
+				tag == "Backspace" || tag == " ")
+			{
+				// Don't update control keys except Lang and &.. buttons (handled separately)
+			}
+			else if (CurrentLayout.Keys.ContainsKey(tag))
+			{
+				var keyDef = CurrentLayout.Keys[tag];
+				
+				bool shouldCapitalize = false;
+				
+				if (keyDef.IsLetter)
+				{
+					shouldCapitalize = (stateManager.IsShiftActive || stateManager.IsCapsLockActive);
+					
+					if (stateManager.IsShiftActive && stateManager.IsCapsLockActive)
+					{
+						shouldCapitalize = false;
+					}
+				}
+				
+				string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
+				
+				// CRITICAL FIX: Create TextBlock explicitly with FontWeight
+				var textBlock = new TextBlock
+				{
+					Text = displayText,
+					FontWeight = Microsoft.UI.Text.FontWeights.Medium,
+					HorizontalAlignment = HorizontalAlignment.Center,
+					VerticalAlignment = VerticalAlignment.Center
+				};
+				btn.Content = textBlock;
+			}
+		}
 
-        if (element is Panel panel)
-        {
-            foreach (var child in panel.Children)
-            {
-                if (child is FrameworkElement fe)
-                    UpdateButtonLabelsRecursive(fe, stateManager);
-            }
-        }
-        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
-        {
-            UpdateButtonLabelsRecursive(scrollContent, stateManager);
-        }
-    }
+		if (element is Panel panel)
+		{
+			foreach (var child in panel.Children)
+			{
+				if (child is FrameworkElement fe)
+					UpdateButtonLabelsRecursive(fe, stateManager);
+			}
+		}
+		else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+		{
+			UpdateButtonLabelsRecursive(scrollContent, stateManager);
+		}
+	}
 
     /// <summary>
     /// Update Lang button label with current layout code or icon
