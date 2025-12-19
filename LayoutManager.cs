@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Text;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -167,55 +168,61 @@ public class LayoutManager
     /// <summary>
     /// Update button labels recursively
     /// </summary>
-    private void UpdateButtonLabelsRecursive(FrameworkElement element, KeyboardStateManager stateManager)
-    {
-        if (element is Button btn && btn.Tag is string tag)
-        {
-            // Skip control keys
-            if (tag == "Shift" || tag == "Lang" || tag == "&.." || 
-                tag == "Esc" || tag == "Tab" || tag == "Caps" || 
-                tag == "Ctrl" || tag == "Alt" || tag == "Enter" || 
-                tag == "Backspace" || tag == " ")
-            {
-                // Don't update control keys except Lang and &.. buttons (handled separately)
-            }
-            else if (CurrentLayout.Keys.ContainsKey(tag))
-            {
-                var keyDef = CurrentLayout.Keys[tag];
-                
-                // Shift should ONLY affect letters
-                bool shouldCapitalize = false;
-                
-                if (keyDef.IsLetter)
-                {
-                    // For letters: apply Shift OR Caps Lock
-                    shouldCapitalize = (stateManager.IsShiftActive || stateManager.IsCapsLockActive);
-                    
-                    // If both Shift and Caps Lock are active, they cancel each other out
-                    if (stateManager.IsShiftActive && stateManager.IsCapsLockActive)
-                    {
-                        shouldCapitalize = false;
-                    }
-                }
-                
-                // For all other keys (numbers, symbols, etc.): ignore Shift completely
-                btn.Content = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
-            }
-        }
+	private void UpdateButtonLabelsRecursive(FrameworkElement element, KeyboardStateManager stateManager)
+	{
+		if (element is Button btn && btn.Tag is string tag)
+		{
+			// Skip control keys
+			if (tag == "Shift" || tag == "Lang" || tag == "&.." || 
+				tag == "Esc" || tag == "Tab" || tag == "Caps" || 
+				tag == "Ctrl" || tag == "Alt" || tag == "Enter" || 
+				tag == "Backspace" || tag == " ")
+			{
+				// Don't update control keys except Lang and &.. buttons (handled separately)
+			}
+			else if (CurrentLayout.Keys.ContainsKey(tag))
+			{
+				var keyDef = CurrentLayout.Keys[tag];
+				
+				bool shouldCapitalize = false;
+				
+				if (keyDef.IsLetter)
+				{
+					shouldCapitalize = (stateManager.IsShiftActive || stateManager.IsCapsLockActive);
+					
+					if (stateManager.IsShiftActive && stateManager.IsCapsLockActive)
+					{
+						shouldCapitalize = false;
+					}
+				}
+				
+				string displayText = shouldCapitalize ? keyDef.DisplayShift : keyDef.Display;
+				
+				// CRITICAL FIX: Create TextBlock explicitly with FontWeight
+				var textBlock = new TextBlock
+				{
+					Text = displayText,
+					FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+					HorizontalAlignment = HorizontalAlignment.Center,
+					VerticalAlignment = VerticalAlignment.Center
+				};
+				btn.Content = textBlock;
+			}
+		}
 
-        if (element is Panel panel)
-        {
-            foreach (var child in panel.Children)
-            {
-                if (child is FrameworkElement fe)
-                    UpdateButtonLabelsRecursive(fe, stateManager);
-            }
-        }
-        else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
-        {
-            UpdateButtonLabelsRecursive(scrollContent, stateManager);
-        }
-    }
+		if (element is Panel panel)
+		{
+			foreach (var child in panel.Children)
+			{
+				if (child is FrameworkElement fe)
+					UpdateButtonLabelsRecursive(fe, stateManager);
+			}
+		}
+		else if (element is ScrollViewer scrollViewer && scrollViewer.Content is FrameworkElement scrollContent)
+		{
+			UpdateButtonLabelsRecursive(scrollContent, stateManager);
+		}
+	}
 
     /// <summary>
     /// Update Lang button label with current layout code or icon
@@ -234,7 +241,7 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uE8D3",
-                FontSize = 20
+                FontSize = 14
             };
             _langButton.Content = fontIcon;
         }
@@ -242,6 +249,7 @@ public class LayoutManager
         {
             // In letter mode, show current layout code
             _langButton.Content = CurrentLayout.Code;
+            _langButton.FontWeight = FontWeights.SemiBold;
         }
     }
 
@@ -262,7 +270,7 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uE8D3",
-                FontSize = 20
+                FontSize = 14
             };
             _symbolButton.Content = fontIcon;
         }
@@ -272,7 +280,7 @@ public class LayoutManager
             var fontIcon = new FontIcon
             {
                 Glyph = "\uED58",
-                FontSize = 20
+                FontSize = 14
             };
             _symbolButton.Content = fontIcon;
         }

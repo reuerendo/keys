@@ -1,6 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media; // Добавлено для CompositeTransform
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading.Tasks;
 
@@ -104,7 +104,7 @@ public sealed partial class MainWindow : Window
             _layoutManager, 
             _longPressPopup);
         
-        // Initialize visibility manager WITH REAL-TIME FOCUS TRACKING
+        // Initialize visibility manager WITH REAL-TIME FOCUS TRACKING AND AUTO-SHOW
         _visibilityManager = new WindowVisibilityManager(
             _thisWindowHandle,
             this,
@@ -112,6 +112,7 @@ public sealed partial class MainWindow : Window
             _stateManager,
             _layoutManager,
             rootElement,
+            _settingsManager,  // Pass settings manager for auto-show
             _backspaceHandler,
             _trayIcon
         );
@@ -143,7 +144,7 @@ public sealed partial class MainWindow : Window
         // Update interactive regions
         _interactiveRegionsManager?.UpdateRegions();
         
-        Logger.Info("MainWindow fully initialized with real-time focus tracking");
+        Logger.Info("MainWindow fully initialized with real-time focus tracking and auto-show");
     }
 
     private void RootElement_SizeChanged(object sender, Microsoft.UI.Xaml.SizeChangedEventArgs e)

@@ -57,7 +57,7 @@ public class FocusManager : IDisposable
         // Initialize real-time window tracker
         _windowTracker = new ForegroundWindowTracker(keyboardWindowHandle);
         
-        Logger.Info("FocusManager initialized with real-time tracking");
+        // Logger.Info("FocusManager initialized with real-time tracking");
     }
 
     /// <summary>
@@ -73,7 +73,7 @@ public class FocusManager : IDisposable
             if (targetWindow != IntPtr.Zero)
             {
                 string info = GetWindowInfo(targetWindow);
-                Logger.Info($"✓ Target window from tracker: {info}");
+                // Logger.Info($"✓ Target window from tracker: {info}");
                 
                 // Verify window has a meaningful title
                 StringBuilder title = new StringBuilder(256);
@@ -111,9 +111,9 @@ public class FocusManager : IDisposable
             return false;
         }
 
-        Logger.Info("=== FOCUS RESTORE ===");
+        // Logger.Info("=== FOCUS RESTORE ===");
         IntPtr currentBefore = GetForegroundWindow();
-        Logger.Info($"BEFORE: Current={GetWindowInfo(currentBefore)}, Target={GetWindowInfo(targetWindow)}");
+        // Logger.Info($"BEFORE: Current={GetWindowInfo(currentBefore)}, Target={GetWindowInfo(targetWindow)}");
 
         // Try multiple methods to restore focus
         bool success = false;
@@ -131,11 +131,11 @@ public class FocusManager : IDisposable
         await Task.Delay(10);
 
         IntPtr currentAfter = GetForegroundWindow();
-        Logger.Info($"AFTER: Current={GetWindowInfo(currentAfter)}");
+        // Logger.Info($"AFTER: Current={GetWindowInfo(currentAfter)}");
         
         if (success && currentAfter == targetWindow)
         {
-            Logger.Info("✓ SUCCESS: Focus restored");
+            // Logger.Info("✓ SUCCESS: Focus restored");
         }
         else if (success)
         {
@@ -146,7 +146,7 @@ public class FocusManager : IDisposable
             Logger.Error("✗ FAILED: Could not restore focus");
         }
         
-        Logger.Info("=== END RESTORE ===");
+        // Logger.Info("=== END RESTORE ===");
 
         return success && currentAfter == targetWindow;
     }

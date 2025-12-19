@@ -33,6 +33,7 @@ public class SettingsManager
         public double KeyboardScale { get; set; } = 1.0; // Default 100%
         public List<string> EnabledLayouts { get; set; } = new List<string> { "EN", "RU" }; // Default layouts
         public string DefaultLayout { get; set; } = "EN"; // Default layout on startup
+        public bool AutoShowOnTextInput { get; set; } = false; // Auto-show keyboard when text field is focused
     }
 
     private AppSettings _settings;
@@ -68,7 +69,7 @@ public class SettingsManager
                     _settings.DefaultLayout = _settings.EnabledLayouts[0];
                 }
                 
-                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}, Default: {_settings.DefaultLayout}");
+                Logger.Info($"Settings loaded. Scale: {_settings.KeyboardScale:P0}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}, Default: {_settings.DefaultLayout}, AutoShow: {_settings.AutoShowOnTextInput}");
             }
             else
             {
@@ -99,7 +100,7 @@ public class SettingsManager
             string json = JsonSerializer.Serialize(_settings, SettingsJsonContext.Default.AppSettings);
             File.WriteAllText(SettingsPath, json);
             
-            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}, Default: {_settings.DefaultLayout}");
+            Logger.Info($"Settings saved. Scale: {_settings.KeyboardScale:P0}, Layouts: {string.Join(", ", _settings.EnabledLayouts)}, Default: {_settings.DefaultLayout}, AutoShow: {_settings.AutoShowOnTextInput}");
         }
         catch (Exception ex)
         {
@@ -197,5 +198,22 @@ public class SettingsManager
             _settings.DefaultLayout = layoutCode;
             SaveSettings();
         }
+    }
+
+    /// <summary>
+    /// Get auto-show on text input setting
+    /// </summary>
+    public bool GetAutoShowOnTextInput()
+    {
+        return _settings.AutoShowOnTextInput;
+    }
+
+    /// <summary>
+    /// Set auto-show on text input setting
+    /// </summary>
+    public void SetAutoShowOnTextInput(bool enabled)
+    {
+        _settings.AutoShowOnTextInput = enabled;
+        SaveSettings();
     }
 }

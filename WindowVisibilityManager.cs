@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Window visibility manager with real-time focus tracking
+/// Window visibility manager with real-time focus tracking and auto-show support.
+/// Refactored to use WinEventFocusTracker (Native MSAA) instead of FlaUI.
 /// </summary>
 public class WindowVisibilityManager : IDisposable
 {
@@ -31,7 +32,17 @@ public class WindowVisibilityManager : IDisposable
     private readonly BackspaceRepeatHandler _backspaceHandler;
     private readonly TrayIcon _trayIcon;
     private readonly FocusManager _focusManager;
+    private readonly SettingsManager _settingsManager;
+    
+    // Changed: Use new lightweight tracker
+    private WinEventFocusTracker _focusTracker;
+    private MouseClickDetector _clickDetector;
+    
     private bool _isDisposed = false;
+    private bool _autoShowEnabled = false;
+    private readonly object _showLock = new object();
+    private DateTime _lastAutoShowTime = DateTime.MinValue;
+    private const int AUTO_SHOW_DEBOUNCE_MS = 300; 
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -40,6 +51,7 @@ public class WindowVisibilityManager : IDisposable
         KeyboardStateManager stateManager,
         LayoutManager layoutManager,
         FrameworkElement rootElement,
+        SettingsManager settingsManager,
         BackspaceRepeatHandler backspaceHandler = null,
         TrayIcon trayIcon = null)
     {
@@ -49,59 +61,146 @@ public class WindowVisibilityManager : IDisposable
         _stateManager = stateManager;
         _layoutManager = layoutManager;
         _rootElement = rootElement;
+        _settingsManager = settingsManager;
         _backspaceHandler = backspaceHandler;
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        Logger.Info("WindowVisibilityManager initialized with real-time focus tracking");
+        // Init Mouse Click Detector once here
+        try 
+        {
+            _clickDetector = new MouseClickDetector();
+            Logger.Info("MouseClickDetector initialized in WindowVisibilityManager");
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Failed to init MouseClickDetector", ex);
+        }
+
+        InitializeAutoShow();
+        
+        Logger.Info("WindowVisibilityManager initialized with lightweight IAccessible tracking");
     }
 
-    /// <summary>
-    /// Check if window is currently visible
-    /// </summary>
+    private void InitializeAutoShow()
+    {
+        _autoShowEnabled = _settingsManager.GetAutoShowOnTextInput();
+        
+        if (_autoShowEnabled)
+        {
+            EnableAutoShow();
+        }
+        else
+        {
+            Logger.Info("Auto-show is disabled in settings");
+        }
+    }
+
+    private void EnableAutoShow()
+    {
+        if (_focusTracker == null)
+        {
+            try
+            {
+                Logger.Info("🔄 Creating WinEvent Focus Tracker...");
+                
+                if (_clickDetector == null) _clickDetector = new MouseClickDetector();
+
+                // Create native tracker
+                _focusTracker = new WinEventFocusTracker(_windowHandle, _clickDetector, requireClickForAutoShow: true);
+                
+                _focusTracker.SetKeyboardVisibilityChecker(() => IsVisible());
+                
+                _focusTracker.TextInputFocused += OnTextInputFocused;
+                _focusTracker.NonTextInputFocused += OnNonTextInputFocused;
+                
+                Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA)");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("❌ Failed to enable Focus Tracker", ex);
+                _focusTracker = null;
+            }
+        }
+    }
+
+    private void DisableAutoShow()
+    {
+        if (_focusTracker != null)
+        {
+            _focusTracker.TextInputFocused -= OnTextInputFocused;
+            _focusTracker.NonTextInputFocused -= OnNonTextInputFocused;
+            _focusTracker.Dispose();
+            _focusTracker = null;
+            Logger.Info("Focus tracker disabled");
+        }
+    }
+
+    public void UpdateAutoShowSetting()
+    {
+        bool newSetting = _settingsManager.GetAutoShowOnTextInput();
+        
+        if (newSetting == _autoShowEnabled)
+            return;
+        
+        _autoShowEnabled = newSetting;
+        
+        if (_autoShowEnabled)
+        {
+            EnableAutoShow();
+            Logger.Info("Auto-show enabled via settings");
+        }
+        else
+        {
+            DisableAutoShow();
+            Logger.Info("Auto-show disabled via settings");
+        }
+    }
+
+    private async void OnTextInputFocused(object sender, TextInputFocusEventArgs e)
+    {
+        // Event args are compatible, just logic check
+        Logger.Info($"🎯 AUTO-SHOW TRIGGERED! ControlType: {e.ControlType}, Class: '{e.ClassName}'");
+        
+        lock (_showLock)
+        {
+            if (IsVisible()) return;
+
+            var timeSinceLastShow = (DateTime.UtcNow - _lastAutoShowTime).TotalMilliseconds;
+            if (timeSinceLastShow < AUTO_SHOW_DEBOUNCE_MS) return;
+
+            _lastAutoShowTime = DateTime.UtcNow;
+        }
+        
+        await Task.Delay(100);
+        
+        Logger.Info("📱 Showing keyboard...");
+        Show(preserveFocus: true);
+    }
+
+    private void OnNonTextInputFocused(object sender, FocusEventArgs e)
+    {
+        // Optional: Auto-hide logic could go here if desired
+    }
+
     public bool IsVisible()
     {
         return IsWindowVisible(_windowHandle);
     }
 
-    /// <summary>
-    /// Show the window with automatic focus preservation
-    /// Focus is automatically tracked in real-time - no manual saving needed!
-    /// </summary>
     public async void Show(bool preserveFocus = true)
     {
         Logger.Info($"Show called with preserveFocus={preserveFocus}");
         
         try
         {
-            // Position window
             _positionManager?.PositionWindow(showWindow: false);
-            
-            // Show window without activation
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
             
-            Logger.Info($"Window shown. Current foreground: 0x{GetForegroundWindow():X}");
-
-            // Restore focus to tracked window
-            // The tracker already knows which window was active before the tray click!
             if (preserveFocus && _focusManager.HasValidTrackedWindow())
             {
                 await Task.Delay(50);
-                
-                bool restored = await _focusManager.RestoreFocusAsync();
-                
-                if (restored)
-                {
-                    Logger.Info("✓ Focus successfully restored to tracked window");
-                }
-                else
-                {
-                    Logger.Warning("Could not restore focus");
-                }
-            }
-            else if (preserveFocus)
-            {
-                Logger.Warning("No valid window tracked for focus restoration");
+                await _focusManager.RestoreFocusAsync();
             }
         }
         catch (Exception ex)
@@ -110,36 +209,19 @@ public class WindowVisibilityManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Show window synchronously
-    /// </summary>
     public void ShowSync(bool preserveFocus = true)
     {
         Show(preserveFocus);
     }
 
-    /// <summary>
-    /// Hide window - tracker continues to monitor foreground changes
-    /// </summary>
     public void Hide()
     {
-        if (!IsVisible())
-        {
-            Logger.Debug("Window already hidden");
-            return;
-        }
+        if (!IsVisible()) return;
 
         try
         {
-            Logger.Info("Hiding window");
-            
-            // Reset modifiers
             ResetAllModifiers();
-            
-            // Hide window
             ShowWindow(_windowHandle, SW_HIDE);
-            
-            Logger.Debug("Window hidden - tracker continues monitoring");
         }
         catch (Exception ex)
         {
@@ -147,65 +229,41 @@ public class WindowVisibilityManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Toggle visibility
-    /// </summary>
     public void Toggle()
     {
-        if (IsVisible())
-        {
-            Logger.Info("Toggle: hiding window");
-            Hide();
-        }
-        else
-        {
-            Logger.Info("Toggle: showing window with focus preservation");
-            Show(preserveFocus: true);
-        }
+        if (IsVisible()) Hide();
+        else Show(preserveFocus: true);
     }
 
-    /// <summary>
-    /// Force restore focus to tracked window
-    /// </summary>
     public async Task<bool> RestoreFocusAsync()
     {
         return await _focusManager.RestoreFocusAsync();
     }
 
-    /// <summary>
-    /// Check if keyboard currently has focus
-    /// </summary>
     public bool HasFocus()
     {
         return _focusManager.IsKeyboardFocused();
     }
 
-    /// <summary>
-    /// Cleanup resources
-    /// </summary>
     public void Cleanup()
     {
-        if (_isDisposed)
-            return;
+        if (_isDisposed) return;
 
         try
         {
-            Logger.Info("WindowVisibilityManager cleanup started");
-            
-            // Reset modifiers
             ResetAllModifiers();
+            DisableAutoShow();
             
-            // Clear tracked window
             _focusManager.ClearTrackedWindow();
-            
-            // Dispose resources
             _focusManager?.Dispose();
+            
+            // Dispose click detector last
+            _clickDetector?.Dispose();
+            
             _backspaceHandler?.Dispose();
             _trayIcon?.Dispose();
             
             _isDisposed = true;
-            
-            Logger.Info("WindowVisibilityManager cleanup completed");
         }
         catch (Exception ex)
         {
@@ -213,39 +271,16 @@ public class WindowVisibilityManager : IDisposable
         }
     }
 
-    /// <summary>
-    /// Reset all modifier keys
-    /// </summary>
     private void ResetAllModifiers()
     {
-        Logger.Info("Resetting all modifiers");
-        
-        if (_stateManager.IsShiftActive)
-        {
-            _stateManager.ToggleShift();
-        }
-        
-        if (_stateManager.IsCtrlActive)
-        {
-            _stateManager.ToggleCtrl();
-        }
-        
-        if (_stateManager.IsAltActive)
-        {
-            _stateManager.ToggleAlt();
-        }
-        
-        if (_stateManager.IsCapsLockActive)
-        {
-            _stateManager.ToggleCapsLock();
-        }
+        if (_stateManager.IsShiftActive) _stateManager.ToggleShift();
+        if (_stateManager.IsCtrlActive) _stateManager.ToggleCtrl();
+        if (_stateManager.IsAltActive) _stateManager.ToggleAlt();
+        if (_stateManager.IsCapsLockActive) _stateManager.ToggleCapsLock();
         
         _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
     }
 
-    /// <summary>
-    /// Dispose resources
-    /// </summary>
     public void Dispose()
     {
         Cleanup();

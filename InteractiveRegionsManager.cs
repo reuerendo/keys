@@ -34,7 +34,7 @@ public class InteractiveRegionsManager
         {
             var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_hwnd);
             _nonClientPointerSource = InputNonClientPointerSource.GetForWindowId(windowId);
-            Logger.Info("InputNonClientPointerSource initialized");
+            // Logger.Info("InputNonClientPointerSource initialized");
         }
         catch (Exception ex)
         {
@@ -67,7 +67,7 @@ public class InteractiveRegionsManager
                     interactiveRects.ToArray()
                 );
                 
-                Logger.Info($"Set {interactiveRects.Count} interactive regions successfully");
+                // Logger.Info($"Set {interactiveRects.Count} interactive regions successfully");
             }
 
             // Setup drag region (Caption)
@@ -103,7 +103,7 @@ public class InteractiveRegionsManager
                 if (rect.HasValue)
                 {
                     interactiveRects.Add(rect.Value);
-                    Logger.Info($"Added interactive region for {button.Name}: X={rect.Value.X}, Y={rect.Value.Y}, W={rect.Value.Width}, H={rect.Value.Height}");
+                    // Logger.Info($"Added interactive region for {button.Name}: X={rect.Value.X}, Y={rect.Value.Y}, W={rect.Value.Width}, H={rect.Value.Height}");
                 }
             }
         }
@@ -127,7 +127,7 @@ public class InteractiveRegionsManager
                     new[] { dragRect.Value }
                 );
                 
-                Logger.Info($"Set drag region: X={dragRect.Value.X}, Y={dragRect.Value.Y}, W={dragRect.Value.Width}, H={dragRect.Value.Height}");
+                // Logger.Info($"Set drag region: X={dragRect.Value.X}, Y={dragRect.Value.Y}, W={dragRect.Value.Width}, H={dragRect.Value.Height}");
             }
         }
     }
