@@ -202,7 +202,7 @@ public class LayoutManager
 				var textBlock = new TextBlock
 				{
 					Text = displayText,
-					FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+					FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
 					HorizontalAlignment = HorizontalAlignment.Center,
 					VerticalAlignment = VerticalAlignment.Center
 				};
@@ -249,7 +249,7 @@ public class LayoutManager
         {
             // In letter mode, show current layout code
             _langButton.Content = CurrentLayout.Code;
-            _langButton.FontWeight = FontWeights.Medium;
+            _langButton.FontWeight = FontWeights.SemiBold;
         }
     }
 
