@@ -845,6 +845,15 @@ public class WinEventFocusTracker : IDisposable
                 }
                 catch { }
 
+                // CRITICAL FIX: If WindowFromAccessibleObject returns 0, use HWND from click
+                // This happens with some controls like RichEdit where the accessible object
+                // doesn't have a direct window association
+                if (hwnd == IntPtr.Zero)
+                {
+                    Logger.Debug($"   ⚠️ WindowFromAccessibleObject returned 0 - using click HWND: {clickInfo.WindowHandle:X}");
+                    hwnd = clickInfo.WindowHandle;
+                }
+
                 // Ignore our own keyboard window
                 if (hwnd == _keyboardWindowHandle)
                 {
