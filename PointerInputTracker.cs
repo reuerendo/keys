@@ -87,6 +87,11 @@ public class PointerInputTracker : IDisposable
     private PointerClickInfo _lastPointerClick = null;
     private ulong _inputSequence = 0; // Global input sequence counter
 
+    /// <summary>
+    /// Event fired when a hardware pointer click is detected
+    /// </summary>
+    public event EventHandler<PointerClickInfo> HardwareClickDetected;
+
     public PointerInputTracker()
     {
         // Keep references to prevent GC
@@ -167,6 +172,19 @@ public class PointerInputTracker : IDisposable
                     };
                     
                     Logger.Debug($"🖱️ Pointer click #{_inputSequence}: ({clickPoint.X}, {clickPoint.Y}) HWND={hwnd:X} Device={deviceType}");
+                }
+
+                // Fire event for hardware clicks (for already-focused element detection)
+                if (deviceType != InputDeviceType.Unknown)
+                {
+                    try
+                    {
+                        HardwareClickDetected?.Invoke(this, _lastPointerClick);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error("Error in HardwareClickDetected event handler", ex);
+                    }
                 }
             }
         }

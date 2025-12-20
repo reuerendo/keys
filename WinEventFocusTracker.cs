@@ -89,6 +89,13 @@ public class WinEventFocusTracker : IDisposable
         {
             Logger.Info("✅ WinEvent hook installed (EVENT_OBJECT_FOCUS)");
         }
+
+        // Subscribe to hardware click detector for "Already Focused" scenarios
+        if (_pointerTracker != null)
+        {
+            _pointerTracker.HardwareClickDetected += OnHardwareClickDetected;
+            Logger.Info("✅ Direct click handler registered (for already-focused elements)");
+        }
     }
 
     public void SetKeyboardVisibilityChecker(Func<bool> isVisible)
@@ -806,6 +813,172 @@ public class WinEventFocusTracker : IDisposable
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
     }
 
+    /// <summary>
+    /// Handles direct clicks to detect text fields that might ALREADY have focus
+    /// </summary>
+    private void OnHardwareClickDetected(object sender, PointerClickInfo clickInfo)
+    {
+        if (_isDisposed) return;
+
+        // Skip if keyboard is visible
+        if (_isKeyboardVisible != null && _isKeyboardVisible())
+        {
+            Logger.Debug("⏭️ Direct click ignored: Keyboard already visible");
+            return;
+        }
+
+        Logger.Debug($"🔍 Direct click detected: ({clickInfo.Position.X}, {clickInfo.Position.Y}) HWND={clickInfo.WindowHandle:X}");
+
+        try
+        {
+            NativeMethods.POINT pt = new NativeMethods.POINT { X = clickInfo.Position.X, Y = clickInfo.Position.Y };
+            
+            // Get object directly under mouse
+            int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
+
+            if (hr >= 0 && acc != null)
+            {
+                IntPtr hwnd = IntPtr.Zero;
+                try
+                {
+                    hwnd = NativeMethods.WindowFromAccessibleObject(acc);
+                }
+                catch { }
+
+                // Ignore our own keyboard window
+                if (hwnd == _keyboardWindowHandle)
+                {
+                    Marshal.ReleaseComObject(acc);
+                    return;
+                }
+
+                Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                Logger.Debug($"🔍 DIRECT CLICK CHECK: HWND={hwnd:X}");
+
+                // Get element info
+                var elementInfo = GetElementInfoFromAccessible(acc, childId, hwnd);
+                
+                if (elementInfo != null && elementInfo.IsTextInput)
+                {
+                    Logger.Info($"✅ Direct click on text input - Role: {elementInfo.Role}, Class: {elementInfo.ClassName}");
+                    
+                    // Validate click is inside element bounds
+                    if (!elementInfo.Bounds.Contains(clickInfo.Position))
+                    {
+                        Logger.Debug($"❌ Click outside element bounds");
+                        Marshal.ReleaseComObject(acc);
+                        Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        return;
+                    }
+
+                    Logger.Info("🎉 DECISION: SHOW KEYBOARD (direct click on already-focused element)");
+                    Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    
+                    TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+                    {
+                        WindowHandle = hwnd,
+                        ControlType = elementInfo.Role,
+                        ClassName = elementInfo.ClassName,
+                        Name = elementInfo.Name,
+                        IsPassword = elementInfo.IsPassword,
+                        ProcessId = elementInfo.ProcessId
+                    });
+                }
+                else
+                {
+                    Logger.Debug($"❌ Not a text input - Role: {elementInfo?.Role ?? 0}");
+                    Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                }
+
+                Marshal.ReleaseComObject(acc);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("Error checking object at hardware click point", ex);
+        }
+    }
+
+    /// <summary>
+    /// Get element info from IAccessible object
+    /// </summary>
+    private ElementInfo GetElementInfoFromAccessible(NativeMethods.IAccessible acc, object childId, IntPtr hwnd)
+    {
+        try
+        {
+            // Get process info
+            uint pid = 0;
+            if (hwnd != IntPtr.Zero)
+            {
+                NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+                
+                if (IsBlacklistedProcess(pid))
+                {
+                    Logger.Debug($"   🚫 Blacklisted process (PID: {pid})");
+                    return null;
+                }
+            }
+
+            // Get class name
+            string className = "";
+            if (hwnd != IntPtr.Zero)
+            {
+                StringBuilder sb = new StringBuilder(256);
+                NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
+                className = sb.ToString();
+                
+                if (IsBlacklistedClassName(className))
+                {
+                    Logger.Debug($"   🚫 Blacklisted window class: {className}");
+                    return null;
+                }
+            }
+
+            // Get role, state, name
+            object roleObj = acc.get_accRole(childId);
+            int role = (roleObj is int r) ? r : 0;
+            
+            object stateObj = acc.get_accState(childId);
+            int state = (stateObj is int s) ? s : 0;
+            
+            string name = "";
+            try { name = acc.get_accName(childId); } catch { }
+            
+            if (name != null && name.Length > 100)
+                name = name.Substring(0, 100) + "...";
+
+            // Get bounds
+            Rectangle bounds = Rectangle.Empty;
+            try
+            {
+                acc.accLocation(out int l, out int t, out int w, out int h, childId);
+                bounds = new Rectangle(l, t, w, h);
+            }
+            catch { }
+
+            bool isProtected = (state & NativeMethods.STATE_SYSTEM_PROTECTED) != 0;
+            bool isTextInput = IsEditableTextInput(role, className, state, acc, childId);
+
+            return new ElementInfo
+            {
+                WindowHandle = hwnd,
+                Role = role,
+                ClassName = className,
+                Name = name,
+                Bounds = bounds,
+                IsPassword = isProtected,
+                ProcessId = pid,
+                IsTextInput = isTextInput,
+                DetectionMethod = "DirectClick"
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"   ⚠️ Error getting element info: {ex.Message}");
+            return null;
+        }
+    }
+
     public void Dispose()
     {
         if (_isDisposed) return;
@@ -815,6 +988,11 @@ public class WinEventFocusTracker : IDisposable
         {
             NativeMethods.UnhookWinEvent(_hookHandle);
             _hookHandle = IntPtr.Zero;
+        }
+
+        if (_pointerTracker != null)
+        {
+            _pointerTracker.HardwareClickDetected -= OnHardwareClickDetected;
         }
 
         Logger.Info("WinEventFocusTracker disposed");
