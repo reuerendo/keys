@@ -291,6 +291,25 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug($"   ✅ Check 3 passed: Click HWND related to focus HWND");
 
+        // Check 3.5: CRITICAL Z-ORDER CHECK
+        // If click HWND != focus HWND, they must be in direct parent/child relationship
+        // Siblings (e.g., dialog over text field) should be rejected
+        if (lastClick.WindowHandle != elementInfo.WindowHandle)
+        {
+            // Check if click window is a parent of focus window, or vice versa
+            bool isDirectRelation = IsParentOf(lastClick.WindowHandle, elementInfo.WindowHandle) ||
+                                   IsParentOf(elementInfo.WindowHandle, lastClick.WindowHandle);
+            
+            if (!isDirectRelation)
+            {
+                Logger.Debug($"   ❌ Validation FAILED: Click and focus windows are siblings/cousins (not direct parent/child)");
+                Logger.Debug($"      This prevents false positives from dialogs/popups over text fields");
+                return false;
+            }
+            
+            Logger.Debug($"   ✅ Check 3.5 passed: Direct parent/child relationship confirmed");
+        }
+
         // Check 4: Is click inside element bounds?
         if (!elementInfo.Bounds.Contains(lastClick.Position))
         {
@@ -302,6 +321,26 @@ public class WinEventFocusTracker : IDisposable
 
         Logger.Debug("   ✅ ALL VALIDATION CHECKS PASSED");
         return true;
+    }
+
+    /// <summary>
+    /// Check if hwnd1 is a parent of hwnd2
+    /// </summary>
+    private bool IsParentOf(IntPtr potentialParent, IntPtr potentialChild)
+    {
+        if (potentialParent == IntPtr.Zero || potentialChild == IntPtr.Zero)
+            return false;
+
+        IntPtr parent = potentialChild;
+        
+        for (int i = 0; i < 30; i++)
+        {
+            parent = NativeMethods.GetParent(parent);
+            if (parent == IntPtr.Zero) break;
+            if (parent == potentialParent) return true;
+        }
+        
+        return false;
     }
 
     /// <summary>
@@ -870,6 +909,28 @@ public class WinEventFocusTracker : IDisposable
                 if (elementInfo != null && elementInfo.IsTextInput)
                 {
                     Logger.Info($"✅ Direct click on text input - Role: {elementInfo.Role}, Class: {elementInfo.ClassName}");
+                    
+                    // CRITICAL Z-ORDER CHECK for direct clicks
+                    // If we got HWND from click but element reports different HWND, it might be a popup/dialog
+                    if (clickInfo.WindowHandle != hwnd && clickInfo.WindowHandle != elementInfo.WindowHandle)
+                    {
+                        Logger.Debug($"⚠️ Warning: Click HWND ({clickInfo.WindowHandle:X}) != Element HWND ({elementInfo.WindowHandle:X})");
+                        Logger.Debug($"   This might indicate a popup/dialog over the text field");
+                        
+                        // Check if they're in direct parent/child relationship
+                        bool isDirectRelation = IsParentOf(clickInfo.WindowHandle, elementInfo.WindowHandle) ||
+                                               IsParentOf(elementInfo.WindowHandle, clickInfo.WindowHandle);
+                        
+                        if (!isDirectRelation)
+                        {
+                            Logger.Debug($"❌ Not direct parent/child - likely a dialog/popup over text field");
+                            Marshal.ReleaseComObject(acc);
+                            Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                            return;
+                        }
+                        
+                        Logger.Debug($"✅ Direct parent/child relationship confirmed");
+                    }
                     
                     // Validate click is inside element bounds
                     if (!elementInfo.Bounds.Contains(clickInfo.Position))
