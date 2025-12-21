@@ -9,7 +9,6 @@ namespace VirtualKeyboard;
 /// <summary>
 /// Lightweight focus tracker using SetWinEventHook and IAccessible (MSAA) with UIA fallback.
 /// Implements strict algorithm for virtual keyboard auto-show logic.
-/// FIXED: Smart Explorer.exe filtering - allows address bar and search box
 /// </summary>
 public class WinEventFocusTracker : IDisposable
 {
@@ -21,34 +20,23 @@ public class WinEventFocusTracker : IDisposable
     
     private Func<bool> _isKeyboardVisible;
 
-    // Process blacklist - REMOVED explorer.exe to allow address bar/search
-    // Only blocking true system processes that never have text input
+    // Process blacklist
     private static readonly string[] ProcessBlacklist = new[]
     {
+        "explorer.exe",
         "searchhost.exe",
         "startmenuexperiencehost.exe"
     };
 
-    // Class blacklist - system UI elements that should never show keyboard
-    // These are the actual file list views, desktop icons, etc.
+    // Class blacklist
     private static readonly string[] ClassBlacklist = new[]
     {
-        "syslistview32",        // File list view in Explorer
-        "shelldll_defview",     // Desktop/folder view
-        "workerw",              // Desktop worker window
-        "progman",              // Program Manager (desktop)
-        "shell_traywnd",        // Taskbar
-        "tasklistthumbnailwnd"  // Task switcher
-    };
-
-    // Explorer-specific classes that SHOULD be allowed (address bar, search box)
-    private static readonly string[] ExplorerAllowedClasses = new[]
-    {
-        "addressbandroot",      // Address bar container
-        "breadcrumbparent",     // Breadcrumb navigation
-        "searchbox",            // Search box
-        "universalsearchband",  // Universal search
-        "directuihwnd"          // Direct UI (may contain address bar)
+        "syslistview32",
+        "directuihwnd",
+        "cabinetwclass",
+        "shelldll_defview",
+        "workerw",
+        "progman"
     };
 
     // Known text editor classes
@@ -132,7 +120,7 @@ public class WinEventFocusTracker : IDisposable
         // Skip if keyboard already visible
         if (_isKeyboardVisible != null && _isKeyboardVisible())
         {
-            Logger.Debug("⭕ Keyboard already visible - skipping");
+            Logger.Debug("⏭️ Keyboard already visible - skipping");
             return;
         }
 
@@ -169,13 +157,12 @@ public class WinEventFocusTracker : IDisposable
             Logger.Debug($"   Role: {elementInfo.Role}");
             Logger.Debug($"   Class: {elementInfo.ClassName}");
             Logger.Debug($"   Name: {elementInfo.Name}");
-            Logger.Debug($"   Process: {elementInfo.ProcessName}");
             Logger.Debug($"   Bounds: ({elementInfo.Bounds.X}, {elementInfo.Bounds.Y}, {elementInfo.Bounds.Width}x{elementInfo.Bounds.Height})");
 
             // STEP 2: Determine input source
             var inputSource = GetInputMessageSource();
             
-            Logger.Debug($"🔥 INPUT SOURCE: DeviceType={inputSource.deviceType}, Origin={inputSource.originId}");
+            Logger.Debug($"📥 INPUT SOURCE: DeviceType={inputSource.deviceType}, Origin={inputSource.originId}");
 
             // STEP 3: Decision logic
             bool shouldShowKeyboard = ShouldShowKeyboard(inputSource, elementInfo);
@@ -275,7 +262,7 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        Logger.Debug($"   🔍 Last pointer click: ({lastClick.Position.X}, {lastClick.Position.Y})");
+        Logger.Debug($"   📍 Last pointer click: ({lastClick.Position.X}, {lastClick.Position.Y})");
         Logger.Debug($"      Device: {lastClick.DeviceType}");
         Logger.Debug($"      HWND: {lastClick.WindowHandle:X}");
         Logger.Debug($"      Time: {lastClick.Timestamp:HH:mm:ss.fff}");
@@ -305,8 +292,11 @@ public class WinEventFocusTracker : IDisposable
         Logger.Debug($"   ✅ Check 3 passed: Click HWND related to focus HWND");
 
         // Check 3.5: CRITICAL Z-ORDER CHECK
+        // If click HWND != focus HWND, they must be in direct parent/child relationship
+        // Siblings (e.g., dialog over text field) should be rejected
         if (lastClick.WindowHandle != elementInfo.WindowHandle)
         {
+            // Check if click window is a parent of focus window, or vice versa
             bool isDirectRelation = IsParentOf(lastClick.WindowHandle, elementInfo.WindowHandle) ||
                                    IsParentOf(elementInfo.WindowHandle, lastClick.WindowHandle);
             
@@ -333,6 +323,9 @@ public class WinEventFocusTracker : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Check if hwnd1 is a parent of hwnd2
+    /// </summary>
     private bool IsParentOf(IntPtr potentialParent, IntPtr potentialChild)
     {
         if (potentialParent == IntPtr.Zero || potentialChild == IntPtr.Zero)
@@ -350,6 +343,9 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Check if two HWNDs are related (same window, parent/child relationship, or share same root owner)
+    /// </summary>
     private bool AreWindowsRelated(IntPtr hwnd1, IntPtr hwnd2)
     {
         if (hwnd1 == hwnd2)
@@ -364,15 +360,19 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
+        // Use GetAncestor with GA_ROOTOWNER to get the actual application window
+        // This is more reliable than GetParent for complex window hierarchies
         IntPtr root1 = NativeMethods.GetAncestor(hwnd1, NativeMethods.GA_ROOTOWNER);
         IntPtr root2 = NativeMethods.GetAncestor(hwnd2, NativeMethods.GA_ROOTOWNER);
         
+        // Fallback if GetAncestor returns zero
         if (root1 == IntPtr.Zero) root1 = hwnd1;
         if (root2 == IntPtr.Zero) root2 = hwnd2;
         
         Logger.Debug($"      Click HWND {hwnd1:X} -> Root owner: {root1:X}");
         Logger.Debug($"      Focus HWND {hwnd2:X} -> Root owner: {root2:X}");
 
+        // If they share the same root owner, they're related
         if (root1 == root2)
         {
             Logger.Debug($"      Same root owner - related");
@@ -383,6 +383,9 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Get current input message source
+    /// </summary>
     private NativeMethods.INPUT_MESSAGE_SOURCE GetInputMessageSource()
     {
         try
@@ -414,10 +417,11 @@ public class WinEventFocusTracker : IDisposable
 
     /// <summary>
     /// STEP 1: Get focused element information and check if it's a text input
+    /// Tries MSAA first, then UIA as fallback
     /// </summary>
     private ElementInfo GetFocusedElementInfo(IntPtr hwnd, int idObject, int idChild)
     {
-        // Try MSAA first
+        // Try MSAA (IAccessible) - primary method
         var msaaInfo = TryGetElementInfoViaMSAA(hwnd, idObject, idChild);
         if (msaaInfo != null)
         {
@@ -425,7 +429,7 @@ public class WinEventFocusTracker : IDisposable
             return msaaInfo;
         }
 
-        // Try UIA fallback
+        // Try UIA - fallback method
         var uiaInfo = TryGetElementInfoViaUIA(hwnd);
         if (uiaInfo != null)
         {
@@ -436,6 +440,9 @@ public class WinEventFocusTracker : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Try to get element info via MSAA (IAccessible)
+    /// </summary>
     private ElementInfo TryGetElementInfoViaMSAA(IntPtr hwnd, int idObject, int idChild)
     {
         try
@@ -449,17 +456,13 @@ public class WinEventFocusTracker : IDisposable
             {
                 // Get process info
                 uint pid = 0;
-                string processName = "";
-                
                 if (hwnd != IntPtr.Zero)
                 {
                     NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
-                    processName = GetProcessName(pid);
                     
-                    // Check if process is blacklisted
-                    if (IsBlacklistedProcess(processName))
+                    if (IsBlacklistedProcess(pid))
                     {
-                        Logger.Debug($"   🚫 Blacklisted process: {processName}");
+                        Logger.Debug($"   🚫 Blacklisted process (PID: {pid})");
                         return null;
                     }
                 }
@@ -471,27 +474,7 @@ public class WinEventFocusTracker : IDisposable
                     StringBuilder sb = new StringBuilder(256);
                     NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
                     className = sb.ToString();
-                }
-
-                // NEW: Smart filtering for Explorer.exe
-                if (processName.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Check if this is a blacklisted Explorer class (file list, desktop, etc.)
-                    if (IsBlacklistedClassName(className))
-                    {
-                        Logger.Debug($"   🚫 Blacklisted Explorer class: {className}");
-                        return null;
-                    }
                     
-                    // If it's an allowed Explorer class, proceed
-                    if (IsExplorerAllowedClass(className))
-                    {
-                        Logger.Debug($"   ✅ Allowed Explorer class: {className} (address bar/search)");
-                    }
-                }
-                else
-                {
-                    // For non-Explorer processes, use standard blacklist
                     if (IsBlacklistedClassName(className))
                     {
                         Logger.Debug($"   🚫 Blacklisted window class: {className}");
@@ -533,7 +516,6 @@ public class WinEventFocusTracker : IDisposable
                     Bounds = bounds,
                     IsPassword = isProtected,
                     ProcessId = pid,
-                    ProcessName = processName,
                     IsTextInput = isTextInput,
                     DetectionMethod = "MSAA"
                 };
@@ -550,6 +532,9 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Try to get element info via UIA (fallback)
+    /// </summary>
     private ElementInfo TryGetElementInfoViaUIA(IntPtr hwnd)
     {
         try
@@ -561,34 +546,21 @@ public class WinEventFocusTracker : IDisposable
                 StringBuilder sb = new StringBuilder(256);
                 NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
                 className = sb.ToString();
+                
+                if (IsBlacklistedClassName(className))
+                    return null;
             }
 
             // Get process info
             uint pid = 0;
-            string processName = "";
-            
             if (hwnd != IntPtr.Zero)
             {
                 NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
-                processName = GetProcessName(pid);
-                
-                if (IsBlacklistedProcess(processName))
+                if (IsBlacklistedProcess(pid))
                     return null;
             }
 
-            // Smart Explorer filtering
-            if (processName.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
-            {
-                if (IsBlacklistedClassName(className))
-                    return null;
-            }
-            else
-            {
-                if (IsBlacklistedClassName(className))
-                    return null;
-            }
-
-            // Basic UIA check
+            // Basic UIA check - just check if window class suggests text input
             string classLower = className?.ToLowerInvariant() ?? "";
             bool isTextInput = IsEditorClass(classLower) || classLower.Contains("edit");
 
@@ -614,7 +586,6 @@ public class WinEventFocusTracker : IDisposable
                 Bounds = bounds,
                 IsPassword = false,
                 ProcessId = pid,
-                ProcessName = processName,
                 IsTextInput = isTextInput,
                 DetectionMethod = "UIA"
             };
@@ -626,6 +597,9 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Determine if element is an editable text input
+    /// </summary>
     private bool IsEditableTextInput(int role, string className, int state, NativeMethods.IAccessible acc, object childId)
     {
         bool isReadonly = (state & NativeMethods.STATE_SYSTEM_READONLY) != 0;
@@ -636,7 +610,7 @@ public class WinEventFocusTracker : IDisposable
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // CARET - insertion point
+        // CARET - insertion point (very common in web browsers)
         if (role == NativeMethods.ROLE_SYSTEM_CARET)
         {
             Logger.Debug($"   ✅ CARET (insertion point) detected");
@@ -726,35 +700,26 @@ public class WinEventFocusTracker : IDisposable
         if (role == NativeMethods.ROLE_SYSTEM_DOCUMENT && !isReadonly)
             return true;
 
-        // CLIENT
-        if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
-        {
-            if (isReadonly) return false;
+		// CLIENT
+		if (role == NativeMethods.ROLE_SYSTEM_CLIENT)
+		{
+			if (isReadonly) return false;
 
-            try
-            {
-                string name = acc.get_accName(childId);
-                if (!string.IsNullOrEmpty(name) && name.Length > 20)
-                {
-                    Logger.Debug($"   ✅ CLIENT role with text content (length: {name.Length})");
-                    return true;
-                }
-            }
-            catch { }
+			// Only check for value interface - do NOT use accName
+			// accName can be present on ANY element (tables, panels, etc.)
+			try
+			{
+				string value = acc.get_accValue(childId);
+				if (value != null)
+				{
+					Logger.Debug($"   ✅ CLIENT role with value interface");
+					return true;
+				}
+			}
+			catch { }
 
-            try
-            {
-                string value = acc.get_accValue(childId);
-                if (value != null)
-                {
-                    Logger.Debug($"   ✅ CLIENT role with value interface");
-                    return true;
-                }
-            }
-            catch { }
-
-            return false;
-        }
+			return false;
+		}
 
         // COMBOBOX
         if (role == NativeMethods.ROLE_SYSTEM_COMBOBOX)
@@ -835,22 +800,9 @@ public class WinEventFocusTracker : IDisposable
         return ChromeRenderClasses.Any(chrome => classLower.Contains(chrome));
     }
 
-    /// <summary>
-    /// NEW: Check if Explorer class is explicitly allowed (address bar, search box)
-    /// </summary>
-    private bool IsExplorerAllowedClass(string className)
+    private bool IsBlacklistedProcess(uint pid)
     {
-        if (string.IsNullOrEmpty(className)) return false;
-        string classLower = className.ToLowerInvariant();
-        return ExplorerAllowedClasses.Any(allowed => classLower.Contains(allowed.ToLowerInvariant()));
-    }
-
-    /// <summary>
-    /// Get process name from PID
-    /// </summary>
-    private string GetProcessName(uint pid)
-    {
-        if (pid == 0) return "";
+        if (pid == 0) return false;
 
         try
         {
@@ -859,7 +811,7 @@ public class WinEventFocusTracker : IDisposable
                 false,
                 pid);
 
-            if (hProcess == IntPtr.Zero) return "";
+            if (hProcess == IntPtr.Zero) return false;
 
             try
             {
@@ -868,8 +820,10 @@ public class WinEventFocusTracker : IDisposable
 
                 if (size > 0)
                 {
-                    string fullPath = processName.ToString();
-                    return System.IO.Path.GetFileName(fullPath);
+                    string fullPath = processName.ToString().ToLowerInvariant();
+                    string fileName = System.IO.Path.GetFileName(fullPath);
+                    
+                    return ProcessBlacklist.Any(blocked => fileName.Contains(blocked.ToLowerInvariant()));
                 }
             }
             finally
@@ -879,14 +833,7 @@ public class WinEventFocusTracker : IDisposable
         }
         catch { }
 
-        return "";
-    }
-
-    private bool IsBlacklistedProcess(string processName)
-    {
-        if (string.IsNullOrEmpty(processName)) return false;
-        return ProcessBlacklist.Any(blocked => 
-            processName.Equals(blocked, StringComparison.OrdinalIgnoreCase));
+        return false;
     }
 
     private bool IsBlacklistedClassName(string className)
@@ -896,13 +843,19 @@ public class WinEventFocusTracker : IDisposable
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
     }
 
+	/// <summary>
+    /// Check if accessible object represents a system control (button, menu, titlebar, etc.)
+    /// that should NOT trigger keyboard auto-show
+    /// </summary>
     private bool IsSystemControl(NativeMethods.IAccessible acc, object childId, PointerClickInfo clickInfo)
     {
         try
         {
+            // Get role
             object roleObj = acc.get_accRole(childId);
             int role = (roleObj is int r) ? r : 0;
 
+            // System control roles that should be ignored
             if (role == NativeMethods.ROLE_SYSTEM_PUSHBUTTON ||
                 role == NativeMethods.ROLE_SYSTEM_MENUITEM ||
                 role == NativeMethods.ROLE_SYSTEM_MENUBAR ||
@@ -914,6 +867,7 @@ public class WinEventFocusTracker : IDisposable
                 return true;
             }
 
+            // Get name - close buttons often have specific names
             string name = "";
             try { name = acc.get_accName(childId); } catch { }
 
@@ -921,9 +875,11 @@ public class WinEventFocusTracker : IDisposable
             {
                 string nameLower = name.ToLowerInvariant();
                 
+                // Close button names in different languages
                 if (nameLower.Contains("close") || 
                     nameLower.Contains("закрыть") ||
                     nameLower.Contains("zamknij") ||
+                    nameLower.Contains("minimize") ||
                     nameLower.Contains("minimize") ||
                     nameLower.Contains("maximize") ||
                     nameLower.Contains("restore"))
@@ -933,19 +889,28 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
+            // Check click position - if it's in the top-right corner of the window (close button area)
+            // Get window rect
             if (clickInfo.WindowHandle != IntPtr.Zero)
             {
                 if (NativeMethods.GetWindowRect(clickInfo.WindowHandle, out NativeMethods.RECT rect))
                 {
                     int windowWidth = rect.Right - rect.Left;
+                    int windowHeight = rect.Bottom - rect.Top;
+                    
+                    // Calculate relative position
                     int relX = clickInfo.Position.X - rect.Left;
                     int relY = clickInfo.Position.Y - rect.Top;
                     
+                    // Top-right corner (typical close button area)
+                    // Usually within 150px from right edge and within 50px from top
                     bool isTopRightCorner = relX > (windowWidth - 150) && relY < 50;
                     
                     if (isTopRightCorner)
                     {
                         Logger.Debug($"   🚫 Click in top-right corner detected (close button area)");
+                        Logger.Debug($"      Window: ({rect.Left}, {rect.Top}, {windowWidth}x{windowHeight})");
+                        Logger.Debug($"      Relative click: ({relX}, {relY})");
                         return true;
                     }
                 }
@@ -960,13 +925,17 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Handles direct clicks to detect text fields that might ALREADY have focus
+    /// </summary>
     private void OnHardwareClickDetected(object sender, PointerClickInfo clickInfo)
     {
         if (_isDisposed) return;
 
+        // Skip if keyboard is visible
         if (_isKeyboardVisible != null && _isKeyboardVisible())
         {
-            Logger.Debug("⭕ Direct click ignored: Keyboard already visible");
+            Logger.Debug("⏭️ Direct click ignored: Keyboard already visible");
             return;
         }
 
@@ -976,6 +945,7 @@ public class WinEventFocusTracker : IDisposable
         {
             NativeMethods.POINT pt = new NativeMethods.POINT { X = clickInfo.Position.X, Y = clickInfo.Position.Y };
             
+            // Get object directly under mouse
             int hr = NativeMethods.AccessibleObjectFromPoint(pt, out NativeMethods.IAccessible acc, out object childId);
 
             if (hr >= 0 && acc != null)
@@ -987,6 +957,7 @@ public class WinEventFocusTracker : IDisposable
                 }
                 catch { }
 
+                // Check if this is a system control (button, close button, menu, etc.)
                 if (IsSystemControl(acc, childId, clickInfo))
                 {
                     Logger.Debug("   🚫 System control detected (button/close/menu) - ignoring");
@@ -994,12 +965,16 @@ public class WinEventFocusTracker : IDisposable
                     return;
                 }
 
+                // CRITICAL FIX: If WindowFromAccessibleObject returns 0, use HWND from click
+                // This happens with some controls like RichEdit where the accessible object
+                // doesn't have a direct window association
                 if (hwnd == IntPtr.Zero)
                 {
                     Logger.Debug($"   ⚠️ WindowFromAccessibleObject returned 0 - using click HWND: {clickInfo.WindowHandle:X}");
                     hwnd = clickInfo.WindowHandle;
                 }
 
+                // Ignore our own keyboard window
                 if (hwnd == _keyboardWindowHandle)
                 {
                     Marshal.ReleaseComObject(acc);
@@ -1009,16 +984,21 @@ public class WinEventFocusTracker : IDisposable
                 Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 Logger.Debug($"🔍 DIRECT CLICK CHECK: HWND={hwnd:X}");
 
+                // Get element info
                 var elementInfo = GetElementInfoFromAccessible(acc, childId, hwnd);
                 
                 if (elementInfo != null && elementInfo.IsTextInput)
                 {
                     Logger.Info($"✅ Direct click on text input - Role: {elementInfo.Role}, Class: {elementInfo.ClassName}");
                     
+                    // CRITICAL Z-ORDER CHECK for direct clicks
+                    // If we got HWND from click but element reports different HWND, it might be a popup/dialog
                     if (clickInfo.WindowHandle != hwnd && clickInfo.WindowHandle != elementInfo.WindowHandle)
                     {
                         Logger.Debug($"⚠️ Warning: Click HWND ({clickInfo.WindowHandle:X}) != Element HWND ({elementInfo.WindowHandle:X})");
+                        Logger.Debug($"   This might indicate a popup/dialog over the text field");
                         
+                        // Check if they're in direct parent/child relationship
                         bool isDirectRelation = IsParentOf(clickInfo.WindowHandle, elementInfo.WindowHandle) ||
                                                IsParentOf(elementInfo.WindowHandle, clickInfo.WindowHandle);
                         
@@ -1033,6 +1013,7 @@ public class WinEventFocusTracker : IDisposable
                         Logger.Debug($"✅ Direct parent/child relationship confirmed");
                     }
                     
+                    // Validate click is inside element bounds
                     if (!elementInfo.Bounds.Contains(clickInfo.Position))
                     {
                         Logger.Debug($"❌ Click outside element bounds");
@@ -1069,44 +1050,34 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Get element info from IAccessible object
+    /// </summary>
     private ElementInfo GetElementInfoFromAccessible(NativeMethods.IAccessible acc, object childId, IntPtr hwnd)
     {
         try
         {
+            // Get process info
             uint pid = 0;
-            string processName = "";
-            
             if (hwnd != IntPtr.Zero)
             {
                 NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
-                processName = GetProcessName(pid);
                 
-                if (IsBlacklistedProcess(processName))
+                if (IsBlacklistedProcess(pid))
                 {
-                    Logger.Debug($"   🚫 Blacklisted process: {processName}");
+                    Logger.Debug($"   🚫 Blacklisted process (PID: {pid})");
                     return null;
                 }
             }
 
+            // Get class name
             string className = "";
             if (hwnd != IntPtr.Zero)
             {
                 StringBuilder sb = new StringBuilder(256);
                 NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
                 className = sb.ToString();
-            }
-
-            // Smart Explorer filtering
-            if (processName.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
-            {
-                if (IsBlacklistedClassName(className))
-                {
-                    Logger.Debug($"   🚫 Blacklisted Explorer class: {className}");
-                    return null;
-                }
-            }
-            else
-            {
+                
                 if (IsBlacklistedClassName(className))
                 {
                     Logger.Debug($"   🚫 Blacklisted window class: {className}");
@@ -1114,6 +1085,7 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
+            // Get role, state, name
             object roleObj = acc.get_accRole(childId);
             int role = (roleObj is int r) ? r : 0;
             
@@ -1126,6 +1098,7 @@ public class WinEventFocusTracker : IDisposable
             if (name != null && name.Length > 100)
                 name = name.Substring(0, 100) + "...";
 
+            // Get bounds
             Rectangle bounds = Rectangle.Empty;
             try
             {
@@ -1146,7 +1119,6 @@ public class WinEventFocusTracker : IDisposable
                 Bounds = bounds,
                 IsPassword = isProtected,
                 ProcessId = pid,
-                ProcessName = processName,
                 IsTextInput = isTextInput,
                 DetectionMethod = "DirectClick"
             };
@@ -1178,6 +1150,9 @@ public class WinEventFocusTracker : IDisposable
     }
 }
 
+/// <summary>
+/// Information about a focused element
+/// </summary>
 internal class ElementInfo
 {
     public IntPtr WindowHandle { get; set; }
@@ -1187,7 +1162,6 @@ internal class ElementInfo
     public Rectangle Bounds { get; set; }
     public bool IsPassword { get; set; }
     public uint ProcessId { get; set; }
-    public string ProcessName { get; set; }
     public bool IsTextInput { get; set; }
     public string DetectionMethod { get; set; }
 }
