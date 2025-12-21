@@ -852,6 +852,88 @@ public class WinEventFocusTracker : IDisposable
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
     }
 
+	/// <summary>
+    /// Check if accessible object represents a system control (button, menu, titlebar, etc.)
+    /// that should NOT trigger keyboard auto-show
+    /// </summary>
+    private bool IsSystemControl(NativeMethods.IAccessible acc, object childId, PointerClickInfo clickInfo)
+    {
+        try
+        {
+            // Get role
+            object roleObj = acc.get_accRole(childId);
+            int role = (roleObj is int r) ? r : 0;
+
+            // System control roles that should be ignored
+            if (role == NativeMethods.ROLE_SYSTEM_PUSHBUTTON ||
+                role == NativeMethods.ROLE_SYSTEM_MENUITEM ||
+                role == NativeMethods.ROLE_SYSTEM_MENUBAR ||
+                role == NativeMethods.ROLE_SYSTEM_MENUPOPUP ||
+                role == NativeMethods.ROLE_SYSTEM_TITLEBAR ||
+                role == NativeMethods.ROLE_SYSTEM_WINDOW)
+            {
+                Logger.Debug($"   🚫 System control role detected: {role}");
+                return true;
+            }
+
+            // Get name - close buttons often have specific names
+            string name = "";
+            try { name = acc.get_accName(childId); } catch { }
+
+            if (!string.IsNullOrEmpty(name))
+            {
+                string nameLower = name.ToLowerInvariant();
+                
+                // Close button names in different languages
+                if (nameLower.Contains("close") || 
+                    nameLower.Contains("закрыть") ||
+                    nameLower.Contains("zamknij") ||
+                    nameLower.Contains("minimize") ||
+                    nameLower.Contains("minimize") ||
+                    nameLower.Contains("maximize") ||
+                    nameLower.Contains("restore"))
+                {
+                    Logger.Debug($"   🚫 System window control detected: '{name}'");
+                    return true;
+                }
+            }
+
+            // Check click position - if it's in the top-right corner of the window (close button area)
+            // Get window rect
+            if (clickInfo.WindowHandle != IntPtr.Zero)
+            {
+                if (NativeMethods.GetWindowRect(clickInfo.WindowHandle, out NativeMethods.RECT rect))
+                {
+                    int windowWidth = rect.Right - rect.Left;
+                    int windowHeight = rect.Bottom - rect.Top;
+                    
+                    // Calculate relative position
+                    int relX = clickInfo.Position.X - rect.Left;
+                    int relY = clickInfo.Position.Y - rect.Top;
+                    
+                    // Top-right corner (typical close button area)
+                    // Usually within 150px from right edge and within 50px from top
+                    bool isTopRightCorner = relX > (windowWidth - 150) && relY < 50;
+                    
+                    if (isTopRightCorner)
+                    {
+                        Logger.Debug($"   🚫 Click in top-right corner detected (close button area)");
+                        Logger.Debug($"      Window: ({rect.Left}, {rect.Top}, {windowWidth}x{windowHeight})");
+                        Logger.Debug($"      Relative click: ({relX}, {relY})");
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"   ⚠️ Error checking system control: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>
     /// Handles direct clicks to detect text fields that might ALREADY have focus
     /// </summary>
@@ -883,6 +965,14 @@ public class WinEventFocusTracker : IDisposable
                     hwnd = NativeMethods.WindowFromAccessibleObject(acc);
                 }
                 catch { }
+
+                // Check if this is a system control (button, close button, menu, etc.)
+                if (IsSystemControl(acc, childId, clickInfo))
+                {
+                    Logger.Debug("   🚫 System control detected (button/close/menu) - ignoring");
+                    Marshal.ReleaseComObject(acc);
+                    return;
+                }
 
                 // CRITICAL FIX: If WindowFromAccessibleObject returns 0, use HWND from click
                 // This happens with some controls like RichEdit where the accessible object
