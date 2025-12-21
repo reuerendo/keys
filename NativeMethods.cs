@@ -22,6 +22,12 @@ internal static class NativeMethods
     public const int ROLE_SYSTEM_COMBOBOX = 0x2E;
     public const int ROLE_SYSTEM_PANE = 0x10;
     public const int ROLE_SYSTEM_CARET = 0x07;
+    public const int ROLE_SYSTEM_PUSHBUTTON = 0x2B;
+    public const int ROLE_SYSTEM_MENUITEM = 0x0C;
+    public const int ROLE_SYSTEM_MENUBAR = 0x02;
+    public const int ROLE_SYSTEM_MENUPOPUP = 0x0B;
+    public const int ROLE_SYSTEM_TITLEBAR = 0x01;
+    public const int ROLE_SYSTEM_WINDOW = 0x09;
 
     // Standard MSAA States
     public const int STATE_SYSTEM_FOCUSED = 0x00000004;
