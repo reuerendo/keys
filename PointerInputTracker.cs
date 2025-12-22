@@ -140,10 +140,16 @@ public class PointerInputTracker : IDisposable
     /// <summary>
     /// Mouse hook callback - records ALL pointer clicks
     /// </summary>
-    private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0)
-        {
+	private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+	{
+		// CRITICAL: Check disposed flag at the very start
+		if (_isDisposed)
+		{
+			return CallNextHookEx(_mouseHookId, nCode, wParam, lParam);
+		}
+
+		if (nCode >= 0)
+		{
             int msg = wParam.ToInt32();
             
             // Track all button clicks
@@ -195,10 +201,16 @@ public class PointerInputTracker : IDisposable
     /// <summary>
     /// Keyboard hook callback - tracks keyboard input
     /// </summary>
-    private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-    {
-        if (nCode >= 0)
-        {
+	private IntPtr KeyboardHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+	{
+		// CRITICAL: Check disposed flag at the very start
+		if (_isDisposed)
+		{
+			return CallNextHookEx(_keyboardHookId, nCode, wParam, lParam);
+		}
+
+		if (nCode >= 0)
+		{
             int msg = wParam.ToInt32();
             
             if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
@@ -358,41 +370,42 @@ public class PointerInputTracker : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        if (_isDisposed)
-            return;
+	public void Dispose()
+	{
+		if (_isDisposed)
+			return;
 
-        _isDisposed = true;
+		// Set flag FIRST to stop processing new events
+		_isDisposed = true;
 
-        try
-        {
-            if (_mouseHookId != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(_mouseHookId);
-                _mouseHookId = IntPtr.Zero;
-            }
-            
-            if (_keyboardHookId != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(_keyboardHookId);
-                _keyboardHookId = IntPtr.Zero;
-            }
-            
-            Logger.Info("PointerInputTracker disposed");
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error disposing PointerInputTracker", ex);
-        }
+		try
+		{
+			// Remove hooks
+			if (_mouseHookId != IntPtr.Zero)
+			{
+				UnhookWindowsHookEx(_mouseHookId);
+				_mouseHookId = IntPtr.Zero;
+			}
+			
+			if (_keyboardHookId != IntPtr.Zero)
+			{
+				UnhookWindowsHookEx(_keyboardHookId);
+				_keyboardHookId = IntPtr.Zero;
+			}
 
-        GC.SuppressFinalize(this);
-    }
+			// CRITICAL: Nullify delegates to break circular references
+			_mouseHookProc = null;
+			_keyboardHookProc = null;
+			
+			Logger.Info("PointerInputTracker disposed");
+		}
+		catch (Exception ex)
+		{
+			Logger.Error("Error disposing PointerInputTracker", ex);
+		}
 
-    ~PointerInputTracker()
-    {
-        Dispose();
-    }
+		GC.SuppressFinalize(this);
+	}
 }
 
 /// <summary>

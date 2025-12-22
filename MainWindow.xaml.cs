@@ -308,39 +308,65 @@ public sealed partial class MainWindow : Window
 
     #region Application Exit
 
-    private void ExitApplication()
-    {
-        try
-        {
-            _isClosing = true;
-            
-            // Cleanup - this will properly dispose FocusManager and stop tracking
-            _visibilityManager?.Cleanup();
-            _styleManager?.RestoreWindowProc();
-            
-            Logger.Info("Application exiting");
-            Application.Current.Exit();
-        }
-        catch (Exception ex)
-        {
-            Logger.Error("Error during application exit", ex);
-        }
-    }
+	private void ExitApplication()
+	{
+		try
+		{
+			_isClosing = true;
+			Logger.Info("Application exit requested");
+			
+			// 1. Cleanup visibility manager (removes all hooks)
+			_visibilityManager?.Cleanup();
+			Logger.Info("Visibility manager cleaned up");
+			
+			// 2. Restore window procedure
+			_styleManager?.RestoreWindowProc();
+			Logger.Info("Window procedure restored");
+			
+			// 3. Small delay to allow hooks to fully unregister
+			System.Threading.Thread.Sleep(100);
+			
+			// 4. Force garbage collection to clean up COM objects
+			GC.Collect();
+			GC.WaitForPendingFinalizers();
+			GC.Collect();
+			
+			Logger.Info("Application exiting");
+			
+			// 5. Exit application
+			Application.Current.Exit();
+		}
+		catch (Exception ex)
+		{
+			Logger.Error("Error during application exit", ex);
+			
+			// Force exit even if cleanup failed
+			System.Environment.Exit(0);
+		}
+	}
 
-    private void MainWindow_Closed(object sender, WindowEventArgs args)
-    {
-        if (!_isClosing)
-        {
-            args.Handled = true;
-            _visibilityManager?.Hide(); // Will use animated hide
-        }
-        else
-        {
-            // Proper cleanup on actual close
-            _visibilityManager?.Cleanup();
-            _styleManager?.RestoreWindowProc();
-        }
-    }
+	private void MainWindow_Closed(object sender, WindowEventArgs args)
+	{
+		if (!_isClosing)
+		{
+			// User closed window via X button - just hide
+			args.Handled = true;
+			_visibilityManager?.Hide();
+		}
+		else
+		{
+			// Application is exiting - ensure cleanup
+			try
+			{
+				_visibilityManager?.Cleanup();
+				_styleManager?.RestoreWindowProc();
+			}
+			catch (Exception ex)
+			{
+				Logger.Error("Error in MainWindow_Closed cleanup", ex);
+			}
+		}
+	}
 
     #endregion
 }
