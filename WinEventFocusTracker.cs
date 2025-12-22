@@ -39,6 +39,14 @@ public class WinEventFocusTracker : IDisposable
         "chrome_renderwidgethosthwnd", "chrome_widgetwin_", "intermediate d3d window"
     };
 
+    // Web browser classes for special handling
+    private static readonly string[] WebBrowserClasses = new[]
+    {
+        "mozillawindowclass",      // Firefox
+        "chrome_widgetwin_",       // Chrome/Edge
+        "applicationframewindow"   // Edge
+    };
+
     private static readonly int[] SystemControlRoles = new[]
     {
         NativeMethods.ROLE_SYSTEM_PUSHBUTTON, NativeMethods.ROLE_SYSTEM_MENUITEM,
@@ -98,11 +106,11 @@ public class WinEventFocusTracker : IDisposable
         if (_isDisposed || hwnd == _keyboardWindowHandle) return;
         if (_isKeyboardVisible?.Invoke() == true)
         {
-            Logger.Debug("⭕️ Keyboard already visible - skipping");
+            Logger.Debug("⏸️ Keyboard already visible - skipping");
             return;
         }
 
-        Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        Logger.Debug("┌─────────────────────────────────────────────────");
         Logger.Debug($"🎯 FOCUS EVENT: HWND={hwnd:X}, idObject={idObject}, idChild={idChild}");
 
         try
@@ -560,6 +568,7 @@ public class WinEventFocusTracker : IDisposable
     private bool ValidateByRole(int role, int state, string className, NativeMethods.IAccessible acc, object childId, bool isReadonly)
     {
         string classLower = className?.ToLowerInvariant() ?? "";
+        bool isWebBrowser = IsWebBrowserClass(classLower);
 
         // Edit controls
         if (classLower.Contains("edit") && !isReadonly)
@@ -583,10 +592,13 @@ public class WinEventFocusTracker : IDisposable
                 return ValidateTextRole(acc, childId, isReadonly);
 
             case NativeMethods.ROLE_SYSTEM_DOCUMENT:
-                return !isReadonly;
+                return ValidateDocumentRole(acc, childId, isReadonly, isWebBrowser);
 
             case NativeMethods.ROLE_SYSTEM_CLIENT:
-                return ValidateClientRole(acc, childId, isReadonly);
+                return ValidateClientRole(acc, childId, isReadonly, isWebBrowser);
+
+            case NativeMethods.ROLE_SYSTEM_PANE:
+                return ValidatePaneRole(acc, childId, isReadonly, isWebBrowser);
 
             case NativeMethods.ROLE_SYSTEM_COMBOBOX:
                 return ValidateComboboxRole(acc, childId, isReadonly);
@@ -616,8 +628,45 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
-    private bool ValidateClientRole(NativeMethods.IAccessible acc, object childId, bool isReadonly)
+    private bool ValidateDocumentRole(NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
     {
+        // Web browsers expose contenteditable as DOCUMENT role
+        if (isWebBrowser && !isReadonly)
+        {
+            Logger.Debug($"   ✅ DOCUMENT role in web browser (likely contenteditable)");
+            return true;
+        }
+
+        // Regular document validation
+        if (!isReadonly)
+        {
+            Logger.Debug($"   ✅ DOCUMENT role (editable)");
+            return true;
+        }
+
+        Logger.Debug($"   ⚠ DOCUMENT role but readonly");
+        return false;
+    }
+
+    private bool ValidateClientRole(NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
+    {
+        // Web browsers often use CLIENT role for contenteditable
+        if (isWebBrowser && !isReadonly)
+        {
+            try
+            {
+                bool isFocused = (acc.get_accState(childId) is int s) && 
+                                 ((s & NativeMethods.STATE_SYSTEM_FOCUSED) != 0);
+                
+                if (isFocused)
+                {
+                    Logger.Debug($"   ✅ CLIENT role in web browser (focused, likely contenteditable)");
+                    return true;
+                }
+            }
+            catch { }
+        }
+
         if (isReadonly) return false;
 
         try
@@ -631,6 +680,67 @@ public class WinEventFocusTracker : IDisposable
         }
         catch { }
 
+        Logger.Debug($"   ⚠ CLIENT role without value interface");
+        return false;
+    }
+
+    private bool ValidatePaneRole(NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
+    {
+        // CRITICAL: Web editors (ChatGPT, Google Docs, etc.) often use PANE role
+        if (isWebBrowser)
+        {
+            if (isReadonly)
+            {
+                Logger.Debug($"   ⚠ PANE role in web browser but readonly");
+                return false;
+            }
+
+            // Check if this pane is focused and potentially editable
+            try
+            {
+                int stateValue = acc.get_accState(childId) is int s ? s : 0;
+                bool isFocused = (stateValue & NativeMethods.STATE_SYSTEM_FOCUSED) != 0;
+                bool isFocusable = (stateValue & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+
+                if (isFocused || isFocusable)
+                {
+                    Logger.Debug($"   ✅ PANE role in web browser (focused/focusable, likely contenteditable)");
+                    return true;
+                }
+            }
+            catch { }
+
+            // Try to check if it has value interface (some web editors provide this)
+            try
+            {
+                string value = acc.get_accValue(childId);
+                if (value != null)
+                {
+                    Logger.Debug($"   ✅ PANE role in web browser with value interface");
+                    return true;
+                }
+            }
+            catch { }
+
+            Logger.Debug($"   ⚠ PANE role in web browser but not focusable and no value");
+            return false;
+        }
+
+        // Non-web-browser PANE validation
+        if (isReadonly) return false;
+
+        try
+        {
+            string value = acc.get_accValue(childId);
+            if (value != null)
+            {
+                Logger.Debug($"   ✅ PANE role with value interface");
+                return true;
+            }
+        }
+        catch { }
+
+        Logger.Debug($"   ⚠ PANE role without value interface");
         return false;
     }
 
@@ -707,6 +817,12 @@ public class WinEventFocusTracker : IDisposable
     {
         if (string.IsNullOrEmpty(classLower)) return false;
         return ChromeRenderClasses.Any(chrome => classLower.Contains(chrome));
+    }
+
+    private bool IsWebBrowserClass(string classLower)
+    {
+        if (string.IsNullOrEmpty(classLower)) return false;
+        return WebBrowserClasses.Any(browser => classLower.Contains(browser));
     }
 
     private bool IsBlacklistedProcess(uint pid)
@@ -814,7 +930,7 @@ public class WinEventFocusTracker : IDisposable
 
         if (_isKeyboardVisible?.Invoke() == true)
         {
-            Logger.Debug("⭕️ Direct click ignored: Keyboard already visible");
+            Logger.Debug("⏸️ Direct click ignored: Keyboard already visible");
             return;
         }
 
@@ -854,7 +970,7 @@ public class WinEventFocusTracker : IDisposable
                     return;
                 }
 
-                Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                Logger.Debug("┌─────────────────────────────────────────────────");
                 Logger.Debug($"🔍 DIRECT CLICK CHECK: HWND={hwnd:X}");
 
                 var elementInfo = BuildElementInfo(acc, childId, hwnd, "DirectClick");
@@ -970,7 +1086,7 @@ public class WinEventFocusTracker : IDisposable
 
     private void LogSeparator()
     {
-        Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        Logger.Debug("└─────────────────────────────────────────────────");
     }
 
     public void Dispose()
