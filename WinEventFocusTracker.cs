@@ -39,12 +39,11 @@ public class WinEventFocusTracker : IDisposable
         "chrome_renderwidgethosthwnd", "chrome_widgetwin_", "intermediate d3d window"
     };
 
-    // Web browser classes for special handling
     private static readonly string[] WebBrowserClasses = new[]
     {
-        "mozillawindowclass",      // Firefox
-        "chrome_widgetwin_",       // Chrome/Edge
-        "applicationframewindow"   // Edge
+        "mozillawindowclass",
+        "chrome_widgetwin_",
+        "applicationframewindow"
     };
 
     private static readonly int[] SystemControlRoles = new[]
@@ -177,7 +176,6 @@ public class WinEventFocusTracker : IDisposable
         var origin = inputSource.originId;
         var device = inputSource.deviceType;
 
-        // Hardware input validation
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
         {
             if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
@@ -193,7 +191,6 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Reject programmatic input
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
         {
             Logger.Debug("⚠ STEP 2 FAILED: Programmatic input (IMO_INJECTED)");
@@ -206,7 +203,6 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Additional validation when source unavailable
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
         {
             Logger.Debug("⚠️ Input source UNAVAILABLE - performing additional validation");
@@ -234,7 +230,6 @@ public class WinEventFocusTracker : IDisposable
 
         LogLastClickInfo(lastClick);
 
-        // Check 1: Pointer input validation
         if (!lastClick.IsPointerInput)
         {
             Logger.Debug($"   ⚠ Validation FAILED: Last click was not pointer input");
@@ -242,7 +237,6 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug("   ✅ Check 1 passed: Last click was pointer input");
 
-        // Check 2: Most recent input validation
         if (!_pointerTracker.IsLastInputPointerClick())
         {
             Logger.Debug("   ⚠ Validation FAILED: Pointer click is not the most recent input");
@@ -250,7 +244,6 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug("   ✅ Check 2 passed: Pointer click is the most recent input");
 
-        // Check 3: Window relationship validation
         if (!AreWindowsRelated(lastClick.WindowHandle, elementInfo.WindowHandle))
         {
             Logger.Debug($"   ⚠ Validation FAILED: Click HWND ({lastClick.WindowHandle:X}) not related to focus HWND ({elementInfo.WindowHandle:X})");
@@ -258,7 +251,6 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug($"   ✅ Check 3 passed: Click HWND related to focus HWND");
 
-        // Check 3.5: Direct parent/child relationship validation
         if (lastClick.WindowHandle != elementInfo.WindowHandle)
         {
             bool isDirectRelation = IsParentOf(lastClick.WindowHandle, elementInfo.WindowHandle) ||
@@ -274,14 +266,45 @@ public class WinEventFocusTracker : IDisposable
             Logger.Debug($"   ✅ Check 3.5 passed: Direct parent/child relationship confirmed");
         }
 
-        // Check 4: Bounds validation
-        if (!elementInfo.Bounds.Contains(lastClick.Position))
+        // CRITICAL: Relax bounds check for web browsers (contenteditable often has incorrect bounds)
+        bool isWebBrowser = IsWebBrowserClass(elementInfo.ClassName?.ToLowerInvariant() ?? "");
+        
+        if (!elementInfo.Bounds.IsEmpty && !elementInfo.Bounds.Contains(lastClick.Position))
         {
-            Logger.Debug($"   ⚠ Validation FAILED: Click ({lastClick.Position.X}, {lastClick.Position.Y}) outside element bounds");
-            Logger.Debug($"      Element bounds: ({elementInfo.Bounds.X}, {elementInfo.Bounds.Y}, {elementInfo.Bounds.Width}x{elementInfo.Bounds.Height})");
-            return false;
+            if (isWebBrowser)
+            {
+                // For web browsers, use relaxed bounds check (allow clicks nearby)
+                const int tolerance = 200; // pixels
+                Rectangle expandedBounds = new Rectangle(
+                    elementInfo.Bounds.X - tolerance,
+                    elementInfo.Bounds.Y - tolerance,
+                    elementInfo.Bounds.Width + (tolerance * 2),
+                    elementInfo.Bounds.Height + (tolerance * 2)
+                );
+
+                if (expandedBounds.Contains(lastClick.Position))
+                {
+                    Logger.Debug($"   ⚠️ Click outside strict bounds but within tolerance for web browser");
+                    Logger.Debug($"   ✅ Check 4 relaxed: Click within expanded bounds (tolerance: {tolerance}px)");
+                }
+                else
+                {
+                    Logger.Debug($"   ⚠ Validation FAILED: Click ({lastClick.Position.X}, {lastClick.Position.Y}) outside expanded bounds");
+                    Logger.Debug($"      Element bounds: ({elementInfo.Bounds.X}, {elementInfo.Bounds.Y}, {elementInfo.Bounds.Width}x{elementInfo.Bounds.Height})");
+                    return false;
+                }
+            }
+            else
+            {
+                Logger.Debug($"   ⚠ Validation FAILED: Click ({lastClick.Position.X}, {lastClick.Position.Y}) outside element bounds");
+                Logger.Debug($"      Element bounds: ({elementInfo.Bounds.X}, {elementInfo.Bounds.Y}, {elementInfo.Bounds.Width}x{elementInfo.Bounds.Height})");
+                return false;
+            }
         }
-        Logger.Debug($"   ✅ Check 4 passed: Click inside element bounds");
+        else
+        {
+            Logger.Debug($"   ✅ Check 4 passed: Click inside element bounds");
+        }
 
         Logger.Debug("   ✅ ALL VALIDATION CHECKS PASSED");
         return true;
@@ -512,8 +535,8 @@ public class WinEventFocusTracker : IDisposable
         if (isUnavailable) return false;
 
         string classLower = className?.ToLowerInvariant() ?? "";
+        bool isWebBrowser = IsWebBrowserClass(classLower);
 
-        // Quick checks for common cases
         if (role == NativeMethods.ROLE_SYSTEM_CARET)
         {
             Logger.Debug($"   ✅ CARET (insertion point) detected");
@@ -540,8 +563,7 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Role-based validation
-        return ValidateByRole(role, state, className, acc, childId, isReadonly);
+        return ValidateByRole(role, state, className, acc, childId, isReadonly, isWebBrowser);
     }
 
     private bool ValidateChromeRenderWidget(NativeMethods.IAccessible acc, object childId, int role, bool isFocusable)
@@ -565,12 +587,10 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
-    private bool ValidateByRole(int role, int state, string className, NativeMethods.IAccessible acc, object childId, bool isReadonly)
+    private bool ValidateByRole(int role, int state, string className, NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
     {
         string classLower = className?.ToLowerInvariant() ?? "";
-        bool isWebBrowser = IsWebBrowserClass(classLower);
 
-        // Edit controls
         if (classLower.Contains("edit") && !isReadonly)
         {
             try
@@ -581,24 +601,22 @@ public class WinEventFocusTracker : IDisposable
             catch { }
         }
 
-        // Console/Terminal
         if (classLower.Contains("console") || classLower.Contains("cmd") || classLower.Contains("terminal"))
             return true;
 
-        // Role-specific checks
         switch (role)
         {
             case NativeMethods.ROLE_SYSTEM_TEXT:
                 return ValidateTextRole(acc, childId, isReadonly);
 
             case NativeMethods.ROLE_SYSTEM_DOCUMENT:
-                return ValidateDocumentRole(acc, childId, isReadonly, isWebBrowser);
+                return ValidateDocumentRole(isReadonly, isWebBrowser);
 
             case NativeMethods.ROLE_SYSTEM_CLIENT:
-                return ValidateClientRole(acc, childId, isReadonly, isWebBrowser);
+                return ValidateClientRole(acc, childId, state, isReadonly, isWebBrowser);
 
             case NativeMethods.ROLE_SYSTEM_PANE:
-                return ValidatePaneRole(acc, childId, isReadonly, isWebBrowser);
+                return ValidatePaneRole(acc, childId, state, isReadonly, isWebBrowser);
 
             case NativeMethods.ROLE_SYSTEM_COMBOBOX:
                 return ValidateComboboxRole(acc, childId, isReadonly);
@@ -628,16 +646,16 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
-    private bool ValidateDocumentRole(NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
+    private bool ValidateDocumentRole(bool isReadonly, bool isWebBrowser)
     {
-        // Web browsers expose contenteditable as DOCUMENT role
-        if (isWebBrowser && !isReadonly)
+        // CRITICAL: Web browsers often incorrectly report contenteditable as readonly
+        // Trust focusable state over readonly flag for web content
+        if (isWebBrowser)
         {
-            Logger.Debug($"   ✅ DOCUMENT role in web browser (likely contenteditable)");
+            Logger.Debug($"   ✅ DOCUMENT role in web browser (ignoring readonly flag, likely contenteditable)");
             return true;
         }
 
-        // Regular document validation
         if (!isReadonly)
         {
             Logger.Debug($"   ✅ DOCUMENT role (editable)");
@@ -648,26 +666,24 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
-    private bool ValidateClientRole(NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
+    private bool ValidateClientRole(NativeMethods.IAccessible acc, object childId, int state, bool isReadonly, bool isWebBrowser)
     {
-        // Web browsers often use CLIENT role for contenteditable
-        if (isWebBrowser && !isReadonly)
+        if (isWebBrowser)
         {
-            try
+            bool isFocused = (state & NativeMethods.STATE_SYSTEM_FOCUSED) != 0;
+            
+            if (isFocused || !isReadonly)
             {
-                bool isFocused = (acc.get_accState(childId) is int s) && 
-                                 ((s & NativeMethods.STATE_SYSTEM_FOCUSED) != 0);
-                
-                if (isFocused)
-                {
-                    Logger.Debug($"   ✅ CLIENT role in web browser (focused, likely contenteditable)");
-                    return true;
-                }
+                Logger.Debug($"   ✅ CLIENT role in web browser (focused={isFocused}, readonly={isReadonly})");
+                return true;
             }
-            catch { }
         }
 
-        if (isReadonly) return false;
+        if (isReadonly)
+        {
+            Logger.Debug($"   ⚠ CLIENT role but readonly");
+            return false;
+        }
 
         try
         {
@@ -684,50 +700,32 @@ public class WinEventFocusTracker : IDisposable
         return false;
     }
 
-    private bool ValidatePaneRole(NativeMethods.IAccessible acc, object childId, bool isReadonly, bool isWebBrowser)
+    private bool ValidatePaneRole(NativeMethods.IAccessible acc, object childId, int state, bool isReadonly, bool isWebBrowser)
     {
-        // CRITICAL: Web editors (ChatGPT, Google Docs, etc.) often use PANE role
+        // CRITICAL FIX: ChatGPT and other contenteditable use PANE role
         if (isWebBrowser)
         {
-            if (isReadonly)
+            // Web browsers: trust focusable + not explicitly unavailable
+            bool isFocused = (state & NativeMethods.STATE_SYSTEM_FOCUSED) != 0;
+            bool isFocusable = (state & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
+            
+            // Ignore readonly flag for web content (often incorrect for contenteditable)
+            if (isFocused || isFocusable)
             {
-                Logger.Debug($"   ⚠ PANE role in web browser but readonly");
-                return false;
+                Logger.Debug($"   ✅ PANE role in web browser (focused={isFocused}, focusable={isFocusable}, ignoring readonly)");
+                return true;
             }
 
-            // Check if this pane is focused and potentially editable
-            try
-            {
-                int stateValue = acc.get_accState(childId) is int s ? s : 0;
-                bool isFocused = (stateValue & NativeMethods.STATE_SYSTEM_FOCUSED) != 0;
-                bool isFocusable = (stateValue & NativeMethods.STATE_SYSTEM_FOCUSABLE) != 0;
-
-                if (isFocused || isFocusable)
-                {
-                    Logger.Debug($"   ✅ PANE role in web browser (focused/focusable, likely contenteditable)");
-                    return true;
-                }
-            }
-            catch { }
-
-            // Try to check if it has value interface (some web editors provide this)
-            try
-            {
-                string value = acc.get_accValue(childId);
-                if (value != null)
-                {
-                    Logger.Debug($"   ✅ PANE role in web browser with value interface");
-                    return true;
-                }
-            }
-            catch { }
-
-            Logger.Debug($"   ⚠ PANE role in web browser but not focusable and no value");
+            Logger.Debug($"   ⚠ PANE role in web browser but not focused/focusable");
             return false;
         }
 
-        // Non-web-browser PANE validation
-        if (isReadonly) return false;
+        // Non-browser PANE validation
+        if (isReadonly)
+        {
+            Logger.Debug($"   ⚠ PANE role but readonly");
+            return false;
+        }
 
         try
         {
@@ -892,7 +890,6 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
-            // Top-right corner check (close button area)
             if (clickInfo.WindowHandle != IntPtr.Zero)
             {
                 if (NativeMethods.GetWindowRect(clickInfo.WindowHandle, out NativeMethods.RECT rect))
@@ -1043,7 +1040,6 @@ public class WinEventFocusTracker : IDisposable
         return true;
     }
 
-    // Helper methods
     private string GetClassName(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return "";
