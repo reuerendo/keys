@@ -13,11 +13,9 @@ public class ForegroundWindowTracker : IDisposable
 {
     #region Win32 API
 
-    // Event hook constants
     private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
-    // Window style constants
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOOLWINDOW = 0x00000080L;
     private const long WS_EX_APPWINDOW = 0x00040000L;
@@ -25,7 +23,6 @@ public class ForegroundWindowTracker : IDisposable
     private const uint PROCESS_QUERY_INFORMATION = 0x0400;
     private const uint PROCESS_VM_READ = 0x0010;
 
-    // Delegate for the event hook callback
     private delegate void WinEventDelegate(
         IntPtr hWinEventHook,
         uint eventType,
@@ -87,24 +84,22 @@ public class ForegroundWindowTracker : IDisposable
 
     #region Ignored Windows Lists
 
-    // System window classes to ignore (NEVER track these)
     private static readonly HashSet<string> AlwaysIgnoredClasses = new HashSet<string>
     {
-        "Shell_TrayWnd",                           // Taskbar
-        "Shell_SecondaryTrayWnd",                  // Secondary taskbar
-        "Progman",                                 // Desktop
-        "WorkerW",                                 // Desktop worker
-        "Windows.UI.Core.CoreWindow",              // Modern UI system windows
-        "NotifyIconOverflowWindow",                // Notification area overflow
-        "TopLevelWindowForOverflowXamlIsland",     // System tray overflow
-        "Windows.UI.Input.InputSite.WindowClass",  // INPUT SITE - SYSTEM WINDOW
-        "ForegroundStaging",                       // Windows staging window
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+        "Progman",
+        "WorkerW",
+        "Windows.UI.Core.CoreWindow",
+        "NotifyIconOverflowWindow",
+        "TopLevelWindowForOverflowXamlIsland",
+        "Windows.UI.Input.InputSite.WindowClass",
+        "ForegroundStaging",
     };
 
-    // Classes that require additional checks (title, process, etc.)
     private static readonly HashSet<string> ConditionallyIgnoredClasses = new HashSet<string>
     {
-        "ApplicationFrameWindow",  // UWP app frame - check if it has meaningful title
+        "ApplicationFrameWindow",
     };
 
     private static readonly HashSet<string> IgnoredProcesses = new HashSet<string>
@@ -116,13 +111,18 @@ public class ForegroundWindowTracker : IDisposable
         "SystemSettings.exe",
         "LockApp.exe",
     };
+    
+    private static readonly HashSet<string> DialogClasses = new HashSet<string>
+    {
+        "#32770",
+    };
 
     #endregion
 
     #region Fields
 
     private readonly IntPtr _keyboardWindowHandle;
-    private readonly WinEventDelegate _hookDelegate; // Keep reference to prevent GC
+    private readonly WinEventDelegate _hookDelegate;
     private IntPtr _hookHandle = IntPtr.Zero;
     private IntPtr _lastValidWindow = IntPtr.Zero;
     private readonly object _lockObject = new object();
@@ -134,10 +134,8 @@ public class ForegroundWindowTracker : IDisposable
     {
         _keyboardWindowHandle = keyboardWindowHandle;
         
-        // Store delegate to prevent garbage collection
         _hookDelegate = new WinEventDelegate(WinEventProc);
         
-        // Install the hook
         _hookHandle = SetWinEventHook(
             EVENT_SYSTEM_FOREGROUND,
             EVENT_SYSTEM_FOREGROUND,
@@ -157,9 +155,6 @@ public class ForegroundWindowTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Event hook callback - called whenever foreground window changes
-    /// </summary>
     private void WinEventProc(
         IntPtr hWinEventHook,
         uint eventType,
@@ -169,22 +164,18 @@ public class ForegroundWindowTracker : IDisposable
         uint dwEventThread,
         uint dwmsEventTime)
     {
-        // Only process if it's a window (not a child object)
         if (idObject != 0 || idChild != 0)
             return;
 
-        // Validate window
         if (!IsValidWindow(hwnd))
             return;
 
-        // Check if should ignore
         if (ShouldIgnoreWindow(hwnd))
         {
             Logger.Debug($"Ignoring foreground change to: {GetWindowInfo(hwnd)}");
             return;
         }
 
-        // Save as last valid window
         lock (_lockObject)
         {
             _lastValidWindow = hwnd;
@@ -192,14 +183,10 @@ public class ForegroundWindowTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Get the last valid foreground window (before tray/keyboard/system windows)
-    /// </summary>
     public IntPtr GetLastValidWindow()
     {
         lock (_lockObject)
         {
-            // Verify window is still valid
             if (_lastValidWindow != IntPtr.Zero && 
                 IsWindow(_lastValidWindow) && 
                 IsWindowVisible(_lastValidWindow))
@@ -213,9 +200,6 @@ public class ForegroundWindowTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Check if we have a valid tracked window
-    /// </summary>
     public bool HasValidWindow()
     {
         lock (_lockObject)
@@ -226,9 +210,6 @@ public class ForegroundWindowTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Clear the tracked window (call only on app exit)
-    /// </summary>
     public void ClearTrackedWindow()
     {
         lock (_lockObject)
@@ -237,90 +218,77 @@ public class ForegroundWindowTracker : IDisposable
         }
     }
 
-    /// <summary>
-    /// Check if window handle is valid
-    /// </summary>
     private bool IsValidWindow(IntPtr hWnd)
     {
         return hWnd != IntPtr.Zero && IsWindow(hWnd);
     }
 
-    /// <summary>
-    /// Check if window should be ignored
-    /// </summary>
     private bool ShouldIgnoreWindow(IntPtr hWnd)
     {
         if (!IsValidWindow(hWnd))
             return true;
 
-        // Ignore keyboard itself
         if (hWnd == _keyboardWindowHandle)
             return true;
 
-        // Check if window is visible
         if (!IsWindowVisible(hWnd))
             return true;
 
-        // Get class name
         StringBuilder className = new StringBuilder(256);
         GetClassName(hWnd, className, className.Capacity);
         string classStr = className.ToString();
 
-        // ALWAYS ignore system windows (no exceptions)
         if (AlwaysIgnoredClasses.Contains(classStr))
             return true;
 
-        // Get window title (needed for conditional checks)
         StringBuilder title = new StringBuilder(256);
         GetWindowText(hWnd, title, title.Capacity);
         string titleStr = title.ToString();
 
-        // Get process info
         uint processId;
         GetWindowThreadProcessId(hWnd, out processId);
         string processName = GetProcessName(processId);
 
-        // CONDITIONAL CHECK: ApplicationFrameWindow (UWP apps)
         if (ConditionallyIgnoredClasses.Contains(classStr))
         {
-            // UWP apps with meaningful titles should NOT be ignored
             if (classStr == "ApplicationFrameWindow" && !string.IsNullOrWhiteSpace(titleStr))
             {
                 Logger.Debug($"Accepting UWP app: Title='{titleStr}', Process='{processName}'");
-                return false; // DON'T ignore - this is a real UWP app
+                return false;
             }
             
-            // UWP apps without titles are likely system windows
             Logger.Debug($"Ignoring UWP system window without title: Process='{processName}'");
             return true;
         }
 
-        // CRITICAL: Ignore Explorer.EXE windows without title (system windows)
         if (processName == "Explorer.EXE" && string.IsNullOrWhiteSpace(titleStr))
         {
             Logger.Debug($"Ignoring Explorer.EXE system window without title: Class='{classStr}'");
             return true;
         }
 
-        // Check ignored processes
         if (IgnoredProcesses.Contains(processName))
             return true;
 
-        // Check window styles - ignore tool windows without WS_EX_APPWINDOW
         int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
         if ((exStyle & WS_EX_TOOLWINDOW) != 0 && (exStyle & WS_EX_APPWINDOW) == 0)
             return true;
 
-        // Ignore windows with owners (dialogs/popups that aren't main windows)
         IntPtr owner = GetWindow(hWnd, GW_OWNER);
         if (owner != IntPtr.Zero)
+        {
+            if (IsValidDialog(classStr, titleStr))
+            {
+                Logger.Debug($"Accepting dialog window: Class='{classStr}', Title='{titleStr}'");
+                return false;
+            }
+            
+            Logger.Debug($"Ignoring owned window (not a valid dialog): Class='{classStr}'");
             return true;
+        }
 
-        // ADDITIONAL CHECK: Ignore windows without meaningful titles (likely system windows)
-        // Exception: some apps like terminals might have no title initially
         if (string.IsNullOrWhiteSpace(titleStr))
         {
-            // Allow certain processes to have empty titles
             var allowedEmptyTitle = new[] { "WindowsTerminal.exe", "cmd.exe", "powershell.exe", "conhost.exe" };
             bool isAllowed = false;
             foreach (var allowed in allowedEmptyTitle)
@@ -342,9 +310,21 @@ public class ForegroundWindowTracker : IDisposable
         return false;
     }
 
-    /// <summary>
-    /// Get process name from process ID
-    /// </summary>
+    private bool IsValidDialog(string className, string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return false;
+
+        if (DialogClasses.Contains(className))
+            return true;
+
+        string classLower = className.ToLowerInvariant();
+        if (classLower.Contains("dialog") || classLower.Contains("dlg"))
+            return true;
+
+        return false;
+    }
+
     private string GetProcessName(uint processId)
     {
         IntPtr hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, processId);
@@ -362,9 +342,6 @@ public class ForegroundWindowTracker : IDisposable
         return "Unknown";
     }
 
-    /// <summary>
-    /// Get detailed information about a window (for logging)
-    /// </summary>
     private string GetWindowInfo(IntPtr hWnd)
     {
         if (!IsValidWindow(hWnd))
@@ -384,9 +361,6 @@ public class ForegroundWindowTracker : IDisposable
         return $"HWND=0x{hWnd:X}, Title='{title}', Class='{className}', Process='{processName}' (PID={processId})";
     }
 
-    /// <summary>
-    /// Dispose resources
-    /// </summary>
     public void Dispose()
     {
         if (_isDisposed)
