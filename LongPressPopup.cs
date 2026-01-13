@@ -580,7 +580,9 @@ public class LongPressPopup
                 ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
-                    new LongPressOption("·", "·")
+                    new LongPressOption("·", "·"),
+					new LongPressOption("•", "•"),
+					new LongPressOption("_", "_")
                 }
             },
             ["Polish"] = new Dictionary<string, List<LongPressOption>>
@@ -752,7 +754,9 @@ public class LongPressPopup
                 ["."] = new List<LongPressOption>
                 {
                     new LongPressOption("…", "…"),
-                    new LongPressOption("·", "·")
+                    new LongPressOption("·", "·"),
+					new LongPressOption("•", "•"),
+					new LongPressOption("_", "_")
                 }
             },
             
@@ -852,7 +856,9 @@ public class LongPressPopup
                 {
                     new LongPressOption(":", ":"),
                     new LongPressOption("…", "…"),
-                    new LongPressOption("·", "·")
+                    new LongPressOption("·", "·"),
+					new LongPressOption("•", "•"),
+					new LongPressOption("_", "_")
                 },
                 ["t"] = new List<LongPressOption>
                 {
