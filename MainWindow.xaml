@@ -55,7 +55,7 @@
                 
                 <!-- Clipboard Block -->
                 <StackPanel Orientation="Horizontal" 
-                            Margin="120,6,0,0"
+                            Margin="114,6,0,0"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
                             Spacing="6">
