@@ -795,8 +795,70 @@ public class WinEventFocusTracker : IDisposable
     }
 
     /// <summary>
+    /// Get currently focused element from the system (works across process boundaries)
+    /// </summary>
+    private ElementInfo GetCurrentlyFocusedElement()
+    {
+        try
+        {
+            IntPtr hwnd = NativeMethods.GetForegroundWindow();
+            if (hwnd == IntPtr.Zero || hwnd == _keyboardWindowHandle)
+                return null;
+
+            // Query the system for the currently focused accessible object
+            int hr = NativeMethods.AccessibleObjectFromWindow(
+                hwnd,
+                NativeMethods.OBJID_CLIENT,
+                ref NativeMethods.IID_IAccessible,
+                out object obj);
+
+            if (hr >= 0 && obj is NativeMethods.IAccessible rootAcc)
+            {
+                try
+                {
+                    // Get the focused child from the root accessible
+                    object focusedObj = rootAcc.accFocus;
+                    
+                    if (focusedObj is NativeMethods.IAccessible focusedAcc)
+                    {
+                        try
+                        {
+                            var elementInfo = BuildElementInfo(focusedAcc, 0, hwnd, "FocusQuery");
+                            return elementInfo;
+                        }
+                        finally
+                        {
+                            Marshal.ReleaseComObject(focusedAcc);
+                        }
+                    }
+                    else if (focusedObj is int childId && childId != 0)
+                    {
+                        // Focused element is identified by child ID
+                        var elementInfo = BuildElementInfo(rootAcc, childId, hwnd, "FocusQuery");
+                        return elementInfo;
+                    }
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(rootAcc);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"   ⚠️ Error in GetCurrentlyFocusedElement: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    /// <summary>
     /// Recursively search for text input child element at click position
     /// Used when AccessibleObjectFromPoint returns parent container instead of actual input
+    /// NOTE: This doesn't work in Firefox e10s (returns 0 children) - use GetCurrentlyFocusedElement instead
     /// </summary>
     private ElementInfo FindTextInputChild(NativeMethods.IAccessible parentAcc, Point clickPoint, IntPtr hwnd)
     {
@@ -945,45 +1007,59 @@ public class WinEventFocusTracker : IDisposable
                 {
                     Logger.Debug($"⚠ Not a text input - Role: {elementInfo?.Role ?? 0}");
                     
-                    // CRITICAL FIX: Search for text input among children (Firefox returns parent container)
                     if (elementInfo != null && elementInfo.Role == NativeMethods.ROLE_SYSTEM_CLIENT)
                     {
-                        Logger.Debug("🔍 Container detected - searching for text input among children...");
-                        var childTextInput = FindTextInputChild(acc, clickInfo.Position, hwnd);
+                        Logger.Debug("🔍 Container detected - checking for focused child element...");
                         
-                        if (childTextInput != null)
+                        // CRITICAL FIX: Instead of searching children (which returns 0 in Firefox e10s),
+                        // wait briefly and query the actual focused element from the system
+                        System.Threading.Thread.Sleep(50);
+                        
+                        var focusedElement = GetCurrentlyFocusedElement();
+                        
+                        if (focusedElement != null && focusedElement.IsTextInput)
                         {
-                            Logger.Info($"✅ Found text input child - Role: {childTextInput.Role}, Class: {childTextInput.ClassName}");
-                            
-                            Logger.Debug("🔍 Performing validation with PointerTracker...");
-                            bool isValidClick = ValidateWithPointerTracker(childTextInput);
-                            
-                            if (isValidClick)
+                            // Check if click was inside focused element bounds
+                            if (focusedElement.Bounds.Contains(clickInfo.Position))
                             {
-                                Logger.Info("🎉 DECISION: SHOW KEYBOARD (click on text input child)");
-                                LogSeparator();
+                                Logger.Info($"✅ Found focused text input - Role: {focusedElement.Role}, Class: {focusedElement.ClassName}");
                                 
-                                TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+                                Logger.Debug("🔍 Performing validation with PointerTracker...");
+                                bool isValidClick = ValidateWithPointerTracker(focusedElement);
+                                
+                                if (isValidClick)
                                 {
-                                    WindowHandle = hwnd,
-                                    ControlType = childTextInput.Role,
-                                    ClassName = childTextInput.ClassName,
-                                    Name = childTextInput.Name,
-                                    IsPassword = childTextInput.IsPassword,
-                                    ProcessId = childTextInput.ProcessId
-                                });
-                                
-                                Marshal.ReleaseComObject(acc);
-                                return;
+                                    Logger.Info("🎉 DECISION: SHOW KEYBOARD (click on already-focused text input)");
+                                    LogSeparator();
+                                    
+                                    TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+                                    {
+                                        WindowHandle = focusedElement.WindowHandle,
+                                        ControlType = focusedElement.Role,
+                                        ClassName = focusedElement.ClassName,
+                                        Name = focusedElement.Name,
+                                        IsPassword = focusedElement.IsPassword,
+                                        ProcessId = focusedElement.ProcessId
+                                    });
+                                    
+                                    Marshal.ReleaseComObject(acc);
+                                    return;
+                                }
+                                else
+                                {
+                                    Logger.Debug("⚠ Validation failed for focused text input");
+                                }
                             }
                             else
                             {
-                                Logger.Debug("⚠ Validation failed for child text input");
+                                Logger.Debug($"⚠ Click outside focused element bounds");
+                                Logger.Debug($"   Click: ({clickInfo.Position.X}, {clickInfo.Position.Y})");
+                                Logger.Debug($"   Element: ({focusedElement.Bounds.X}, {focusedElement.Bounds.Y}, {focusedElement.Bounds.Width}x{focusedElement.Bounds.Height})");
                             }
                         }
                         else
                         {
-                            Logger.Debug("⚠ No text input child found at click position");
+                            Logger.Debug("⚠ No focused text input element found");
                         }
                     }
                     
