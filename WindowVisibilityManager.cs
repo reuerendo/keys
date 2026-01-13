@@ -176,7 +176,6 @@ public class WindowVisibilityManager : IDisposable
 
     private void OnNonTextInputFocused(object sender, FocusEventArgs e)
     {
-        // Optional: Auto-hide logic could go here if desired
     }
 
     public bool IsVisible()
@@ -217,13 +216,8 @@ public class WindowVisibilityManager : IDisposable
         try
         {
             ResetAllModifiers();
-            
-            _layoutManager.ResetSymbolModeIfActive();
-            _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
-            
+            ExitSymbolModeIfActive();
             ShowWindow(_windowHandle, SW_HIDE);
-            
-            Logger.Info("Window hidden, symbol mode reset to language layout");
         }
         catch (Exception ex)
         {
@@ -254,6 +248,7 @@ public class WindowVisibilityManager : IDisposable
         try
         {
             ResetAllModifiers();
+            ExitSymbolModeIfActive();
             DisableAutoShow();
             
             _focusManager.ClearTrackedWindow();
@@ -280,6 +275,16 @@ public class WindowVisibilityManager : IDisposable
         if (_stateManager.IsCapsLockActive) _stateManager.ToggleCapsLock();
         
         _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
+    }
+
+    private void ExitSymbolModeIfActive()
+    {
+        if (_layoutManager.IsSymbolMode)
+        {
+            _layoutManager.ToggleSymbolMode();
+            _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
+            Logger.Info("Symbol mode reset on hide - restored previous language layout");
+        }
     }
 
     public void Dispose()
