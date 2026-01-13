@@ -7,7 +7,8 @@ namespace VirtualKeyboard;
 
 /// <summary>
 /// Window visibility manager with real-time focus tracking and auto-show support.
-/// Refactored to use WinEventFocusTracker (Native MSAA) instead of FlaUI.
+/// Uses WinEventFocusTracker with strict input validation algorithm.
+/// Resets symbol layout when hiding to tray.
 /// </summary>
 public class WindowVisibilityManager : IDisposable
 {
@@ -19,9 +20,6 @@ public class WindowVisibilityManager : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
 
     private readonly IntPtr _windowHandle;
     private readonly Window _window;
@@ -35,13 +33,12 @@ public class WindowVisibilityManager : IDisposable
     private readonly SettingsManager _settingsManager;
     
     private WinEventFocusTracker _focusTracker;
-    private MouseClickDetector _clickDetector;
+    private PointerInputTracker _pointerTracker;
     
     private bool _isDisposed = false;
     private bool _autoShowEnabled = false;
+    private bool _wasSymbolModeActiveBeforeHide = false;
     private readonly object _showLock = new object();
-    private DateTime _lastAutoShowTime = DateTime.MinValue;
-    private const int AUTO_SHOW_DEBOUNCE_MS = 300; 
 
     public WindowVisibilityManager(
         IntPtr windowHandle,
@@ -67,17 +64,17 @@ public class WindowVisibilityManager : IDisposable
         
         try 
         {
-            _clickDetector = new MouseClickDetector();
-            Logger.Info("MouseClickDetector initialized in WindowVisibilityManager");
+            _pointerTracker = new PointerInputTracker();
+            Logger.Info("✅ PointerInputTracker initialized in WindowVisibilityManager");
         }
         catch (Exception ex)
         {
-            Logger.Error("Failed to init MouseClickDetector", ex);
+            Logger.Error("❌ Failed to init PointerInputTracker", ex);
         }
 
         InitializeAutoShow();
         
-        Logger.Info("WindowVisibilityManager initialized with lightweight IAccessible tracking");
+        Logger.Info("WindowVisibilityManager initialized with strict input validation algorithm");
     }
 
     private void InitializeAutoShow()
@@ -100,18 +97,19 @@ public class WindowVisibilityManager : IDisposable
         {
             try
             {
-                Logger.Info("🔄 Creating WinEvent Focus Tracker...");
+                Logger.Info("🔄 Creating WinEvent Focus Tracker with strict validation...");
                 
-                if (_clickDetector == null) _clickDetector = new MouseClickDetector();
+                if (_pointerTracker == null)
+                {
+                    _pointerTracker = new PointerInputTracker();
+                }
 
-                _focusTracker = new WinEventFocusTracker(_windowHandle, _clickDetector, requireClickForAutoShow: true);
-                
+                _focusTracker = new WinEventFocusTracker(_windowHandle, _pointerTracker);
                 _focusTracker.SetKeyboardVisibilityChecker(() => IsVisible());
-                
                 _focusTracker.TextInputFocused += OnTextInputFocused;
                 _focusTracker.NonTextInputFocused += OnNonTextInputFocused;
                 
-                Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA)");
+                Logger.Info("✅ Native Focus Tracker enabled (WinEvents + MSAA + Strict Validation)");
             }
             catch (Exception ex)
             {
@@ -160,12 +158,11 @@ public class WindowVisibilityManager : IDisposable
         
         lock (_showLock)
         {
-            if (IsVisible()) return;
-
-            var timeSinceLastShow = (DateTime.UtcNow - _lastAutoShowTime).TotalMilliseconds;
-            if (timeSinceLastShow < AUTO_SHOW_DEBOUNCE_MS) return;
-
-            _lastAutoShowTime = DateTime.UtcNow;
+            if (IsVisible())
+            {
+                Logger.Debug("Keyboard already visible - skipping");
+                return;
+            }
         }
         
         await Task.Delay(100);
@@ -176,6 +173,7 @@ public class WindowVisibilityManager : IDisposable
 
     private void OnNonTextInputFocused(object sender, FocusEventArgs e)
     {
+        // Optional: Auto-hide logic could go here if desired
     }
 
     public bool IsVisible()
@@ -191,6 +189,12 @@ public class WindowVisibilityManager : IDisposable
         {
             _positionManager?.PositionWindow(showWindow: false);
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
+            
+            if (_wasSymbolModeActiveBeforeHide)
+            {
+                _wasSymbolModeActiveBeforeHide = false;
+                Logger.Info("Symbol mode was active before hide, UI already shows language layout");
+            }
             
             if (preserveFocus && _focusManager.HasValidTrackedWindow())
             {
@@ -216,7 +220,19 @@ public class WindowVisibilityManager : IDisposable
         try
         {
             ResetAllModifiers();
-            ExitSymbolModeIfActive();
+            
+            if (_layoutManager.IsSymbolMode)
+            {
+                _wasSymbolModeActiveBeforeHide = true;
+                _layoutManager.ToggleSymbolMode();
+                _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
+                Logger.Info("Symbol mode reset to language layout before hiding");
+            }
+            else
+            {
+                _wasSymbolModeActiveBeforeHide = false;
+            }
+            
             ShowWindow(_windowHandle, SW_HIDE);
         }
         catch (Exception ex)
@@ -248,14 +264,12 @@ public class WindowVisibilityManager : IDisposable
         try
         {
             ResetAllModifiers();
-            ExitSymbolModeIfActive();
             DisableAutoShow();
             
             _focusManager.ClearTrackedWindow();
             _focusManager?.Dispose();
             
-            _clickDetector?.Dispose();
-            
+            _pointerTracker?.Dispose();
             _backspaceHandler?.Dispose();
             _trayIcon?.Dispose();
             
@@ -275,16 +289,6 @@ public class WindowVisibilityManager : IDisposable
         if (_stateManager.IsCapsLockActive) _stateManager.ToggleCapsLock();
         
         _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
-    }
-
-    private void ExitSymbolModeIfActive()
-    {
-        if (_layoutManager.IsSymbolMode)
-        {
-            _layoutManager.ToggleSymbolMode();
-            _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
-            Logger.Info("Symbol mode reset on hide - restored previous language layout");
-        }
     }
 
     public void Dispose()
