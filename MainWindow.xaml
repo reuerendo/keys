@@ -28,7 +28,7 @@
                 
                 <!-- Toolbar buttons -->
                 <StackPanel Orientation="Horizontal" 
-                            Margin="12,6,0,0"
+                            Margin="12,6,24,0"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
                             Spacing="6">
