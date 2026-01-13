@@ -164,41 +164,59 @@ public class KeyboardEventCoordinator
         }
     }
 
-    private void KeyButton_PointerReleased(object sender, PointerRoutedEventArgs e)
-    {
-        Logger.Debug($"PointerReleased on button: {(sender as Button)?.Tag}");
-        
-        if (_longPressPopup != null)
-        {
-            _isLongPressHandled = false;
-        }
-        
-        _longPressPopup?.CancelPress();
-    }
+private void KeyButton_PointerReleased(object sender, PointerRoutedEventArgs e)
+{
+    Logger.Debug($"PointerReleased on button: {(sender as Button)?.Tag}");
+    
+    // Reset the flag immediately when pointer is released
+    _isLongPressHandled = false;
+    
+    _longPressPopup?.CancelPress();
+}
 
-    private void KeyButton_PointerCanceled(object sender, PointerRoutedEventArgs e)
-    {
-        Logger.Debug($"PointerCanceled on button: {(sender as Button)?.Tag}");
-        _longPressPopup?.CancelPress();
-    }
+	private void KeyButton_PointerCanceled(object sender, PointerRoutedEventArgs e)
+	{
+		Logger.Debug($"PointerCanceled on button: {(sender as Button)?.Tag}");
+		
+		// Reset the flag on cancel as well
+		_isLongPressHandled = false;
+		
+		_longPressPopup?.CancelPress();
+	}
 
-    private void KeyButton_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-    {
-        Logger.Debug($"PointerCaptureLost on button: {(sender as Button)?.Tag}");
-        _longPressPopup?.CancelPress();
-    }
+	private void KeyButton_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+	{
+		Logger.Debug($"PointerCaptureLost on button: {(sender as Button)?.Tag}");
+		
+		// Reset the flag on capture lost
+		_isLongPressHandled = false;
+		
+		_longPressPopup?.CancelPress();
+	}
 
-    private void LongPressPopup_CharacterSelected(object sender, string character)
-    {
-        Logger.Info($"Long-press character selected: '{character}'");
-        _isLongPressHandled = true;
-        
-        // Send character directly - SendInput automatically goes to foreground window
-        foreach (char c in character)
-        {
-            _inputService.SendUnicodeChar(c);
-        }
-    }
+	private void LongPressPopup_CharacterSelected(object sender, string character)
+	{
+		Logger.Info($"Long-press character selected: '{character}'");
+		
+		// Set flag to prevent the original button's click handler from firing
+		_isLongPressHandled = true;
+		
+		// Send character directly - SendInput automatically goes to foreground window
+		foreach (char c in character)
+		{
+			_inputService.SendUnicodeChar(c);
+		}
+		
+		// Schedule flag reset after a short delay to ensure click event is processed
+		var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+		timer.Tick += (s, e) =>
+		{
+			timer.Stop();
+			_isLongPressHandled = false;
+			Logger.Debug("Long-press flag reset after character selection");
+		};
+		timer.Start();
+	}
 
     /// <summary>
     /// Send key to foreground application
