@@ -169,7 +169,6 @@ public class WinEventFocusTracker : IDisposable
         var origin = inputSource.originId;
         var device = inputSource.deviceType;
 
-        // Hardware input validation
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
         {
             if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
@@ -185,7 +184,6 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Reject programmatic input
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_INJECTED)
         {
             Logger.Debug("⚠ STEP 2 FAILED: Programmatic input (IMO_INJECTED)");
@@ -198,7 +196,6 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Additional validation when source unavailable
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_UNAVAILABLE)
         {
             Logger.Debug("⚠️ Input source UNAVAILABLE - performing additional validation");
@@ -226,7 +223,6 @@ public class WinEventFocusTracker : IDisposable
 
         LogLastClickInfo(lastClick);
 
-        // Check 1: Pointer input validation
         if (!lastClick.IsPointerInput)
         {
             Logger.Debug($"   ⚠ Validation FAILED: Last click was not pointer input");
@@ -234,7 +230,6 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug("   ✅ Check 1 passed: Last click was pointer input");
 
-        // Check 2: Most recent input validation
         if (!_pointerTracker.IsLastInputPointerClick())
         {
             Logger.Debug("   ⚠ Validation FAILED: Pointer click is not the most recent input");
@@ -242,7 +237,6 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug("   ✅ Check 2 passed: Pointer click is the most recent input");
 
-        // Check 3: Window relationship validation
         if (!AreWindowsRelated(lastClick.WindowHandle, elementInfo.WindowHandle))
         {
             Logger.Debug($"   ⚠ Validation FAILED: Click HWND ({lastClick.WindowHandle:X}) not related to focus HWND ({elementInfo.WindowHandle:X})");
@@ -250,7 +244,6 @@ public class WinEventFocusTracker : IDisposable
         }
         Logger.Debug($"   ✅ Check 3 passed: Click HWND related to focus HWND");
 
-        // Check 3.5: Direct parent/child relationship validation
         if (lastClick.WindowHandle != elementInfo.WindowHandle)
         {
             bool isDirectRelation = IsParentOf(lastClick.WindowHandle, elementInfo.WindowHandle) ||
@@ -266,7 +259,6 @@ public class WinEventFocusTracker : IDisposable
             Logger.Debug($"   ✅ Check 3.5 passed: Direct parent/child relationship confirmed");
         }
 
-        // Check 4: Bounds validation
         if (!elementInfo.Bounds.Contains(lastClick.Position))
         {
             Logger.Debug($"   ⚠ Validation FAILED: Click ({lastClick.Position.X}, {lastClick.Position.Y}) outside element bounds");
@@ -505,7 +497,6 @@ public class WinEventFocusTracker : IDisposable
 
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // Quick checks for common cases
         if (role == NativeMethods.ROLE_SYSTEM_CARET)
         {
             Logger.Debug($"   ✅ CARET (insertion point) detected");
@@ -532,7 +523,6 @@ public class WinEventFocusTracker : IDisposable
             return false;
         }
 
-        // Role-based validation
         return ValidateByRole(role, state, className, acc, childId, isReadonly);
     }
 
@@ -561,7 +551,6 @@ public class WinEventFocusTracker : IDisposable
     {
         string classLower = className?.ToLowerInvariant() ?? "";
 
-        // Edit controls
         if (classLower.Contains("edit") && !isReadonly)
         {
             try
@@ -572,11 +561,9 @@ public class WinEventFocusTracker : IDisposable
             catch { }
         }
 
-        // Console/Terminal
         if (classLower.Contains("console") || classLower.Contains("cmd") || classLower.Contains("terminal"))
             return true;
 
-        // Role-specific checks
         switch (role)
         {
             case NativeMethods.ROLE_SYSTEM_TEXT:
@@ -776,7 +763,6 @@ public class WinEventFocusTracker : IDisposable
                 }
             }
 
-            // Top-right corner check (close button area)
             if (clickInfo.WindowHandle != IntPtr.Zero)
             {
                 if (NativeMethods.GetWindowRect(clickInfo.WindowHandle, out NativeMethods.RECT rect))
@@ -863,16 +849,21 @@ public class WinEventFocusTracker : IDisposable
                 {
                     Logger.Info($"✅ Direct click on text input - Role: {elementInfo.Role}, Class: {elementInfo.ClassName}");
 
-                    if (!ValidateDirectClick(clickInfo, elementInfo))
+                    if (!elementInfo.Bounds.Contains(clickInfo.Position))
                     {
+                        Logger.Debug($"⚠ Click outside element bounds");
                         Marshal.ReleaseComObject(acc);
                         LogSeparator();
                         return;
                     }
 
-                    if (!elementInfo.Bounds.Contains(clickInfo.Position))
+                    // CRITICAL FIX: Validate with PointerTracker for already-focused elements
+                    Logger.Debug("🔍 Performing validation with PointerTracker...");
+                    bool isValidClick = ValidateWithPointerTracker(elementInfo);
+
+                    if (!isValidClick)
                     {
-                        Logger.Debug($"⚠ Click outside element bounds");
+                        Logger.Debug("⚠ Validation failed - not showing keyboard");
                         Marshal.ReleaseComObject(acc);
                         LogSeparator();
                         return;
@@ -906,28 +897,6 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
-    private bool ValidateDirectClick(PointerClickInfo clickInfo, ElementInfo elementInfo)
-    {
-        if (clickInfo.WindowHandle == elementInfo.WindowHandle)
-            return true;
-
-        Logger.Debug($"⚠️ Warning: Click HWND ({clickInfo.WindowHandle:X}) != Element HWND ({elementInfo.WindowHandle:X})");
-        Logger.Debug($"   This might indicate a popup/dialog over the text field");
-
-        bool isDirectRelation = IsParentOf(clickInfo.WindowHandle, elementInfo.WindowHandle) ||
-                               IsParentOf(elementInfo.WindowHandle, clickInfo.WindowHandle);
-
-        if (!isDirectRelation)
-        {
-            Logger.Debug($"⚠ Not direct parent/child - likely a dialog/popup over text field");
-            return false;
-        }
-
-        Logger.Debug($"✅ Direct parent/child relationship confirmed");
-        return true;
-    }
-
-    // Helper methods
     private string GetClassName(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero) return "";
