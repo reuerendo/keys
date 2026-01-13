@@ -794,6 +794,66 @@ public class WinEventFocusTracker : IDisposable
         }
     }
 
+    /// <summary>
+    /// Recursively search for text input child element at click position
+    /// Used when AccessibleObjectFromPoint returns parent container instead of actual input
+    /// </summary>
+    private ElementInfo FindTextInputChild(NativeMethods.IAccessible parentAcc, Point clickPoint, IntPtr hwnd)
+    {
+        try
+        {
+            int childCount = parentAcc.accChildCount;
+            Logger.Debug($"   🔍 Searching {childCount} children for text input at ({clickPoint.X}, {clickPoint.Y})");
+
+            for (int i = 0; i < childCount; i++)
+            {
+                try
+                {
+                    object child = parentAcc.get_accChild(i + 1);
+                    
+                    if (child is NativeMethods.IAccessible childAcc)
+                    {
+                        try
+                        {
+                            var childInfo = BuildElementInfo(childAcc, 0, hwnd, "ChildSearch");
+                            
+                            if (childInfo != null && childInfo.IsTextInput && childInfo.Bounds.Contains(clickPoint))
+                            {
+                                Logger.Debug($"   ✅ Found matching text input: Role={childInfo.Role}, Bounds=({childInfo.Bounds.X}, {childInfo.Bounds.Y}, {childInfo.Bounds.Width}x{childInfo.Bounds.Height})");
+                                return childInfo;
+                            }
+                            
+                            // Recursive search in nested containers
+                            if (childInfo != null && (childInfo.Role == NativeMethods.ROLE_SYSTEM_CLIENT || 
+                                                      childInfo.Role == NativeMethods.ROLE_SYSTEM_PANE))
+                            {
+                                var nestedChild = FindTextInputChild(childAcc, clickPoint, hwnd);
+                                if (nestedChild != null)
+                                {
+                                    return nestedChild;
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            Marshal.ReleaseComObject(childAcc);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Debug($"   ⚠️ Error checking child {i}: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug($"   ⚠️ Error in FindTextInputChild: {ex.Message}");
+        }
+
+        return null;
+    }
+
     private void OnHardwareClickDetected(object sender, PointerClickInfo clickInfo)
     {
         if (_isDisposed) return;
@@ -857,7 +917,6 @@ public class WinEventFocusTracker : IDisposable
                         return;
                     }
 
-                    // CRITICAL FIX: Validate with PointerTracker for already-focused elements
                     Logger.Debug("🔍 Performing validation with PointerTracker...");
                     bool isValidClick = ValidateWithPointerTracker(elementInfo);
 
@@ -885,6 +944,49 @@ public class WinEventFocusTracker : IDisposable
                 else
                 {
                     Logger.Debug($"⚠ Not a text input - Role: {elementInfo?.Role ?? 0}");
+                    
+                    // CRITICAL FIX: Search for text input among children (Firefox returns parent container)
+                    if (elementInfo != null && elementInfo.Role == NativeMethods.ROLE_SYSTEM_CLIENT)
+                    {
+                        Logger.Debug("🔍 Container detected - searching for text input among children...");
+                        var childTextInput = FindTextInputChild(acc, clickInfo.Position, hwnd);
+                        
+                        if (childTextInput != null)
+                        {
+                            Logger.Info($"✅ Found text input child - Role: {childTextInput.Role}, Class: {childTextInput.ClassName}");
+                            
+                            Logger.Debug("🔍 Performing validation with PointerTracker...");
+                            bool isValidClick = ValidateWithPointerTracker(childTextInput);
+                            
+                            if (isValidClick)
+                            {
+                                Logger.Info("🎉 DECISION: SHOW KEYBOARD (click on text input child)");
+                                LogSeparator();
+                                
+                                TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
+                                {
+                                    WindowHandle = hwnd,
+                                    ControlType = childTextInput.Role,
+                                    ClassName = childTextInput.ClassName,
+                                    Name = childTextInput.Name,
+                                    IsPassword = childTextInput.IsPassword,
+                                    ProcessId = childTextInput.ProcessId
+                                });
+                                
+                                Marshal.ReleaseComObject(acc);
+                                return;
+                            }
+                            else
+                            {
+                                Logger.Debug("⚠ Validation failed for child text input");
+                            }
+                        }
+                        else
+                        {
+                            Logger.Debug("⚠ No text input child found at click position");
+                        }
+                    }
+                    
                     LogSeparator();
                 }
 
