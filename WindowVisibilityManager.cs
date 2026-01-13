@@ -8,6 +8,7 @@ namespace VirtualKeyboard;
 /// <summary>
 /// Window visibility manager with real-time focus tracking and auto-show support.
 /// Uses WinEventFocusTracker with strict input validation algorithm.
+/// Resets symbol layout when hiding to tray.
 /// </summary>
 public class WindowVisibilityManager : IDisposable
 {
@@ -36,6 +37,7 @@ public class WindowVisibilityManager : IDisposable
     
     private bool _isDisposed = false;
     private bool _autoShowEnabled = false;
+    private bool _wasSymbolModeActiveBeforeHide = false;
     private readonly object _showLock = new object();
 
     public WindowVisibilityManager(
@@ -60,7 +62,6 @@ public class WindowVisibilityManager : IDisposable
         _trayIcon = trayIcon;
         _focusManager = new FocusManager(windowHandle);
         
-        // Initialize PointerInputTracker once
         try 
         {
             _pointerTracker = new PointerInputTracker();
@@ -189,6 +190,12 @@ public class WindowVisibilityManager : IDisposable
             _positionManager?.PositionWindow(showWindow: false);
             ShowWindow(_windowHandle, SW_SHOWNOACTIVATE);
             
+            if (_wasSymbolModeActiveBeforeHide)
+            {
+                _wasSymbolModeActiveBeforeHide = false;
+                Logger.Info("Symbol mode was active before hide, UI already shows language layout");
+            }
+            
             if (preserveFocus && _focusManager.HasValidTrackedWindow())
             {
                 await Task.Delay(50);
@@ -213,6 +220,19 @@ public class WindowVisibilityManager : IDisposable
         try
         {
             ResetAllModifiers();
+            
+            if (_layoutManager.IsSymbolMode)
+            {
+                _wasSymbolModeActiveBeforeHide = true;
+                _layoutManager.ToggleSymbolMode();
+                _layoutManager.UpdateKeyLabels(_rootElement, _stateManager);
+                Logger.Info("Symbol mode reset to language layout before hiding");
+            }
+            else
+            {
+                _wasSymbolModeActiveBeforeHide = false;
+            }
+            
             ShowWindow(_windowHandle, SW_HIDE);
         }
         catch (Exception ex)
