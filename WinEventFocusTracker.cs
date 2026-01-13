@@ -737,183 +737,45 @@ public class WinEventFocusTracker : IDisposable
         return ClassBlacklist.Any(blocked => classLower.Contains(blocked.ToLowerInvariant()));
     }
 
-    private bool IsSystemControl(NativeMethods.IAccessible acc, object childId, PointerClickInfo clickInfo)
+    private bool IsButtonControl(int role)
     {
-        try
-        {
-            object roleObj = acc.get_accRole(childId);
-            int role = (roleObj is int r) ? r : 0;
+        return SystemControlRoles.Contains(role);
+    }
 
-            if (SystemControlRoles.Contains(role))
+    private bool IsCloseButtonByName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        
+        string nameLower = name.ToLowerInvariant();
+        return SystemControlNames.Any(ctrl => nameLower.Contains(ctrl));
+    }
+
+    private bool IsTopRightCornerClick(IntPtr windowHandle, Point clickPosition)
+    {
+        if (windowHandle == IntPtr.Zero) return false;
+
+        if (NativeMethods.GetWindowRect(windowHandle, out NativeMethods.RECT rect))
+        {
+            int windowWidth = rect.Right - rect.Left;
+            int relativeX = clickPosition.X - rect.Left;
+            int relativeY = clickPosition.Y - rect.Top;
+
+            const int closeButtonAreaWidth = 150;
+            const int closeButtonAreaHeight = 50;
+            
+            bool isTopRightCorner = relativeX > (windowWidth - closeButtonAreaWidth) && 
+                                   relativeY < closeButtonAreaHeight;
+
+            if (isTopRightCorner)
             {
-                Logger.Debug($"   🚫 System control role detected: {role}");
+                Logger.Debug($"   🚫 Click in top-right corner detected (close button area)");
+                Logger.Debug($"      Window: ({rect.Left}, {rect.Top}, {windowWidth}x{rect.Bottom - rect.Top})");
+                Logger.Debug($"      Relative click: ({relativeX}, {relativeY})");
                 return true;
             }
-
-            string name = "";
-            try { name = acc.get_accName(childId); } catch { }
-
-            if (!string.IsNullOrEmpty(name))
-            {
-                string nameLower = name.ToLowerInvariant();
-                if (SystemControlNames.Any(ctrl => nameLower.Contains(ctrl)))
-                {
-                    Logger.Debug($"   🚫 System window control detected: '{name}'");
-                    return true;
-                }
-            }
-
-            if (clickInfo.WindowHandle != IntPtr.Zero)
-            {
-                if (NativeMethods.GetWindowRect(clickInfo.WindowHandle, out NativeMethods.RECT rect))
-                {
-                    int windowWidth = rect.Right - rect.Left;
-                    int relX = clickInfo.Position.X - rect.Left;
-                    int relY = clickInfo.Position.Y - rect.Top;
-
-                    const int closeButtonAreaWidth = 150;
-                    const int closeButtonAreaHeight = 50;
-                    bool isTopRightCorner = relX > (windowWidth - closeButtonAreaWidth) && relY < closeButtonAreaHeight;
-
-                    if (isTopRightCorner)
-                    {
-                        Logger.Debug($"   🚫 Click in top-right corner detected (close button area)");
-                        Logger.Debug($"      Window: ({rect.Left}, {rect.Top}, {windowWidth}x{rect.Bottom - rect.Top})");
-                        Logger.Debug($"      Relative click: ({relX}, {relY})");
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"   ⚠️ Error checking system control: {ex.Message}");
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Get currently focused element from the system (works across process boundaries)
-    /// </summary>
-    private ElementInfo GetCurrentlyFocusedElement()
-    {
-        try
-        {
-            IntPtr hwnd = NativeMethods.GetForegroundWindow();
-            if (hwnd == IntPtr.Zero || hwnd == _keyboardWindowHandle)
-                return null;
-
-            // Query the system for the currently focused accessible object
-            int hr = NativeMethods.AccessibleObjectFromWindow(
-                hwnd,
-                NativeMethods.OBJID_CLIENT,
-                ref NativeMethods.IID_IAccessible,
-                out object obj);
-
-            if (hr >= 0 && obj is NativeMethods.IAccessible rootAcc)
-            {
-                try
-                {
-                    // Get the focused child from the root accessible
-                    object focusedObj = rootAcc.accFocus;
-                    
-                    if (focusedObj is NativeMethods.IAccessible focusedAcc)
-                    {
-                        try
-                        {
-                            var elementInfo = BuildElementInfo(focusedAcc, 0, hwnd, "FocusQuery");
-                            return elementInfo;
-                        }
-                        finally
-                        {
-                            Marshal.ReleaseComObject(focusedAcc);
-                        }
-                    }
-                    else if (focusedObj is int childId && childId != 0)
-                    {
-                        // Focused element is identified by child ID
-                        var elementInfo = BuildElementInfo(rootAcc, childId, hwnd, "FocusQuery");
-                        return elementInfo;
-                    }
-                }
-                finally
-                {
-                    Marshal.ReleaseComObject(rootAcc);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"   ⚠️ Error in GetCurrentlyFocusedElement: {ex.Message}");
         }
 
-        return null;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    /// <summary>
-    /// Recursively search for text input child element at click position
-    /// Used when AccessibleObjectFromPoint returns parent container instead of actual input
-    /// NOTE: This doesn't work in Firefox e10s (returns 0 children) - use GetCurrentlyFocusedElement instead
-    /// </summary>
-    private ElementInfo FindTextInputChild(NativeMethods.IAccessible parentAcc, Point clickPoint, IntPtr hwnd)
-    {
-        try
-        {
-            int childCount = parentAcc.accChildCount;
-            Logger.Debug($"   🔍 Searching {childCount} children for text input at ({clickPoint.X}, {clickPoint.Y})");
-
-            for (int i = 0; i < childCount; i++)
-            {
-                try
-                {
-                    object child = parentAcc.get_accChild(i + 1);
-                    
-                    if (child is NativeMethods.IAccessible childAcc)
-                    {
-                        try
-                        {
-                            var childInfo = BuildElementInfo(childAcc, 0, hwnd, "ChildSearch");
-                            
-                            if (childInfo != null && childInfo.IsTextInput && childInfo.Bounds.Contains(clickPoint))
-                            {
-                                Logger.Debug($"   ✅ Found matching text input: Role={childInfo.Role}, Bounds=({childInfo.Bounds.X}, {childInfo.Bounds.Y}, {childInfo.Bounds.Width}x{childInfo.Bounds.Height})");
-                                return childInfo;
-                            }
-                            
-                            // Recursive search in nested containers
-                            if (childInfo != null && (childInfo.Role == NativeMethods.ROLE_SYSTEM_CLIENT || 
-                                                      childInfo.Role == NativeMethods.ROLE_SYSTEM_PANE))
-                            {
-                                var nestedChild = FindTextInputChild(childAcc, clickPoint, hwnd);
-                                if (nestedChild != null)
-                                {
-                                    return nestedChild;
-                                }
-                            }
-                        }
-                        finally
-                        {
-                            Marshal.ReleaseComObject(childAcc);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Debug($"   ⚠️ Error checking child {i}: {ex.Message}");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Debug($"   ⚠️ Error in FindTextInputChild: {ex.Message}");
-        }
-
-        return null;
+        return false;
     }
 
     private void OnHardwareClickDetected(object sender, PointerClickInfo clickInfo)
@@ -943,13 +805,6 @@ public class WinEventFocusTracker : IDisposable
                 }
                 catch { }
 
-                if (IsSystemControl(acc, childId, clickInfo))
-                {
-                    Logger.Debug("   🚫 System control detected (button/close/menu) - ignoring");
-                    Marshal.ReleaseComObject(acc);
-                    return;
-                }
-
                 if (hwnd == IntPtr.Zero)
                 {
                     Logger.Debug($"   ⚠️ WindowFromAccessibleObject returned 0 - using click HWND: {clickInfo.WindowHandle:X}");
@@ -967,24 +822,60 @@ public class WinEventFocusTracker : IDisposable
 
                 var elementInfo = BuildElementInfo(acc, childId, hwnd, "DirectClick");
 
+                if (elementInfo != null)
+                {
+                    Logger.Debug($"   📋 Element retrieved: Role={elementInfo.Role}, Class={elementInfo.ClassName}");
+                    Logger.Debug($"      Name: {(string.IsNullOrEmpty(elementInfo.Name) ? "(empty)" : elementInfo.Name)}");
+                    Logger.Debug($"      IsTextInput: {elementInfo.IsTextInput}");
+                }
+
                 if (elementInfo != null && elementInfo.IsTextInput)
                 {
                     Logger.Info($"✅ Direct click on text input - Role: {elementInfo.Role}, Class: {elementInfo.ClassName}");
 
-                    if (!elementInfo.Bounds.Contains(clickInfo.Position))
+                    if (IsTopRightCornerClick(hwnd, clickInfo.Position))
                     {
-                        Logger.Debug($"⚠ Click outside element bounds");
+                        Logger.Debug($"   🚫 Click in window control area - ignoring");
                         Marshal.ReleaseComObject(acc);
                         LogSeparator();
                         return;
                     }
 
-                    Logger.Debug("🔍 Performing validation with PointerTracker...");
-                    bool isValidClick = ValidateWithPointerTracker(elementInfo);
+                    object roleObj = acc.get_accRole(childId);
+                    int role = (roleObj is int r) ? r : 0;
 
-                    if (!isValidClick)
+                    if (IsButtonControl(role))
                     {
-                        Logger.Debug("⚠ Validation failed - not showing keyboard");
+                        string name = "";
+                        try { name = acc.get_accName(childId); } catch { }
+                        
+                        Logger.Debug($"   🚫 Button control detected - Role: {role}, Name: {(string.IsNullOrEmpty(name) ? "(empty)" : name)}");
+                        Marshal.ReleaseComObject(acc);
+                        LogSeparator();
+                        return;
+                    }
+
+                    string elementName = "";
+                    try { elementName = acc.get_accName(childId); } catch { }
+                    
+                    if (IsCloseButtonByName(elementName))
+                    {
+                        Logger.Debug($"   🚫 System control name detected: '{elementName}'");
+                        Marshal.ReleaseComObject(acc);
+                        LogSeparator();
+                        return;
+                    }
+
+                    if (!ValidateDirectClick(clickInfo, elementInfo))
+                    {
+                        Marshal.ReleaseComObject(acc);
+                        LogSeparator();
+                        return;
+                    }
+
+                    if (!elementInfo.Bounds.Contains(clickInfo.Position))
+                    {
+                        Logger.Debug($"⚠ Click outside element bounds");
                         Marshal.ReleaseComObject(acc);
                         LogSeparator();
                         return;
@@ -1006,63 +897,6 @@ public class WinEventFocusTracker : IDisposable
                 else
                 {
                     Logger.Debug($"⚠ Not a text input - Role: {elementInfo?.Role ?? 0}");
-                    
-                    if (elementInfo != null && elementInfo.Role == NativeMethods.ROLE_SYSTEM_CLIENT)
-                    {
-                        Logger.Debug("🔍 Container detected - checking for focused child element...");
-                        
-                        // CRITICAL FIX: Instead of searching children (which returns 0 in Firefox e10s),
-                        // wait briefly and query the actual focused element from the system
-                        System.Threading.Thread.Sleep(50);
-                        
-                        var focusedElement = GetCurrentlyFocusedElement();
-                        
-                        if (focusedElement != null && focusedElement.IsTextInput)
-                        {
-                            // Check if click was inside focused element bounds
-                            if (focusedElement.Bounds.Contains(clickInfo.Position))
-                            {
-                                Logger.Info($"✅ Found focused text input - Role: {focusedElement.Role}, Class: {focusedElement.ClassName}");
-                                
-                                Logger.Debug("🔍 Performing validation with PointerTracker...");
-                                bool isValidClick = ValidateWithPointerTracker(focusedElement);
-                                
-                                if (isValidClick)
-                                {
-                                    Logger.Info("🎉 DECISION: SHOW KEYBOARD (click on already-focused text input)");
-                                    LogSeparator();
-                                    
-                                    TextInputFocused?.Invoke(this, new TextInputFocusEventArgs
-                                    {
-                                        WindowHandle = focusedElement.WindowHandle,
-                                        ControlType = focusedElement.Role,
-                                        ClassName = focusedElement.ClassName,
-                                        Name = focusedElement.Name,
-                                        IsPassword = focusedElement.IsPassword,
-                                        ProcessId = focusedElement.ProcessId
-                                    });
-                                    
-                                    Marshal.ReleaseComObject(acc);
-                                    return;
-                                }
-                                else
-                                {
-                                    Logger.Debug("⚠ Validation failed for focused text input");
-                                }
-                            }
-                            else
-                            {
-                                Logger.Debug($"⚠ Click outside focused element bounds");
-                                Logger.Debug($"   Click: ({clickInfo.Position.X}, {clickInfo.Position.Y})");
-                                Logger.Debug($"   Element: ({focusedElement.Bounds.X}, {focusedElement.Bounds.Y}, {focusedElement.Bounds.Width}x{focusedElement.Bounds.Height})");
-                            }
-                        }
-                        else
-                        {
-                            Logger.Debug("⚠ No focused text input element found");
-                        }
-                    }
-                    
                     LogSeparator();
                 }
 
@@ -1073,6 +907,27 @@ public class WinEventFocusTracker : IDisposable
         {
             Logger.Error("Error checking object at hardware click point", ex);
         }
+    }
+
+    private bool ValidateDirectClick(PointerClickInfo clickInfo, ElementInfo elementInfo)
+    {
+        if (clickInfo.WindowHandle == elementInfo.WindowHandle)
+            return true;
+
+        Logger.Debug($"⚠️ Warning: Click HWND ({clickInfo.WindowHandle:X}) != Element HWND ({elementInfo.WindowHandle:X})");
+        Logger.Debug($"   This might indicate a popup/dialog over the text field");
+
+        bool isDirectRelation = IsParentOf(clickInfo.WindowHandle, elementInfo.WindowHandle) ||
+                               IsParentOf(elementInfo.WindowHandle, clickInfo.WindowHandle);
+
+        if (!isDirectRelation)
+        {
+            Logger.Debug($"⚠ Not direct parent/child - likely a dialog/popup over text field");
+            return false;
+        }
+
+        Logger.Debug($"✅ Direct parent/child relationship confirmed");
+        return true;
     }
 
     private string GetClassName(IntPtr hwnd)
