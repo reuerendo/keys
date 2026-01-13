@@ -198,7 +198,7 @@ public class WindowVisibilityManager : IDisposable
             
             if (preserveFocus && _focusManager.HasValidTrackedWindow())
             {
-                await Task.Delay(50);
+                await Task.Delay(1);
                 await _focusManager.RestoreFocusAsync();
             }
         }

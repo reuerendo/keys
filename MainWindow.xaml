@@ -51,13 +51,15 @@
                             Background="White">
                         <FontIcon Glyph="&#xE7A6;" FontSize="12"/>
                     </Button>
+                </StackPanel>
+                
+                <!-- Clipboard Block -->
+                <StackPanel Orientation="Horizontal" 
+                            Margin="90,6,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Spacing="6">
                     
-                    <!-- Separator -->
-                    <Border Width="1" Height="24" 
-                            Background="{ThemeResource SystemControlForegroundBaseMediumLowBrush}"
-                            Margin="6,0"/>
-                    
-                    <!-- Clipboard Block -->
                     <Button x:Name="CopyButton"
                             Click="CopyButton_Click"
                             Width="36" Height="30"
