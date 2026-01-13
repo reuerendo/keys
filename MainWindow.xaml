@@ -27,8 +27,35 @@
                         HorizontalAlignment="Stretch"/>
                 
                 <!-- Toolbar buttons -->
-				<StackPanel Orientation="Horizontal" 
+                <StackPanel Orientation="Horizontal" 
                             Margin="12,6,0,0"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Spacing="6">
+                    
+                    <!-- Undo/Redo Block -->
+                    <Button x:Name="UndoButton"
+                            Click="UndoButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Отменить (Ctrl+Z)"
+                            Background="White">
+                        <FontIcon Glyph="&#xE7A7;" FontSize="12"/>
+                    </Button>
+                    
+                    <Button x:Name="RedoButton"
+                            Click="RedoButton_Click"
+                            Width="36" Height="30"
+                            Padding="0"
+                            ToolTipService.ToolTip="Повторить (Ctrl+Y)"
+                            Background="White">
+                        <FontIcon Glyph="&#xE7A6;" FontSize="12"/>
+                    </Button>
+                </StackPanel>
+                
+                <!-- Clipboard Block -->
+                <StackPanel Orientation="Horizontal" 
+                            Margin="108,6,0,0"
                             HorizontalAlignment="Left"
                             VerticalAlignment="Center"
                             Spacing="6">
@@ -161,10 +188,10 @@
                     <Button Content="&gt;" Tag="&gt;" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
                     <Button Content="!" Tag="!" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
                     <Button Content="?" Tag="?" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
-					<Button Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
+                    <Button Tag="↑" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64C;" FontSize="12"/>
                     </Button>
-					<Button Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
+                    <Button Tag="&amp;.." Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xED58;" FontSize="12"/>
                     </Button>
                 </StackPanel>
@@ -178,13 +205,13 @@
                     <Button Content=" " Tag=" " Click="KeyButton_Click" Width="420" Height="54" FontWeight="SemiBold" Background="White"/>
                     <Button Content="," Tag="," Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
                     <Button Content="." Tag="." Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White"/>
-					<Button Tag="←" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
+                    <Button Tag="←" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64E;" FontSize="12"/>
                     </Button>
-					<Button Tag="↓" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
+                    <Button Tag="↓" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64B;" FontSize="12"/>
                     </Button>
-					<Button Tag="→" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
+                    <Button Tag="→" Click="KeyButton_Click" Width="54" Height="54" FontWeight="SemiBold" Background="White">
                         <FontIcon Glyph="&#xE64D;" FontSize="12"/>
                     </Button>
                 </StackPanel>

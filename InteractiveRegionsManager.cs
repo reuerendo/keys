@@ -88,6 +88,8 @@ public class InteractiveRegionsManager
 
         var toolbarButtons = new[]
         {
+            rootElement.FindName("UndoButton") as Button,
+            rootElement.FindName("RedoButton") as Button,
             rootElement.FindName("CopyButton") as Button,
             rootElement.FindName("CutButton") as Button,
             rootElement.FindName("PasteButton") as Button,

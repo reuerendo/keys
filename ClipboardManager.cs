@@ -1,7 +1,7 @@
 namespace VirtualKeyboard;
 
 /// <summary>
-/// Manages clipboard operations (Copy, Cut, Paste, Delete, SelectAll)
+/// Manages clipboard operations (Undo, Redo, Copy, Cut, Paste, Delete, SelectAll)
 /// </summary>
 public class ClipboardManager
 {
@@ -10,6 +10,24 @@ public class ClipboardManager
     public ClipboardManager(KeyboardInputService inputService)
     {
         _inputService = inputService;
+    }
+
+    /// <summary>
+    /// Undo last action
+    /// </summary>
+    public void Undo()
+    {
+        Logger.Info("Undo requested");
+        _inputService.SendCtrlKey('Z');
+    }
+
+    /// <summary>
+    /// Redo last undone action
+    /// </summary>
+    public void Redo()
+    {
+        Logger.Info("Redo requested");
+        _inputService.SendCtrlKey('Y');
     }
 
     /// <summary>
