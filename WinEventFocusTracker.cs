@@ -172,6 +172,15 @@ public class WinEventFocusTracker : IDisposable
         // Hardware input validation
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
         {
+            // Some touch/pen drivers report pointer input as MOUSE in GetCurrentInputMessageSource.
+            // To keep auto-show restricted to Touch/Pen while still working on those devices,
+            // fall back to strict pointer validation in this case.
+            if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE)
+            {
+                Logger.Debug("⚠️ STEP 2: Hardware origin but device reported as MOUSE - using pointer validation fallback");
+                return ValidateWithPointerTracker(elementInfo);
+            }
+
             if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
                 device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN)
             {

@@ -302,12 +302,13 @@ public class PointerInputTracker : IDisposable
         }
         
         // CRITICAL FALLBACK: Hardware device signature detection
-        // Some drivers (Synaptics, ELAN, etc.) inject clicks via SendInput but mark them
-        // with specific dwExtraInfo signatures. These are REAL user inputs, not programmatic.
+        // Some drivers inject pointer messages but mark them with specific dwExtraInfo signatures.
+        // These are REAL touch/pen interactions and must be treated as such, otherwise auto-show
+        // restricted to Touch/Pen will never trigger on those devices.
         if (hasHardwareSignature)
         {
-            Logger.Debug($"   🖱️ Hardware signature confirmed - treating as MOUSE (driver-injected touch/pen)");
-            return InputDeviceType.Mouse;
+            Logger.Debug($"   👆 Hardware signature confirmed - treating as TOUCH (driver-injected touch/pen)");
+            return InputDeviceType.Touch;
         }
         
         // Secondary fallback: Not injected flag
