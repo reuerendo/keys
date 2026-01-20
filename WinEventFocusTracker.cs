@@ -96,11 +96,8 @@ public class WinEventFocusTracker : IDisposable
     private void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
         if (_isDisposed || hwnd == _keyboardWindowHandle) return;
-        if (_isKeyboardVisible?.Invoke() == true)
-        {
-            Logger.Debug("⭕️ Keyboard already visible - skipping");
-            return;
-        }
+
+        bool isKeyboardVisible = _isKeyboardVisible?.Invoke() == true;
 
         Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         Logger.Debug($"🎯 FOCUS EVENT: HWND={hwnd:X}, idObject={idObject}, idChild={idChild}");
@@ -126,6 +123,15 @@ public class WinEventFocusTracker : IDisposable
                     ControlType = elementInfo.Role,
                     ClassName = elementInfo.ClassName
                 });
+                return;
+            }
+
+            // If the keyboard is already visible, we still want to receive non-text focus events
+            // (to support auto-hide), but we must not trigger auto-show again.
+            if (isKeyboardVisible)
+            {
+                Logger.Debug("⭕️ Keyboard already visible - skipping auto-show");
+                LogSeparator();
                 return;
             }
 
