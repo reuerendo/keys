@@ -97,6 +97,14 @@ public class WinEventFocusTracker : IDisposable
     {
         if (_isDisposed || hwnd == _keyboardWindowHandle) return;
 
+        // Ignore caret focus events (selection/caret movement inside already-focused text fields)
+        // to avoid triggering auto-show when the user is just selecting text.
+        if (idObject == NativeMethods.OBJID_CARET)
+        {
+            Logger.Debug($"⭕️ Caret focus event ignored (OBJID_CARET). HWND={hwnd:X}");
+            return;
+        }
+
         bool isKeyboardVisible = _isKeyboardVisible?.Invoke() == true;
 
         Logger.Debug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -109,6 +117,14 @@ public class WinEventFocusTracker : IDisposable
             if (elementInfo == null)
             {
                 Logger.Debug("⚠ STEP 1 FAILED: Could not get element info");
+                LogSeparator();
+                return;
+            }
+
+            // Some apps report caret as a focused accessible object during selection.
+            if (elementInfo.Role == NativeMethods.ROLE_SYSTEM_CARET)
+            {
+                Logger.Debug($"⭕️ Caret element focus ignored (ROLE_SYSTEM_CARET). HWND={hwnd:X}");
                 LogSeparator();
                 return;
             }

@@ -14,6 +14,7 @@ internal static class NativeMethods
     public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
     public const int OBJID_CLIENT = -4;
+    public const int OBJID_CARET = -8;
 
     // Standard MSAA Roles
     public const int ROLE_SYSTEM_TEXT = 0x2A;
