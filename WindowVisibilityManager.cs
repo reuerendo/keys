@@ -37,6 +37,7 @@ public class WindowVisibilityManager : IDisposable
     
     private bool _isDisposed = false;
     private bool _autoShowEnabled = false;
+    private bool _shownAutomatically = false;
     private bool _wasSymbolModeActiveBeforeHide = false;
     private readonly object _showLock = new object();
 
@@ -168,12 +169,19 @@ public class WindowVisibilityManager : IDisposable
         await Task.Delay(100);
         
         Logger.Info("📱 Showing keyboard...");
-        Show(preserveFocus: true);
+        Show(preserveFocus: true, isAutoShow: true);
     }
 
     private void OnNonTextInputFocused(object sender, FocusEventArgs e)
     {
-        // Optional: Auto-hide logic could go here if desired
+        if (!_shownAutomatically)
+            return;
+
+        if (!IsVisible())
+            return;
+
+        Logger.Info($"🙈 AUTO-HIDE TRIGGERED! ControlType: {e.ControlType}, Class: '{e.ClassName}'");
+        Hide();
     }
 
     public bool IsVisible()
@@ -181,9 +189,10 @@ public class WindowVisibilityManager : IDisposable
         return IsWindowVisible(_windowHandle);
     }
 
-    public async void Show(bool preserveFocus = true)
+    public async void Show(bool preserveFocus = true, bool isAutoShow = false)
     {
         Logger.Info($"Show called with preserveFocus={preserveFocus}");
+        _shownAutomatically = isAutoShow;
         
         try
         {
@@ -219,6 +228,7 @@ public class WindowVisibilityManager : IDisposable
 
         try
         {
+            _shownAutomatically = false;
             ResetAllModifiers();
             
             if (_layoutManager.IsSymbolMode)
@@ -244,7 +254,7 @@ public class WindowVisibilityManager : IDisposable
     public void Toggle()
     {
         if (IsVisible()) Hide();
-        else Show(preserveFocus: true);
+        else Show(preserveFocus: true, isAutoShow: false);
     }
 
     public async Task<bool> RestoreFocusAsync()

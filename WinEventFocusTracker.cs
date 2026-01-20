@@ -172,10 +172,8 @@ public class WinEventFocusTracker : IDisposable
         // Hardware input validation
         if (origin == NativeMethods.INPUT_MESSAGE_ORIGIN_ID.IMO_HARDWARE)
         {
-            if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_MOUSE ||
-                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
-                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN ||
-                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCHPAD)
+            if (device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_TOUCH ||
+                device == NativeMethods.INPUT_MESSAGE_DEVICE_TYPE.IMDT_PEN)
             {
                 Logger.Debug($"✅ STEP 2 PASSED: Hardware input from {device}");
                 return true;
@@ -225,6 +223,13 @@ public class WinEventFocusTracker : IDisposable
         }
 
         LogLastClickInfo(lastClick);
+
+        // Auto-show policy: ONLY touch/pen should be able to trigger auto-show.
+        if (lastClick.DeviceType != InputDeviceType.Touch && lastClick.DeviceType != InputDeviceType.Pen)
+        {
+            Logger.Debug($"   ⚠ Validation FAILED: Last click device is not Touch/Pen (Device={lastClick.DeviceType})");
+            return false;
+        }
 
         // Check 1: Pointer input validation
         if (!lastClick.IsPointerInput)
@@ -811,6 +816,13 @@ public class WinEventFocusTracker : IDisposable
     private void OnHardwareClickDetected(object sender, PointerClickInfo clickInfo)
     {
         if (_isDisposed) return;
+
+        // Auto-show policy: ONLY touch/pen should be able to trigger auto-show.
+        if (clickInfo.DeviceType != InputDeviceType.Touch && clickInfo.DeviceType != InputDeviceType.Pen)
+        {
+            Logger.Debug($"⭕️ Direct click ignored: Device is not Touch/Pen (Device={clickInfo.DeviceType})");
+            return;
+        }
 
         if (_isKeyboardVisible?.Invoke() == true)
         {
